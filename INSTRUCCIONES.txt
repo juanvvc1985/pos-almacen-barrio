@@ -1,0 +1,44 @@
+POS ALMACEN BARRIO - Instrucciones de uso
+==========================================
+
+OPCION 1: Modo Desarrollo (recomendado para probar)
+----------------------------------------------------
+Haz doble clic en: INICIAR.bat
+
+Esto abre automaticamente el servidor y la app en:
+http://localhost:5173/
+
+Ventaja: Los cambios que hagas en el codigo se ven al instante
+Desventaja: Necesitas tener la ventana abierta
+
+
+OPCION 2: Modo Produccion (mas rapido)
+---------------------------------------
+Haz doble clic en: COMPILAR_Y_VER.bat
+
+Esto:
+1. Compila la app en archivos estaticos optimizados
+2. Abre un servidor ligero
+3. Abre automaticamente tu navegador
+
+Ventaja: Mas rapido
+Desventaja: Si modificas el codigo, debes volver a compilar
+
+
+DIAGNOSTICO
+-----------
+Si algo no funciona, haz doble clic en: DIAGNOSTICO.bat
+Te dira exactamente que falta (Node.js, archivos, etc.)
+
+
+DATOS DE ACCESO (modo demo)
+---------------------------
+Usuario: admin@demo.cl
+Contrasena: 123456
+Rol: Administrador
+
+
+NOTA
+----
+Si Windows muestra "Windows protegio tu PC":
+Haz clic en "Mas informacion" y luego "Ejecutar de todos modos"
