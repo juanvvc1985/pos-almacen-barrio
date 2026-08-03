@@ -1,184 +1,202 @@
-import { Link, useLocation } from "react-router-dom";
-import { useAuth } from "../hooks/useAuth";
-import { salesService } from "../services/firestoreSales";
-import { formatCurrency } from "../utils/format";
-import {
-  ShoppingCart, Package, Users, BarChart3, AlertTriangle,
-  Tag, LogOut, Menu, X, UserCircle
-} from "lucide-react";
-import { useState } from "react";
+import { useState, useCallback } from "react";
+import { LogOut, User, Store, AlertTriangle, Loader2 } from "lucide-react";
+import { useTurno } from "../hooks/useTurno";
 
-export default function Navbar() {
-  const { user, userData, isDueño, logout } = useAuth();
-  const location = useLocation();
-  const [menuOpen, setMenuOpen] = useState(false);
+// ============================================================
+// AJUSTA ESTAS IMPORTS SEGÚN TU PROYECTO
+// ============================================================
+// Si usas un contexto de auth:
+// import { useAuth } from "../context/AuthContext";
+//
+// Si pasas por props o usas otro hook, cambia las líneas marcadas
+// con "AUTH:" abajo.
+// ============================================================
 
-  async function handleLogout() {
-    // Verificar si hay turno abierto
-    const almacenId = userData?.almacenId;
-    if (almacenId) {
-      const turno = await salesService.getTurnoActivo(almacenId);
-      if (turno) {
-        const ventas = await salesService.getVentasTurno(almacenId, turno.id);
-        const fiados = await salesService.getFiadosRecuperadosTurno(almacenId, turno.id);
+export default function Navbar({ user, logout, almacenId }) {
+  // AUTH: si usas useAuth(), reemplaza las props por:
+  // const { user, logout, almacenId } = useAuth();
 
-        let efectivoVentas = 0;
-        ventas.forEach((v) => {
-          if (v.metodoPago === "efectivo") efectivoVentas += v.total || 0;
-        });
+  const vendedorId = user?.uid || user?.id || "";
+  const vendedorNombre = user?.nombre || user?.displayName || user?.email || "Usuario";
+  const rol = user?.rol || "vendedor"; // "dueño" | "vendedor"
 
-        let efectivoRecuperado = 0;
-        fiados.forEach((f) => {
-          if (f.pagos) {
-            f.pagos.forEach((p) => {
-              if (p.metodo === "efectivo") efectivoRecuperado += p.monto || 0;
-            });
-          }
-        });
+  const { turno, loading: turnoLoading, cerrar } = useTurno(almacenId, vendedorId);
+  const [showModal, setShowModal] = useState(false);
+  const [cerrando, setCerrando] = useState(false);
+  const [errorModal, setErrorModal] = useState("");
 
-        const totalEfectivo = (turno.montoInicial || 0) + efectivoVentas + efectivoRecuperado;
-
-        const confirmar = window.confirm(
-          `🧾 TURNO ABIERTO — Cierre antes de salir\n\n` +
-          `Efectivo inicial: ${formatCurrency(turno.montoInicial || 0)}\n` +
-          `Ventas en efectivo: ${formatCurrency(efectivoVentas)}\n` +
-          `Fiados recuperados (efectivo): ${formatCurrency(efectivoRecuperado)}\n` +
-          `─────────────────────\n` +
-          `💰 TOTAL EFECTIVO: ${formatCurrency(totalEfectivo)}\n\n` +
-          `¿Cerrar turno y salir?`
-        );
-
-        if (confirmar) {
-          const ventasHoy = await salesService.getTodaySales(almacenId);
-          const resumen = { efectivo: 0, tarjeta: 0, transferencia: 0, fiado: 0 };
-          ventasHoy.forEach((v) => {
-            if (resumen[v.metodoPago] !== undefined) resumen[v.metodoPago] += v.total;
-          });
-          await salesService.updateTurno(turno.id, {
-            estado: "cerrado",
-            cerradoEn: new Date().toISOString(),
-            ventas: resumen,
-            saldoCalculado: {
-              montoInicial: turno.montoInicial || 0,
-              efectivoVentas,
-              efectivoRecuperado,
-              totalEfectivo,
-            },
-          });
-        } else {
-          return; // No salir si cancela
-        }
-      }
+  const handleLogoutClick = useCallback(() => {
+    setErrorModal("");
+    if (turno) {
+      setShowModal(true);
+    } else {
+      // Sin turno abierto: salir directo
+      logout?.();
     }
-    logout();
-  }
+  }, [turno, logout]);
 
-  const navItems = [
-    { path: "/vender", label: "Vender", icon: ShoppingCart, public: true },
-    { path: "/productos", label: "Productos", icon: Package, public: true },
-    { path: "/fiados", label: "Fiados", icon: Users, public: true },
-  ];
+  const handleCancelar = useCallback(() => {
+    setShowModal(false);
+    setErrorModal("");
+  }, []);
 
-  const dueñoItems = [
-    { path: "/ofertas", label: "Ofertas", icon: Tag },
-    { path: "/mermas", label: "Mermas", icon: AlertTriangle },
-    { path: "/informes", label: "Informes", icon: BarChart3 },
-    { path: "/vendedores", label: "Vendedores", icon: UserCircle },
-  ];
+  const handleAceptarCerrar = useCallback(async () => {
+    if (cerrando) return; // evitar doble click
+    setCerrando(true);
+    setErrorModal("");
 
-  const allItems = isDueño ? [...navItems, ...dueñoItems] : navItems;
+    try {
+      await cerrar(); // <-- ESTE AWAIT ES LA CLAVE
+      setShowModal(false);
+      // Solo después de cerrar el turno hacemos logout
+      logout?.();
+    } catch (err) {
+      console.error("Error cerrando turno:", err);
+      setErrorModal(err?.message || "No se pudo cerrar el turno. Intenta de nuevo.");
+    } finally {
+      setCerrando(false);
+    }
+  }, [cerrando, cerrar, logout]);
+
+  const handleCerrarTurnoSolo = useCallback(async () => {
+    if (cerrando) return;
+    setCerrando(true);
+    setErrorModal("");
+    try {
+      await cerrar();
+      setShowModal(false);
+    } catch (err) {
+      console.error(err);
+      setErrorModal(err?.message || "Error al cerrar turno");
+    } finally {
+      setCerrando(false);
+    }
+  }, [cerrando, cerrar]);
+
+  const efectivoInicial = turno?.efectivoInicial || 0;
+  const ventasEfectivo = turno?.ventasEfectivo || 0;
+  const fiadosRecuperados = turno?.fiadosRecuperados || 0;
+  const totalEfectivo = turno?.totalEfectivo || efectivoInicial + ventasEfectivo + fiadosRecuperados;
 
   return (
-    <nav className="bg-white border-b border-gray-200 sticky top-0 z-40">
-      <div className="container mx-auto px-4 max-w-7xl">
-        <div className="flex items-center justify-between h-14">
-          {/* Logo */}
-          <Link to="/" className="font-bold text-blue-600 text-lg">
-            POS Almacén
-          </Link>
+    <>
+      <nav className="bg-slate-900 text-white px-4 py-3 flex items-center justify-between shadow-md">
+        <div className="flex items-center gap-2">
+          <Store size={22} className="text-blue-400" />
+          <span className="font-bold text-lg tracking-tight">POS Almacén</span>
+        </div>
 
-          {/* Desktop menu */}
-          <div className="hidden md:flex items-center gap-1">
-            {allItems.map((item) => {
-              const active = location.pathname === item.path;
-              return (
-                <Link
-                  key={item.path}
-                  to={item.path}
-                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition ${
-                    active
-                      ? "bg-blue-50 text-blue-700"
-                      : "text-gray-600 hover:bg-gray-50 hover:text-gray-800"
-                  }`}
-                >
-                  <item.icon size={16} />
-                  {item.label}
-                </Link>
-              );
-            })}
-          </div>
-
-          {/* User + Logout */}
-          <div className="hidden md:flex items-center gap-3">
-            <span className="text-sm text-gray-500">
-              {userData?.nombre || user?.email} {isDueño ? "• Dueño" : "• Vendedor"}
-            </span>
+        <div className="flex items-center gap-4">
+          {/* Indicador de turno */}
+          {turno && (
             <button
-              onClick={handleLogout}
-              className="flex items-center gap-1.5 px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition"
+              onClick={handleCerrarTurnoSolo}
+              disabled={cerrando}
+              className="hidden sm:flex items-center gap-1.5 text-xs bg-amber-600 hover:bg-amber-700 disabled:bg-amber-800 text-white px-3 py-1.5 rounded-full transition"
             >
-              <LogOut size={16} />
-              Salir
+              {cerrando ? <Loader2 size={12} className="animate-spin" /> : <AlertTriangle size={12} />}
+              Turno abierto — Cerrar
             </button>
+          )}
+
+          <div className="flex items-center gap-2 text-sm text-slate-300">
+            <User size={16} />
+            <span className="hidden sm:inline">
+              {vendedorNombre}
+              {rol === "dueño" && (
+                <span className="ml-1.5 text-[10px] bg-blue-600 text-white px-1.5 py-0.5 rounded">
+                  Dueño
+                </span>
+              )}
+            </span>
           </div>
 
-          {/* Mobile menu button */}
           <button
-            onClick={() => setMenuOpen(!menuOpen)}
-            className="md:hidden p-2 hover:bg-gray-100 rounded-lg"
+            onClick={handleLogoutClick}
+            className="flex items-center gap-1.5 text-sm text-slate-300 hover:text-white hover:bg-white/10 px-3 py-1.5 rounded-lg transition"
           >
-            {menuOpen ? <X size={20} /> : <Menu size={20} />}
+            <LogOut size={16} />
+            <span className="hidden sm:inline">Salir</span>
           </button>
         </div>
-      </div>
+      </nav>
 
-      {/* Mobile menu */}
-      {menuOpen && (
-        <div className="md:hidden border-t border-gray-200 bg-white">
-          <div className="px-4 py-2 space-y-1">
-            {allItems.map((item) => {
-              const active = location.pathname === item.path;
-              return (
-                <Link
-                  key={item.path}
-                  to={item.path}
-                  onClick={() => setMenuOpen(false)}
-                  className={`flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium transition ${
-                    active
-                      ? "bg-blue-50 text-blue-700"
-                      : "text-gray-600 hover:bg-gray-50"
-                  }`}
-                >
-                  <item.icon size={16} />
-                  {item.label}
-                </Link>
-              );
-            })}
-            <div className="border-t border-gray-200 pt-2 mt-2">
-              <p className="px-3 text-xs text-gray-400 mb-1">
-                {userData?.nombre || user?.email}
+      {/* Modal de cierre de turno */}
+      {showModal && turno && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-800 text-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+            <div className="bg-slate-700 px-5 py-4 flex items-center gap-2">
+              <AlertTriangle size={18} className="text-amber-400" />
+              <h3 className="font-semibold text-sm">TURNO ABIERTO — Cierre antes de salir</h3>
+            </div>
+
+            <div className="px-5 py-4 space-y-3 text-sm">
+              {errorModal && (
+                <div className="bg-red-500/20 border border-red-500/50 text-red-200 px-3 py-2 rounded-lg text-xs">
+                  {errorModal}
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <div className="flex justify-between text-slate-300">
+                  <span>Efectivo inicial:</span>
+                  <span className="font-mono text-white">
+                    ${efectivoInicial.toLocaleString("es-CL")}
+                  </span>
+                </div>
+                <div className="flex justify-between text-slate-300">
+                  <span>Ventas en efectivo:</span>
+                  <span className="font-mono text-emerald-400">
+                    +${ventasEfectivo.toLocaleString("es-CL")}
+                  </span>
+                </div>
+                <div className="flex justify-between text-slate-300">
+                  <span>Fiados recuperados (efectivo):</span>
+                  <span className="font-mono text-emerald-400">
+                    +${fiadosRecuperados.toLocaleString("es-CL")}
+                  </span>
+                </div>
+                <div className="border-t border-slate-600 pt-2 flex justify-between font-semibold">
+                  <span className="flex items-center gap-1.5">
+                    <span className="text-amber-400">💰</span> TOTAL EFECTIVO:
+                  </span>
+                  <span className="font-mono text-amber-400">
+                    ${totalEfectivo.toLocaleString("es-CL")}
+                  </span>
+                </div>
+              </div>
+
+              <p className="text-slate-400 text-center pt-1">
+                ¿Cerrar turno y salir?
               </p>
+            </div>
+
+            <div className="px-5 pb-5 flex gap-3">
               <button
-                onClick={() => { setMenuOpen(false); handleLogout(); }}
-                className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-red-600 hover:bg-red-50 rounded-lg transition"
+                onClick={handleAceptarCerrar}
+                disabled={cerrando}
+                className="flex-1 flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 text-white py-2.5 rounded-xl font-medium transition"
               >
-                <LogOut size={16} />
-                Cerrar sesión
+                {cerrando ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin" />
+                    Cerrando...
+                  </>
+                ) : (
+                  "Aceptar"
+                )}
+              </button>
+              <button
+                onClick={handleCancelar}
+                disabled={cerrando}
+                className="flex-1 bg-slate-600 hover:bg-slate-500 disabled:bg-slate-700 text-white py-2.5 rounded-xl font-medium transition"
+              >
+                Cancelar
               </button>
             </div>
           </div>
         </div>
       )}
-    </nav>
+    </>
   );
 }
