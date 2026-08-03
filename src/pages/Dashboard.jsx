@@ -28,7 +28,7 @@ export default function Dashboard() {
           <Route path="/" element={<POS />} />
           <Route path="/vender" element={<POS />} />
           <Route path="/productos" element={<ProductManager />} />
-          <Route path="/fiados" element={<Fiados />} />  {/* Vendedor también accede */}
+          <Route path="/fiados" element={<Fiados />} />
           {isDueño && (
             <>
               <Route path="/ofertas" element={<Offers />} />

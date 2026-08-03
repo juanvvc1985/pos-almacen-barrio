@@ -2,9 +2,10 @@ import { useState, useEffect } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { mermasService } from "../services/firestoreMermas";
 import { productsService } from "../services/firestoreProducts";
-import { MOTIVOS_MERMA } from "../types/index";
+import { configService } from "../services/firestoreConfig";
+import { MOTIVOS_MERMA, CRITERIOS_MERMA } from "../types/index";
 import { formatCurrency, formatDate } from "../utils/format";
-import { AlertTriangle, Plus, Trash2, Tag, Loader2 } from "lucide-react";
+import { AlertTriangle, Plus, Trash2, Loader2, Settings, Check } from "lucide-react";
 
 export default function Mermas() {
   const { almacenId } = useAuth();
@@ -12,6 +13,9 @@ export default function Mermas() {
   const [mermas, setMermas] = useState([]);
   const [loading, setLoading] = useState(true);
   const [mostrarForm, setMostrarForm] = useState(false);
+  const [mostrarConfig, setMostrarConfig] = useState(false);
+  const [configCriterios, setConfigCriterios] = useState({});
+  const [guardandoConfig, setGuardandoConfig] = useState(false);
   const [form, setForm] = useState({
     productoId: "",
     cantidad: "",
@@ -20,7 +24,10 @@ export default function Mermas() {
   });
 
   useEffect(() => {
-    if (almacenId) cargarDatos();
+    if (almacenId) {
+      cargarDatos();
+      cargarConfig();
+    }
   }, [almacenId]);
 
   async function cargarDatos() {
@@ -33,6 +40,66 @@ export default function Mermas() {
     setMermas(m);
     setLoading(false);
   }
+
+  async function cargarConfig() {
+    const cfg = await configService.getConfig(almacenId);
+    setConfigCriterios(cfg.mermasCriterios || {});
+  }
+
+  async function guardarConfig() {
+    setGuardandoConfig(true);
+    try {
+      const cfg = await configService.getConfig(almacenId);
+      await configService.updateConfig(almacenId, {
+        ...cfg,
+        mermasCriterios: configCriterios,
+      });
+      setMostrarConfig(false);
+    } catch (err) {
+      alert("Error al guardar configuración");
+    } finally {
+      setGuardandoConfig(false);
+    }
+  }
+
+  function toggleCriterio(criterio) {
+    setConfigCriterios((prev) => ({
+      ...prev,
+      [criterio]: !prev[criterio],
+    }));
+  }
+
+  function productoCalifica(producto) {
+    const activos = CRITERIOS_MERMA.filter((c) => configCriterios[c]);
+    if (activos.length === 0) return true;
+
+    const hoy = new Date();
+    hoy.setHours(0, 0, 0, 0);
+
+    return activos.some((criterio) => {
+      switch (criterio) {
+        case "Vencido":
+          return (
+            producto.perecedero &&
+            producto.lotes?.some((l) => {
+              const fv = new Date(l.fechaVencimiento);
+              fv.setHours(0, 0, 0, 0);
+              return fv < hoy;
+            })
+          );
+        case "Dañado por humedad/descomposición":
+        case "Embalaje roto/desgastado":
+        case "Producto roto":
+        case "Robado":
+        case "Otro":
+          return true;
+        default:
+          return false;
+      }
+    });
+  }
+
+  const productosFiltrados = productos.filter(productoCalifica);
 
   async function handleGuardar() {
     const producto = productos.find((p) => p.id === form.productoId);
@@ -53,10 +120,7 @@ export default function Mermas() {
     const perdidaEstimada = (producto.precioCompra || 0) * cantidad;
 
     try {
-      // Descontar stock
       await productsService.discountStock(producto.id, cantidad);
-
-      // Registrar merma
       await mermasService.createMerma(almacenId, {
         productoId: producto.id,
         productoNombre: producto.nombre,
@@ -98,13 +162,63 @@ export default function Mermas() {
           <AlertTriangle className="w-6 h-6 text-red-600" />
           Control de Mermas
         </h1>
-        <button
-          onClick={() => setMostrarForm(!mostrarForm)}
-          className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2"
-        >
-          <Plus size={18} /> Registrar Merma
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setMostrarConfig(!mostrarConfig)}
+            className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2"
+          >
+            <Settings size={18} /> Criterios
+          </button>
+          <button
+            onClick={() => setMostrarForm(!mostrarForm)}
+            className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2"
+          >
+            <Plus size={18} /> Registrar Merma
+          </button>
+        </div>
       </div>
+
+      {/* Configuración de criterios */}
+      {mostrarConfig && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+          <h2 className="text-lg font-bold text-gray-800 mb-4">Criterios para Merma</h2>
+          <p className="text-sm text-gray-500 mb-4">
+            Marca los criterios que quieres usar. Al registrar una merma, solo se mostrarán los productos que califiquen según los criterios activos.
+          </p>
+          <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-3 mb-4">
+            {CRITERIOS_MERMA.map((criterio) => (
+              <label
+                key={criterio}
+                className="flex items-center gap-2 p-3 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50 transition"
+              >
+                <input
+                  type="checkbox"
+                  checked={!!configCriterios[criterio]}
+                  onChange={() => toggleCriterio(criterio)}
+                  className="w-4 h-4 text-red-600 rounded"
+                />
+                <span className="text-sm text-gray-700">{criterio}</span>
+              </label>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setMostrarConfig(false)}
+              className="px-4 py-2 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={guardarConfig}
+              disabled={guardandoConfig}
+              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition flex items-center gap-2"
+            >
+              {guardandoConfig ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
+              Guardar
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Resumen */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
@@ -135,12 +249,17 @@ export default function Mermas() {
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 outline-none"
               >
                 <option value="">Seleccionar...</option>
-                {productos.map((p) => (
+                {productosFiltrados.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.nombre} (stockActual: {p.stockActual} {p.unidad})
                   </option>
                 ))}
               </select>
+              {CRITERIOS_MERMA.filter((c) => configCriterios[c]).length > 0 && (
+                <p className="text-xs text-gray-400 mt-1">
+                  Mostrando {productosFiltrados.length} producto(s) según criterios activos
+                </p>
+              )}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Cantidad</label>

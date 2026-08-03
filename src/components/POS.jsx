@@ -69,14 +69,12 @@ export default function POS() {
     : productos.slice(0, 20);
 
   function agregarAlCarrito(producto) {
-    // <-- Verificar stock antes de agregar
     if ((producto.stockActual || 0) <= 0) {
-      mostrarMensaje(`Sin stockActual: ${producto.nombre}`);
+      mostrarMensaje(`Sin stock: ${producto.nombre}`);
       return;
     }
     const existente = carrito.find((c) => c.id === producto.id);
     if (existente) {
-      // <-- Verificar que no exceda el stock disponible
       if (existente.cantidad + 1 > (producto.stockActual || 0)) {
         mostrarMensaje(`Stock insuficiente: ${producto.nombre}`);
         return;
@@ -103,7 +101,6 @@ export default function POS() {
         if (c.id !== id) return c;
         const step = c.unidad === "kg" || c.unidad === "g" ? 0.1 : 1;
         const nueva = Math.max(step, c.cantidad + delta);
-        // <-- Verificar stock disponible
         const prod = productos.find((p) => p.id === id);
         if (prod && nueva > (prod.stockActual || 0)) {
           mostrarMensaje("Stock insuficiente");
@@ -117,7 +114,6 @@ export default function POS() {
   function setCantidadManual(id, valor) {
     const num = parseFloat(valor);
     if (isNaN(num) || num <= 0) return;
-    // <-- Verificar stock disponible
     const prod = productos.find((p) => p.id === id);
     if (prod && num > (prod.stockActual || 0)) {
       mostrarMensaje("Stock insuficiente");
@@ -133,19 +129,52 @@ export default function POS() {
   const total = carrito.reduce((sum, c) => sum + c.precioVenta * c.cantidad, 0);
 
   async function handleAbrirTurno() {
+    const montoStr = prompt("¿Cuánto efectivo hay en caja al iniciar el turno?", "0");
+    const montoInicial = Number(montoStr);
+    if (isNaN(montoInicial) || montoInicial < 0) {
+      alert("Ingresa un monto válido");
+      return;
+    }
     const nuevo = await salesService.createTurno(almacenId, {
       estado: "abierto",
       vendedorId: user.uid,
       vendedorNombre: userData?.nombre || user.email,
-      montoInicial: 0,
+      montoInicial,
       ventas: { efectivo: 0, tarjeta: 0, transferencia: 0, fiado: 0 },
     });
     setTurno(nuevo);
     mostrarMensaje("Turno abierto");
   }
 
+  async function calcularSaldoTurno(turnoId) {
+    const ventas = await salesService.getVentasTurno(almacenId, turnoId);
+    const fiados = await salesService.getFiadosRecuperadosTurno(almacenId, turnoId);
+
+    let efectivoVentas = 0;
+    ventas.forEach((v) => {
+      if (v.metodoPago === "efectivo") efectivoVentas += v.total || 0;
+    });
+
+    let efectivoRecuperado = 0;
+    fiados.forEach((f) => {
+      if (f.pagos) {
+        f.pagos.forEach((p) => {
+          if (p.metodo === "efectivo") efectivoRecuperado += p.monto || 0;
+        });
+      }
+    });
+
+    return {
+      montoInicial: turno?.montoInicial || 0,
+      efectivoVentas,
+      efectivoRecuperado,
+      totalEfectivo: (turno?.montoInicial || 0) + efectivoVentas + efectivoRecuperado,
+    };
+  }
+
   async function handleCerrarTurno() {
     if (!turno) return;
+    const saldo = await calcularSaldoTurno(turno.id);
     const ventasHoy = await salesService.getTodaySales(almacenId);
     const resumen = { efectivo: 0, tarjeta: 0, transferencia: 0, fiado: 0 };
     ventasHoy.forEach((v) => {
@@ -155,7 +184,17 @@ export default function POS() {
       estado: "cerrado",
       cerradoEn: new Date().toISOString(),
       ventas: resumen,
+      saldoCalculado: saldo,
     });
+
+    alert(`🧾 CIERRE DE TURNO\n\n` +
+      `Efectivo inicial: ${formatCurrency(saldo.montoInicial)}\n` +
+      `Ventas en efectivo: ${formatCurrency(saldo.efectivoVentas)}\n` +
+      `Fiados recuperados (efectivo): ${formatCurrency(saldo.efectivoRecuperado)}\n` +
+      `─────────────────────\n` +
+      `💰 TOTAL EFECTIVO ESPERADO: ${formatCurrency(saldo.totalEfectivo)}\n\n` +
+      `Revisa que el dinero en caja coincida con este monto.`);
+
     setTurno(null);
     mostrarMensaje("Turno cerrado");
   }
@@ -169,10 +208,8 @@ export default function POS() {
 
     setLoading(true);
     try {
-      // Verificar stock
       for (const item of carrito) {
         const prod = await productsService.getProduct(item.id);
-        // <-- Cambiado de prod.stockActual a prod.stockActual
         if (!prod || (prod.stockActual || 0) < item.cantidad) {
           alert(`Stock insuficiente: ${item.nombre}`);
           setLoading(false);
@@ -180,12 +217,10 @@ export default function POS() {
         }
       }
 
-      // Descontar stock
       for (const item of carrito) {
         await productsService.discountStock(item.id, item.cantidad);
       }
 
-      // Registrar venta
       const venta = {
         productos: carrito.map((c) => ({
           id: c.id,
@@ -273,9 +308,14 @@ export default function POS() {
               {turno ? `Turno abierto - ${turno.vendedorNombre}` : "Sin turno activo"}
             </p>
             {turno && (
-              <p className="text-sm text-gray-500">
-                Abierto: {new Date(turno.createdAt).toLocaleTimeString("es-CL")}
-              </p>
+              <>
+                <p className="text-sm text-gray-500">
+                  Abierto: {new Date(turno.createdAt).toLocaleTimeString("es-CL")}
+                </p>
+                <p className="text-sm text-green-600 font-medium">
+                  Efectivo inicial: {formatCurrency(turno.montoInicial || 0)}
+                </p>
+              </>
             )}
           </div>
         </div>
@@ -339,9 +379,8 @@ export default function POS() {
                   <p className="text-blue-600 font-bold text-sm mt-1">
                     {formatCurrency(p.precioVenta)}
                   </p>
-                  {/* <-- Cambiado de p.stockActuala p.stockActual */}
                   <p className="text-xs text-gray-400 mt-0.5">
-                    stockActual: {p.stockActual} {p.unidad}
+                    Stock: {p.stockActual} {p.unidad}
                   </p>
                   {p.enOferta && (
                     <span className="inline-block mt-1 text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded">
