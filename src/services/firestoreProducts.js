@@ -6,6 +6,17 @@ import {
 
 const COLLECTION = "productos";
 
+function generateId() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
 export async function getProducts(almacenId) {
   if (!almacenId) return [];
   const q = query(
@@ -14,7 +25,6 @@ export async function getProducts(almacenId) {
   );
   const snap = await getDocs(q);
   const products = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-  // Ordenar localmente para evitar índice compuesto en Firestore
   return products.sort((a, b) => (a.nombre || "").localeCompare(b.nombre || ""));
 }
 
@@ -48,12 +58,12 @@ export async function deleteProduct(productId) {
 export async function addStock(productId, cantidad, loteData = null) {
   const product = await getProduct(productId);
   if (!product) throw new Error("Producto no encontrado");
-  const nuevoStock = (product.stockActual || 0) + cantidad;
-  const updates = { stockActual: nuevoStock, updatedAt: new Date().toISOString() };
+  const nuevoStock = (product.stock || 0) + cantidad;
+  const updates = { stock: nuevoStock, updatedAt: new Date().toISOString() };
   if (product.perecedero && loteData) {
     const lotes = product.lotes || [];
     lotes.push({
-      id: crypto.randomUUID(),
+      id: generateId(),
       cantidad,
       fechaVencimiento: loteData.fechaVencimiento,
       fechaIngreso: new Date().toISOString(),
@@ -67,11 +77,11 @@ export async function addStock(productId, cantidad, loteData = null) {
 export async function discountStock(productId, cantidad) {
   const product = await getProduct(productId);
   if (!product) throw new Error("Producto no encontrado");
-  if ((product.stockActual || 0) < cantidad) {
+  if ((product.stock || 0) < cantidad) {
     throw new Error(`Stock insuficiente: ${product.nombre}`);
   }
   const updates = {
-    stockActual: product.stockActual - cantidad,
+    stock: product.stock - cantidad,
     updatedAt: new Date().toISOString(),
   };
   if (product.perecedero && product.lotes) {

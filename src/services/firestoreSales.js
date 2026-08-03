@@ -1,225 +1,72 @@
+import { db } from "../firebase/firebase";
 import {
-  collection,
-  addDoc,
-  updateDoc,
-  doc,
-  query,
-  where,
-  getDocs,
-  serverTimestamp,
-  Timestamp,
-  getDoc,
-  writeBatch,
+  doc, getDoc, setDoc, updateDoc,
+  collection, query, where, getDocs, addDoc,
 } from "firebase/firestore";
-import { db } from "../firebase";
 
-// ============================================================
-// VENTAS
-// ============================================================
+const COLLECTION_VENTAS = "ventas";
+const COLLECTION_TURNOS = "turnos";
 
 export async function createSale(almacenId, saleData) {
-  if (!almacenId) throw new Error("almacenId requerido");
-  const ref = collection(db, "almacenes", almacenId, "ventas");
-  const docRef = await addDoc(ref, {
-    ...saleData,
-    createdAt: serverTimestamp(),
-  });
-  return { id: docRef.id, ...saleData };
+  const data = { ...saleData, almacenId, createdAt: new Date().toISOString() };
+  const ref = await addDoc(collection(db, COLLECTION_VENTAS), data);
+  return { id: ref.id, ...data };
 }
 
-export async function getSalesByDate(almacenId, startDate, endDate) {
+export async function getSales(almacenId, filters = {}) {
   if (!almacenId) return [];
-  // NO usar orderBy combinado con where (regla del proyecto)
-  const ref = collection(db, "almacenes", almacenId, "ventas");
-  const q = query(ref, where("createdAt", ">=", startDate), where("createdAt", "<=", endDate));
+  const q = query(
+    collection(db, COLLECTION_VENTAS),
+    where("almacenId", "==", almacenId)
+  );
   const snap = await getDocs(q);
-  const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-  // Ordenar localmente
-  return data.sort((a, b) => {
-    const ta = a.createdAt?.toMillis?.() || 0;
-    const tb = b.createdAt?.toMillis?.() || 0;
-    return tb - ta;
+  let sales = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  sales.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+  if (filters.desde) sales = sales.filter((s) => new Date(s.createdAt) >= new Date(filters.desde));
+  if (filters.hasta) sales = sales.filter((s) => new Date(s.createdAt) <= new Date(filters.hasta));
+  if (filters.metodoPago) sales = sales.filter((s) => s.metodoPago === filters.metodoPago);
+  if (filters.tipo) sales = sales.filter((s) => s.tipo === filters.tipo);
+  return sales;
+}
+
+export async function getTodaySales(almacenId) {
+  const hoy = new Date().toISOString().split("T")[0];
+  const sales = await getSales(almacenId);
+  return sales.filter((s) => s.createdAt?.startsWith(hoy));
+}
+
+export async function createTurno(almacenId, turnoData) {
+  const data = { ...turnoData, almacenId, createdAt: new Date().toISOString() };
+  const ref = await addDoc(collection(db, COLLECTION_TURNOS), data);
+  return { id: ref.id, ...data };
+}
+
+export async function updateTurno(turnoId, updates) {
+  await updateDoc(doc(db, COLLECTION_TURNOS, turnoId), {
+    ...updates, updatedAt: new Date().toISOString(),
   });
 }
 
-// ============================================================
-// TURNOS
-// ============================================================
-
-export async function openTurno(almacenId, vendedorId, vendedorNombre, efectivoInicial) {
-  if (!almacenId || !vendedorId) throw new Error("almacenId y vendedorId requeridos");
-
-  // Verificar que no haya turno abierto
-  const activo = await getActiveTurno(almacenId, vendedorId);
-  if (activo) throw new Error("Ya tienes un turno abierto");
-
-  const ref = collection(db, "almacenes", almacenId, "turnos");
-  const docRef = await addDoc(ref, {
-    vendedorId,
-    vendedorNombre: vendedorNombre || "",
-    efectivoInicial: Number(efectivoInicial) || 0,
-    abiertoEn: serverTimestamp(),
-    cerradoEn: null,
-    ventasEfectivo: 0,
-    ventasOtras: 0,
-    fiadosRecuperados: 0,
-    totalEfectivo: 0,
-    estado: "abierto",
-  });
-
-  return { id: docRef.id };
-}
-
-export async function getActiveTurno(almacenId, vendedorId) {
-  if (!almacenId || !vendedorId) return null;
-  const ref = collection(db, "almacenes", almacenId, "turnos");
-  const q = query(ref, where("vendedorId", "==", vendedorId), where("estado", "==", "abierto"));
+export async function getTurnoActivo(almacenId) {
+  if (!almacenId) return null;
+  const q = query(
+    collection(db, COLLECTION_TURNOS),
+    where("almacenId", "==", almacenId),
+    where("estado", "==", "abierto")
+  );
   const snap = await getDocs(q);
-  if (snap.empty) return null;
-  const doc = snap.docs[0];
-  return { id: doc.id, ...doc.data() };
+  if (!snap.empty) return { id: snap.docs[0].id, ...snap.docs[0].data() };
+  return null;
 }
 
-export async function closeTurno(almacenId, vendedorId) {
-  if (!almacenId || !vendedorId) {
-    throw new Error("almacenId y vendedorId requeridos para cerrar turno");
-  }
-
-  // 1. Buscar turno activo
-  const turno = await getActiveTurno(almacenId, vendedorId);
-  if (!turno) {
-    // No hay turno abierto, no es error fatal, solo retornar null
-    return null;
-  }
-
-  const turnoId = turno.id;
-  const turnoAbiertoEn = turno.abiertoEn;
-
-  // 2. Calcular ventas del turno (desde que abrió)
-  let ventasEfectivo = 0;
-  let ventasOtras = 0;
-
-  try {
-    const ventasRef = collection(db, "almacenes", almacenId, "ventas");
-    // Traemos ventas del día para no hacer query compleja con orderBy
-    const hoy = new Date();
-    hoy.setHours(0, 0, 0, 0);
-    const manana = new Date(hoy);
-    manana.setDate(manana.getDate() + 1);
-
-    const qVentas = query(
-      ventasRef,
-      where("createdAt", ">=", Timestamp.fromDate(hoy)),
-      where("createdAt", "<", Timestamp.fromDate(manana))
-    );
-    const ventasSnap = await getDocs(qVentas);
-
-    ventasSnap.forEach((d) => {
-      const v = d.data();
-      // Solo contar ventas de ESTE turno (mismo vendedor y después de abiertoEn)
-      if (v.vendedorId === vendedorId && v.createdAt) {
-        const ventaTime = v.createdAt.toMillis?.() || 0;
-        const turnoTime = turnoAbiertoEn?.toMillis?.() || 0;
-        if (ventaTime >= turnoTime) {
-          if (v.metodoPago === "efectivo" || v.metodoPago === "cash") {
-            ventasEfectivo += Number(v.total) || 0;
-          } else {
-            ventasOtras += Number(v.total) || 0;
-          }
-        }
-      }
-    });
-  } catch (e) {
-    console.error("Error calculando ventas del turno:", e);
-    // No fallar el cierre por esto, continuar con 0
-  }
-
-  // 3. Calcular fiados recuperados en efectivo del turno
-  let fiadosRecuperados = 0;
-  try {
-    const fiadosRef = collection(db, "almacenes", almacenId, "fiados");
-    const qFiados = query(
-      fiadosRef,
-      where("updatedAt", ">=", Timestamp.fromDate(new Date(Date.now() - 86400000)))
-    );
-    const fiadosSnap = await getDocs(qFiados);
-    fiadosSnap.forEach((d) => {
-      const f = d.data();
-      if (f.vendedorId === vendedorId && f.estado === "pagado" && f.metodoPago === "efectivo") {
-        const pagoTime = f.updatedAt?.toMillis?.() || 0;
-        const turnoTime = turnoAbiertoEn?.toMillis?.() || 0;
-        if (pagoTime >= turnoTime) {
-          fiadosRecuperados += Number(f.montoPagado) || Number(f.total) || 0;
-        }
-      }
-    });
-  } catch (e) {
-    console.error("Error calculando fiados recuperados:", e);
-  }
-
-  const efectivoInicial = Number(turno.efectivoInicial) || 0;
-  const totalEfectivo = efectivoInicial + ventasEfectivo + fiadosRecuperados;
-
-  // 4. Actualizar turno
-  const turnoDocRef = doc(db, "almacenes", almacenId, "turnos", turnoId);
-  await updateDoc(turnoDocRef, {
-    cerradoEn: serverTimestamp(),
-    estado: "cerrado",
-    ventasEfectivo,
-    ventasOtras,
-    fiadosRecuperados,
-    totalEfectivo,
-  });
-
-  return {
-    id: turnoId,
-    vendedorNombre: turno.vendedorNombre,
-    efectivoInicial,
-    ventasEfectivo,
-    fiadosRecuperados,
-    totalEfectivo,
-    ventasOtras,
-  };
-}
-
-// ============================================================
-// FIADOS
-// ============================================================
-
-export async function createFiado(almacenId, fiadoData) {
-  if (!almacenId) throw new Error("almacenId requerido");
-  const ref = collection(db, "almacenes", almacenId, "fiados");
-  const docRef = await addDoc(ref, {
-    ...fiadoData,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-    estado: "pendiente",
-  });
-  return { id: docRef.id, ...fiadoData };
-}
-
-export async function updateFiado(almacenId, fiadoId, updates) {
-  const ref = doc(db, "almacenes", almacenId, "fiados", fiadoId);
-  await updateDoc(ref, {
-    ...updates,
-    updatedAt: serverTimestamp(),
-  });
-}
-
-export async function getFiados(almacenId, estado = null) {
+export async function getTurnos(almacenId) {
   if (!almacenId) return [];
-  const ref = collection(db, "almacenes", almacenId, "fiados");
-  let q;
-  if (estado) {
-    q = query(ref, where("estado", "==", estado));
-  } else {
-    q = query(ref);
-  }
+  const q = query(collection(db, COLLECTION_TURNOS), where("almacenId", "==", almacenId));
   const snap = await getDocs(q);
-  const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-  return data.sort((a, b) => {
-    const ta = a.createdAt?.toMillis?.() || 0;
-    const tb = b.createdAt?.toMillis?.() || 0;
-    return tb - ta;
-  });
+  const turnos = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  return turnos.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
 }
+
+export const salesService = {
+  createSale, getSales, getTodaySales, createTurno, updateTurno, getTurnoActivo, getTurnos,
+};

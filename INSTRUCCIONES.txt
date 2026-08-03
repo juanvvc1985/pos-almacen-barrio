@@ -42,3 +42,10 @@ NOTA
 ----
 Si Windows muestra "Windows protegio tu PC":
 Haz clic en "Mas informacion" y luego "Ejecutar de todos modos"
+
+IMPORTANTE: Firebase
+--------------------
+1. Sube el archivo firestore.rules a tu consola de Firebase
+   (Firestore Database -> Reglas)
+2. Sube el archivo firestore.indexes.json si es necesario
+3. Los iconos PNG para PWA ya estan incluidos en public/

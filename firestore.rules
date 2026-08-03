@@ -1,0 +1,63 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    function userAlmacenId() {
+      return getUserData().almacenId;
+    }
+    function userRole() {
+      return getUserData().role;
+    }
+
+    match /users/{userId} {
+      allow read, write: if isAuthenticated() && request.auth.uid == userId;
+      allow read: if isAuthenticated() && userRole() == "dueño" && resource.data.almacenId == userAlmacenId();
+      allow update: if isAuthenticated() && userRole() == "dueño" && resource.data.almacenId == userAlmacenId() && resource.data.role == "vendedor";
+    }
+
+    match /almacenes/{almacenId} {
+      allow read: if isAuthenticated() && userAlmacenId() == almacenId;
+      allow write: if isAuthenticated() && userRole() == "dueño" && userAlmacenId() == almacenId;
+    }
+
+    match /productos/{productId} {
+      allow read: if isAuthenticated() && resource.data.almacenId == userAlmacenId();
+      allow create: if isAuthenticated() && userRole() == "dueño" && request.resource.data.almacenId == userAlmacenId();
+      allow update: if isAuthenticated() && resource.data.almacenId == userAlmacenId() && 
+        (userRole() == "dueño" || 
+          (userRole() == "vendedor" && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stock','updatedAt','lotes'])));
+      allow delete: if isAuthenticated() && userRole() == "dueño" && resource.data.almacenId == userAlmacenId();
+    }
+
+    match /ventas/{saleId} {
+      allow read: if isAuthenticated() && resource.data.almacenId == userAlmacenId();
+      allow create: if isAuthenticated() && request.resource.data.almacenId == userAlmacenId();
+      allow update, delete: if isAuthenticated() && userRole() == "dueño" && resource.data.almacenId == userAlmacenId();
+    }
+
+    match /turnos/{turnoId} {
+      allow read, create, update: if isAuthenticated() && resource.data.almacenId == userAlmacenId();
+      allow delete: if isAuthenticated() && userRole() == "dueño" && resource.data.almacenId == userAlmacenId();
+    }
+
+    match /fiados/{fiadoId} {
+      allow read, create, update: if isAuthenticated() && resource.data.almacenId == userAlmacenId();
+      allow delete: if isAuthenticated() && userRole() == "dueño" && resource.data.almacenId == userAlmacenId();
+    }
+
+    match /mermas/{mermaId} {
+      allow read, write: if isAuthenticated() && userRole() == "dueño" && resource.data.almacenId == userAlmacenId();
+      allow create: if isAuthenticated() && userRole() == "dueño" && request.resource.data.almacenId == userAlmacenId();
+    }
+
+    match /publicUsernames/{username} {
+      allow read: if true;
+      allow write: if isAuthenticated();
+    }
+  }
+}

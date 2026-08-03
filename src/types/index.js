@@ -1,8 +1,16 @@
 export const UNIDADES = ["unidad", "kg", "g", "l", "ml", "m", "cm"];
 
 export const CATEGORIAS = [
-  "Abarrotes", "Lácteos", "Bebidas", "Panadería", "Confitería",
-  "Limpieza", "Frutas/Verduras", "Hogar"
+  "Abarrotes",
+  "Bebidas",
+  "Lácteos",
+  "Carnes",
+  "Frutas",
+  "Verduras",
+  "Panadería",
+  "Limpieza",
+  "Higiene",
+  "Otros",
 ];
 
 export const METODOS_PAGO = [
@@ -14,35 +22,29 @@ export const METODOS_PAGO = [
 
 export const MOTIVOS_MERMA = [
   "Vencido",
-  "Dañado por humedad/descomposición",
-  "Embalaje roto/desgastado",
-  "Producto roto",
+  "Dañado",
+  "Roto",
   "Robado",
+  "Descomposición",
+  "Embalaje defectuoso",
   "Otro",
 ];
 
-export const ESTADOS_DEUDA = ["pendiente", "parcial", "pagada"];
+export const ESTADOS_DEUDA = {
+  PENDIENTE: "pendiente",
+  PARCIAL: "parcial",
+  PAGADA: "pagada",
+  ATRASADA: "atrasada",
+};
 
-export const ROLES = ["dueño", "vendedor"];
+export const ROLES = {
+  DUEÑO: "dueño",
+  VENDEDOR: "vendedor",
+};
 
-export const DIAS_ALERTA_VENCIMIENTO = [1, 2, 3, 5, 7, 14, 30];
+export const PLANES = {
+  BASICO: "basico",
+  PRO: "pro",
+};
 
-// NUEVO v5.0: Criterios configurables para Mermas y Ofertas
-export const CRITERIOS_MERMA = [
-  "Vencido",
-  "Dañado por humedad/descomposición",
-  "Embalaje roto/desgastado",
-  "Producto roto",
-  "Robado",
-  "Otro",
-];
-
-export const CRITERIOS_OFERTA = [
-  "Por vencer",
-  "Embalaje dañado",
-  "Daño menor / deterioro estético",
-  "Sobrestock",
-  "Otro",
-];
-
-export const DIAS_POR_VENCER_DEFAULT = 7;
+export const DIAS_ALERTA_VENCIMIENTO = [1, 3, 5, 7, 10, 14, 30];

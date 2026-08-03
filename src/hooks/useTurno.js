@@ -1,5 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
-import { getActiveTurno, closeTurno as closeTurnoService } from "../services/firestoreSales";
+import {
+  getActiveTurno,
+  closeTurno as closeTurnoService,
+  openTurno as openTurnoService,
+} from "../services/firestoreSales";
 
 export function useTurno(almacenId, vendedorId) {
   const [turno, setTurno] = useState(null);
@@ -28,6 +32,33 @@ export function useTurno(almacenId, vendedorId) {
     refresh();
   }, [refresh]);
 
+  const abrir = useCallback(
+    async (efectivoInicial, vendedorNombre) => {
+      if (!almacenId || !vendedorId) {
+        throw new Error("Falta almacenId o vendedorId");
+      }
+      setLoading(true);
+      setError("");
+      try {
+        const res = await openTurnoService(
+          almacenId,
+          vendedorId,
+          vendedorNombre,
+          efectivoInicial
+        );
+        await refresh();
+        return res;
+      } catch (e) {
+        console.error(e);
+        setError(e.message || "Error al abrir turno");
+        throw e;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [almacenId, vendedorId, refresh]
+  );
+
   const cerrar = useCallback(async () => {
     if (!almacenId || !vendedorId) {
       throw new Error("Falta almacenId o vendedorId");
@@ -47,5 +78,5 @@ export function useTurno(almacenId, vendedorId) {
     }
   }, [almacenId, vendedorId]);
 
-  return { turno, loading, error, refresh, cerrar };
+  return { turno, loading, error, refresh, abrir, cerrar };
 }

@@ -80,7 +80,6 @@ export default function Reports() {
     value,
   }));
 
-  // Fiados
   const fiadosPendientes = fiados.filter((f) => f.estado === "pendiente" || f.estado === "parcial");
   const totalFiadoPendiente = fiadosPendientes.reduce((s, f) => s + ((f.total || 0) - (f.pagos?.reduce((p, pay) => p + (pay.monto || 0), 0) || 0)), 0);
   const totalRecuperado = fiados.reduce((s, f) => s + (f.pagos?.reduce((p, pay) => p + (pay.monto || 0), 0) || 0), 0);
@@ -89,7 +88,6 @@ export default function Reports() {
     return (f.estado === "pendiente" || f.estado === "parcial") && dias > 7;
   });
 
-  // Mermas
   const totalMermas = mermas.reduce((s, m) => s + (m.perdidaEstimada || 0), 0);
   const porMotivo = {};
   mermas.forEach((m) => {
@@ -97,14 +95,11 @@ export default function Reports() {
   });
   const mermaChartData = Object.entries(porMotivo).map(([name, value]) => ({ name, value }));
 
-  // Inventario
   const totalProductos = productos.length;
-  // <-- Cambiado p.stockActuala p.stockActual
-  const valorStockCosto = productos.reduce((s, p) => s + (p.precioCompra || 0) * (p.stockActual || 0), 0);
-  const valorStockVenta = productos.reduce((s, p) => s + (p.precioVenta || 0) * (p.stockActual || 0), 0);
-  const stockCritico = productos.filter((p) => p.stockCritico && p.stockActual <= p.stockCritico && p.stockActual > 0).length;
+  const valorStockCosto = productos.reduce((s, p) => s + (p.precioCompra || 0) * (p.stock || 0), 0);
+  const valorStockVenta = productos.reduce((s, p) => s + (p.precioVenta || 0) * (p.stock || 0), 0);
+  const stockCritico = productos.filter((p) => p.stockCritico && p.stock <= p.stockCritico && p.stock > 0).length;
 
-  // <-- Cambiado search.trim() a searchInv.trim()
   const productosFiltrados = searchInv.trim()
     ? productos.filter((p) =>
         p.nombre?.toLowerCase().includes(searchInv.toLowerCase()) ||
@@ -137,14 +132,13 @@ export default function Reports() {
     doc.text(`Valor stock (costo): ${formatCurrency(valorStockCosto)}`, 14, 46);
     doc.text(`Valor stock (venta): ${formatCurrency(valorStockVenta)}`, 14, 54);
 
-    // <-- Cambiado p.stockActuala p.stockActual
     const body = sortedProductos.map((p) => [
       p.nombre,
       p.categoria,
-      p.stockActual + " " + p.unidad,
+      p.stock + " " + p.unidad,
       formatCurrency(p.precioVenta),
       formatCurrency(p.precioCompra),
-      p.stockActual <= (p.stockCritico || 0) ? "Crítico" : "OK",
+      p.stock <= (p.stockCritico || 0) ? "Crítico" : "OK",
     ]);
 
     autoTable(doc, {
@@ -173,7 +167,6 @@ export default function Reports() {
         Informes
       </h1>
 
-      {/* Tabs */}
       <div className="flex gap-1 bg-gray-100 p-1 rounded-xl mb-6 overflow-x-auto">
         {[
           { id: "ventas", label: "Ventas", icon: TrendingUp },
@@ -196,7 +189,6 @@ export default function Reports() {
         ))}
       </div>
 
-      {/* Ventas */}
       {activeTab === "ventas" && (
         <div className="space-y-6">
           <div className="flex gap-2">
@@ -281,7 +273,6 @@ export default function Reports() {
         </div>
       )}
 
-      {/* Fiados */}
       {activeTab === "fiados" && (
         <div className="space-y-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -339,7 +330,6 @@ export default function Reports() {
         </div>
       )}
 
-      {/* Mermas */}
       {activeTab === "mermas" && (
         <div className="space-y-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -416,7 +406,6 @@ export default function Reports() {
         </div>
       )}
 
-      {/* Inventario */}
       {activeTab === "inventario" && (
         <div className="space-y-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -467,7 +456,7 @@ export default function Reports() {
                   <th className="text-left px-4 py-3 cursor-pointer hover:bg-gray-100" onClick={() => toggleSort("categoria")}>
                     Categoría <ArrowUpDown size={12} className="inline" />
                   </th>
-                  <th className="text-right px-4 py-3 cursor-pointer hover:bg-gray-100" onClick={() => toggleSort("stockActual")}>
+                  <th className="text-right px-4 py-3 cursor-pointer hover:bg-gray-100" onClick={() => toggleSort("stock")}>
                     Stock <ArrowUpDown size={12} className="inline" />
                   </th>
                   <th className="text-right px-4 py-3 cursor-pointer hover:bg-gray-100" onClick={() => toggleSort("precioVenta")}>
@@ -478,17 +467,16 @@ export default function Reports() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {sortedProductos.map((p) => {
-                  // <-- Cambiado p.stockActuala p.stockActual
-                  const status = p.stockActual === 0
+                  const status = p.stock === 0
                     ? { label: "Sin stock", class: "bg-red-100 text-red-700" }
-                    : p.stockCritico && p.stockActual <= p.stockCritico
+                    : p.stockCritico && p.stock <= p.stockCritico
                     ? { label: "Crítico", class: "bg-orange-100 text-orange-700" }
                     : { label: "OK", class: "bg-green-100 text-green-700" };
                   return (
                     <tr key={p.id} className="hover:bg-gray-50">
                       <td className="px-4 py-2 font-medium">{p.nombre}</td>
                       <td className="px-4 py-2 text-gray-500">{p.categoria}</td>
-                      <td className="px-4 py-2 text-right">{p.stockActual} {p.unidad}</td>
+                      <td className="px-4 py-2 text-right">{p.stock} {p.unidad}</td>
                       <td className="px-4 py-2 text-right">{formatCurrency(p.precioVenta)}</td>
                       <td className="px-4 py-2 text-center">
                         <span className={`px-2 py-0.5 rounded-full text-xs ${status.class}`}>{status.label}</span>

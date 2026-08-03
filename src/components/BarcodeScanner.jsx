@@ -1,117 +1,74 @@
-import { useEffect, useRef, useState, useCallback } from "react";
-import { Html5Qrcode, Html5QrcodeScannerState } from "html5-qrcode";
-import { X, Camera, Upload, Smartphone } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Html5Qrcode } from "html5-qrcode";
+import { X, Camera } from "lucide-react";
 
 export default function BarcodeScanner({ onScan, onClose }) {
   const [error, setError] = useState("");
-  const [mode, setMode] = useState("camera"); // "camera" | "file"
-  const [isStarting, setIsStarting] = useState(false);
+  const [ready, setReady] = useState(false);
   const scannerRef = useRef(null);
-  const fileInputRef = useRef(null);
-  const activeRef = useRef(true);
+  const containerRef = useRef(null);
+  const onScanRef = useRef(onScan);
+  const onCloseRef = useRef(onClose);
 
-  // Detectar iPhone/Safari
-  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  // Mantener refs actualizadas sin reiniciar el scanner
+  useEffect(() => {
+    onScanRef.current = onScan;
+    onCloseRef.current = onClose;
+  }, [onScan, onClose]);
 
-  const stopScanner = useCallback(async () => {
-    const s = scannerRef.current;
-    if (!s) return;
-    try {
-      if (s.getState() === Html5QrcodeScannerState.SCANNING) {
-        await s.stop();
-      }
-      await s.clear();
-    } catch {
-      // ignorar errores de limpieza
-    }
-    scannerRef.current = null;
-  }, []);
-
-  const startCamera = useCallback(async () => {
-    setError("");
-    setIsStarting(true);
-
-    if (!containerRef.current) {
-      setIsStarting(false);
-      return;
-    }
-
-    activeRef.current = true;
-
-    try {
-      await stopScanner();
-    } catch {
-      // nada
-    }
+  useEffect(() => {
+    if (!containerRef.current) return;
 
     const scanner = new Html5Qrcode("scanner-container");
     scannerRef.current = scanner;
 
-    try {
-      await scanner.start(
-        { facingMode: "environment" },
-        { fps: 10, qrbox: { width: 250, height: 250 } },
-        (decodedText) => {
-          onScan(decodedText);
-          onClose();
-        },
-        () => {} // ignorar errores de frame
-      );
-
-      if (!activeRef.current) {
-        await stopScanner();
-      }
-    } catch (err) {
-      console.error(err);
-      if (activeRef.current) {
-        setError(
-          "No se pudo iniciar la cámara. " +
-          (isIOS
-            ? "En iPhone usa la opción 'Elegir archivo' abajo."
-            : "Verifica que diste permisos de cámara.")
-        );
-        // Si falla la cámara, ofrecer modo archivo automáticamente en iOS
-        if (isIOS) setMode("file");
-      }
-    } finally {
-      setIsStarting(false);
-    }
-  }, [onScan, onClose, stopScanner, isIOS]);
-
-  const handleFileSelect = useCallback(
-    async (e) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-
-      setError("");
-      const scanner = new Html5Qrcode("file-scanner-container");
-
-      try {
-        const result = await scanner.scanFile(file, true);
-        onScan(result);
-        onClose();
-      } catch (err) {
-        console.error(err);
-        setError("No se pudo leer el código en la imagen. Intenta con otra foto más nítida.");
-      } finally {
-        scanner.clear().catch(() => {});
-      }
-    },
-    [onScan, onClose]
-  );
-
-  useEffect(() => {
-    return () => {
-      activeRef.current = false;
-      stopScanner();
+    const config = {
+      fps: 10,
+      qrbox: { width: 250, height: 250 },
+      aspectRatio: 1.0,
     };
-  }, [stopScanner]);
 
-  const containerRef = useRef(null);
+    Html5Qrcode.getCameras()
+      .then((cameras) => {
+        if (cameras && cameras.length) {
+          const cameraId = cameras.find((c) => c.label.toLowerCase().includes("back"))?.id || cameras[0].id;
+          return scanner.start(
+            { deviceId: { exact: cameraId } },
+            config,
+            (decodedText) => {
+              onScanRef.current(decodedText);
+              onCloseRef.current();
+            },
+            () => {}
+          );
+        } else {
+          return scanner.start(
+            { facingMode: "environment" },
+            config,
+            (decodedText) => {
+              onScanRef.current(decodedText);
+              onCloseRef.current();
+            },
+            () => {}
+          );
+        }
+      })
+      .then(() => setReady(true))
+      .catch((err) => {
+        setError("No se pudo iniciar la cámara. Verifica los permisos.");
+        console.error(err);
+      });
+
+    return () => {
+      if (scannerRef.current) {
+        scannerRef.current.stop().catch(() => {});
+        scannerRef.current.clear().catch(() => {});
+      }
+    };
+  }, []);
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-95 z-50 flex flex-col items-center justify-center p-4">
+    <div className="fixed inset-0 bg-black bg-opacity-90 z-50 flex flex-col items-center justify-center p-4">
       <div className="w-full max-w-md">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2 text-white">
@@ -132,106 +89,16 @@ export default function BarcodeScanner({ onScan, onClose }) {
           </div>
         )}
 
-        {/* Selector de modo */}
-        <div className="flex gap-2 mb-4">
-          <button
-            onClick={() => setMode("camera")}
-            className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium transition ${
-              mode === "camera"
-                ? "bg-blue-600 text-white"
-                : "bg-white/10 text-white/70 hover:bg-white/20"
-            }`}
-          >
-            <Camera size={16} />
-            Cámara
-          </button>
-          <button
-            onClick={() => setMode("file")}
-            className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium transition ${
-              mode === "file"
-                ? "bg-blue-600 text-white"
-                : "bg-white/10 text-white/70 hover:bg-white/20"
-            }`}
-          >
-            <Upload size={16} />
-            {isIOS ? "Elegir foto" : "Subir imagen"}
-          </button>
-        </div>
+        <div
+          id="scanner-container"
+          ref={containerRef}
+          className="w-full aspect-square bg-black rounded-xl overflow-hidden"
+        />
 
-        {mode === "camera" ? (
-          <>
-            {/* En iOS mostramos botón de inicio explícito */}
-            {isIOS && (
-              <button
-                onClick={startCamera}
-                disabled={isStarting}
-                className="w-full mb-3 flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 disabled:bg-green-800 text-white py-3 rounded-xl font-medium transition"
-              >
-                <Smartphone size={18} />
-                {isStarting ? "Iniciando cámara..." : "Iniciar cámara"}
-              </button>
-            )}
-
-            <div
-              id="scanner-container"
-              ref={containerRef}
-              className="w-full aspect-square bg-black rounded-xl overflow-hidden"
-            />
-
-            {/* En Android/PC iniciamos automáticamente al montar */}
-            {!isIOS && (
-              <AutoStart startCamera={startCamera} />
-            )}
-
-            <p className="text-white/70 text-sm text-center mt-4">
-              {isIOS
-                ? "Presiona 'Iniciar cámara' y apunta al código"
-                : "Apunta la cámara al código de barras"}
-            </p>
-          </>
-        ) : (
-          <div className="flex flex-col items-center gap-4 py-8">
-            <div
-              id="file-scanner-container"
-              className="hidden"
-            />
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              capture="environment"
-              onChange={handleFileSelect}
-              className="hidden"
-            />
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="flex flex-col items-center gap-3 bg-white/10 hover:bg-white/20 text-white px-8 py-6 rounded-xl transition"
-            >
-              <Upload size={40} />
-              <span className="font-medium">
-                {isIOS ? "Tomar foto del código" : "Seleccionar imagen del código"}
-              </span>
-            </button>
-            <p className="text-white/50 text-xs text-center max-w-xs">
-              {isIOS
-                ? "Se abrirá la cámara nativa del iPhone. Toma la foto y confirma."
-                : "Puedes tomar una foto directamente o elegir una de la galería."}
-            </p>
-          </div>
-        )}
+        <p className="text-white/70 text-sm text-center mt-4">
+          {ready ? "Apunta la cámara al código de barras" : "Iniciando cámara..."}
+        </p>
       </div>
     </div>
   );
-}
-
-// Sub-componente para iniciar automáticamente en Android/PC (no iOS)
-function AutoStart({ startCamera }) {
-  const started = useRef(false);
-  useEffect(() => {
-    if (!started.current) {
-      started.current = true;
-      startCamera();
-    }
-  }, [startCamera]);
-  return null;
 }

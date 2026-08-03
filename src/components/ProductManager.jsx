@@ -1,14 +1,13 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { productsService } from "../services/firestoreProducts";
-import { mermasService } from "../services/firestoreMermas";
 import { UNIDADES, CATEGORIAS, DIAS_ALERTA_VENCIMIENTO } from "../types/index";
 import { formatCurrency } from "../utils/format";
 import BarcodeScanner from "./BarcodeScanner";
 import InventoryAlert from "./InventoryAlert";
 import {
   Search, Plus, Edit2, Trash2, Package, X, Check, ScanLine,
-  Loader2, AlertTriangle, Tag
+  Loader2
 } from "lucide-react";
 
 export default function ProductManager() {
@@ -23,19 +22,11 @@ export default function ProductManager() {
   const [productoStock, setProductoStock] = useState(null);
   const [cantidadStock, setCantidadStock] = useState("");
   const [loteVencimiento, setLoteVencimiento] = useState("");
-  const [mostrarMermaRapida, setMostrarMermaRapida] = useState(false);
-  const [mostrarOfertaRapida, setMostrarOfertaRapida] = useState(false);
-  const [productoAccion, setProductoAccion] = useState(null);
-  const [mermaCantidad, setMermaCantidad] = useState("");
-  const [mermaMotivo, setMermaMotivo] = useState("Vencido");
-  const [ofertaPrecio, setOfertaPrecio] = useState("");
-  const [ofertaRazon, setOfertaRazon] = useState("");
 
   const [form, setForm] = useState({
     nombre: "", codigoBarras: "", precioVenta: "", precioCompra: "",
-    stockActual: "", stockCritico: "", unidad: "unidad", categoria: "Abarrotes",
-    perecedero: false, diasAlertaVencimiento: 3, fechaVencimiento: "",
-    enOferta: false, precioOferta: "", lotes: [],
+    stock: "", stockCritico: "", unidad: "unidad", categoria: "Abarrotes",
+    perecedero: false, diasAlertaVencimiento: 3, enOferta: false, precioOferta: "", lotes: [],
   });
 
   useEffect(() => {
@@ -61,9 +52,8 @@ export default function ProductManager() {
   function resetForm() {
     setForm({
       nombre: "", codigoBarras: "", precioVenta: "", precioCompra: "",
-      stockActual: "", stockCritico: "", unidad: "unidad", categoria: "Abarrotes",
-      perecedero: false, diasAlertaVencimiento: 3, fechaVencimiento: "",
-      enOferta: false, precioOferta: "", lotes: [],
+      stock: "", stockCritico: "", unidad: "unidad", categoria: "Abarrotes",
+      perecedero: false, diasAlertaVencimiento: 3, enOferta: false, precioOferta: "", lotes: [],
     });
     setEditando(null);
   }
@@ -74,12 +64,11 @@ export default function ProductManager() {
       nombre: producto.nombre || "", codigoBarras: producto.codigoBarras || "",
       precioVenta: producto.precioVenta?.toString() || "",
       precioCompra: producto.precioCompra?.toString() || "",
-      stockActual: producto.stockActual?.toString() || "",
+      stock: producto.stock?.toString() || "",
       stockCritico: producto.stockCritico?.toString() || "",
       unidad: producto.unidad || "unidad", categoria: producto.categoria || "Abarrotes",
       perecedero: producto.perecedero || false,
       diasAlertaVencimiento: producto.diasAlertaVencimiento || 3,
-      fechaVencimiento: "",
       enOferta: producto.enOferta || false,
       precioOferta: producto.precioOferta?.toString() || "", lotes: producto.lotes || [],
     });
@@ -88,26 +77,17 @@ export default function ProductManager() {
   }
 
   async function handleGuardar() {
+    if (!isDueño) return;
     const data = {
       nombre: form.nombre.trim(), codigoBarras: form.codigoBarras.trim() || null,
       precioVenta: Number(form.precioVenta) || 0, precioCompra: Number(form.precioCompra) || 0,
-      stockActual: Number(form.stockActual) || 0, stockCritico: Number(form.stockCritico) || 0,
+      stock: Number(form.stock) || 0, stockCritico: Number(form.stockCritico) || 0,
       unidad: form.unidad, categoria: form.categoria,
       perecedero: form.perecedero, diasAlertaVencimiento: Number(form.diasAlertaVencimiento) || 3,
       enOferta: form.enOferta, precioOferta: form.enOferta ? Number(form.precioOferta) || 0 : null,
       lotes: form.lotes || [],
     };
     if (!data.nombre) { alert("El nombre es obligatorio"); return; }
-
-    if (form.perecedero && form.fechaVencimiento && !editando) {
-      data.lotes = [{
-        id: crypto.randomUUID(),
-        cantidad: data.stockActual,
-        fechaVencimiento: form.fechaVencimiento,
-        fechaIngreso: new Date().toISOString(),
-      }];
-    }
-
     try {
       if (editando) await productsService.updateProduct(editando, data);
       else await productsService.createProduct(almacenId, data);
@@ -150,54 +130,9 @@ export default function ProductManager() {
     setMostrarScanner(false); setScannerMode("");
   }
 
-  async function handleMermaRapida() {
-    if (!productoAccion || !mermaCantidad) return;
-    const cantidad = Number(mermaCantidad);
-    if (isNaN(cantidad) || cantidad <= 0) { alert("Cantidad inválida"); return; }
-    if (cantidad > productoAccion.stockActual) { alert("Stock insuficiente"); return; }
-    try {
-      await productsService.discountStock(productoAccion.id, cantidad);
-      await mermasService.createMerma(almacenId, {
-        productoId: productoAccion.id,
-        productoNombre: productoAccion.nombre,
-        cantidad,
-        motivo: mermaMotivo,
-        notas: "Registrado desde Productos",
-        perdidaEstimada: (productoAccion.precioCompra || 0) * cantidad,
-        unidad: productoAccion.unidad,
-      });
-      await cargarProductos();
-      setMostrarMermaRapida(false);
-      setProductoAccion(null);
-      setMermaCantidad("");
-      setMermaMotivo("Vencido");
-    } catch (err) { alert("Error al registrar merma"); }
-  }
-
-  async function handleOfertaRapida() {
-    if (!productoAccion || !ofertaPrecio) return;
-    const precio = Number(ofertaPrecio);
-    if (isNaN(precio) || precio <= 0 || precio >= productoAccion.precioVenta) {
-      alert("Precio de oferta debe ser menor al precio normal");
-      return;
-    }
-    try {
-      await productsService.updateProduct(productoAccion.id, {
-        enOferta: true,
-        precioOferta: precio,
-        razonOferta: ofertaRazon || null,
-      });
-      await cargarProductos();
-      setMostrarOfertaRapida(false);
-      setProductoAccion(null);
-      setOfertaPrecio("");
-      setOfertaRazon("");
-    } catch (err) { alert("Error al crear oferta"); }
-  }
-
   function getStockStatus(producto) {
-    if (producto.stockActual === 0) return { label: "Sin stock", bg: "bg-red-50", text: "text-red-700" };
-    if (producto.stockCritico && producto.stockActual <= producto.stockCritico) return { label: "Crítico", bg: "bg-orange-50", text: "text-orange-700" };
+    if (producto.stock === 0) return { label: "Sin stock", bg: "bg-red-50", text: "text-red-700" };
+    if (producto.stockCritico && producto.stock <= producto.stockCritico) return { label: "Crítico", bg: "bg-orange-50", text: "text-orange-700" };
     return { label: "OK", bg: "bg-green-50", text: "text-green-700" };
   }
 
@@ -211,10 +146,12 @@ export default function ProductManager() {
           <Package className="w-6 h-6 text-blue-600" /> Productos
         </h1>
         <div className="flex gap-2">
-          <button onClick={() => { resetForm(); setMostrarForm(true); }}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2">
-            <Plus size={18} /> Nuevo Producto
-          </button>
+          {isDueño && (
+            <button onClick={() => { resetForm(); setMostrarForm(true); }}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2">
+              <Plus size={18} /> Nuevo Producto
+            </button>
+          )}
           <button onClick={() => { setScannerMode("stock"); setMostrarScanner(true); }}
             className="bg-green-100 hover:bg-green-200 text-green-700 px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2">
             <ScanLine size={18} /> Escanear Stock
@@ -231,7 +168,7 @@ export default function ProductManager() {
         </div>
       </div>
 
-      {mostrarForm && (
+      {mostrarForm && isDueño && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-bold text-gray-800">{editando ? "Editar Producto" : "Nuevo Producto"}</h2>
@@ -263,7 +200,7 @@ export default function ProductManager() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Stock inicial</label>
-              <input type="number" value={form.stockActual} onChange={(e) => setForm({ ...form, stockActual: e.target.value })}
+              <input type="number" value={form.stock} onChange={(e) => setForm({ ...form, stock: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="0" min="0" step="0.01" />
             </div>
             <div>
@@ -293,20 +230,13 @@ export default function ProductManager() {
               </label>
             </div>
             {form.perecedero && (
-              <>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Días de alerta antes de vencer</label>
-                  <select value={form.diasAlertaVencimiento} onChange={(e) => setForm({ ...form, diasAlertaVencimiento: Number(e.target.value) })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
-                    {DIAS_ALERTA_VENCIMIENTO.map((d) => <option key={d} value={d}>{d} días</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de vencimiento del lote *</label>
-                  <input type="date" value={form.fechaVencimiento} onChange={(e) => setForm({ ...form, fechaVencimiento: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
-                </div>
-              </>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Días de alerta antes de vencer</label>
+                <select value={form.diasAlertaVencimiento} onChange={(e) => setForm({ ...form, diasAlertaVencimiento: Number(e.target.value) })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                  {DIAS_ALERTA_VENCIMIENTO.map((d) => <option key={d} value={d}>{d} días</option>)}
+                </select>
+              </div>
             )}
             <div className="md:col-span-2">
               <label className="flex items-center gap-2 cursor-pointer">
@@ -365,70 +295,6 @@ export default function ProductManager() {
         </div>
       )}
 
-      {mostrarMermaRapida && productoAccion && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl p-6 w-full max-w-sm">
-            <h3 className="font-bold text-gray-800 mb-1">Registrar Merma</h3>
-            <p className="text-sm text-gray-500 mb-4">{productoAccion.nombre}</p>
-            <div className="space-y-3">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Cantidad</label>
-                <input type="number" value={mermaCantidad} onChange={(e) => setMermaCantidad(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-red-500"
-                  placeholder="0" min="0" step="0.01" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Motivo</label>
-                <select value={mermaMotivo} onChange={(e) => setMermaMotivo(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-red-500">
-                  <option value="Vencido">Vencido</option>
-                  <option value="Dañado">Dañado</option>
-                  <option value="Embalaje roto">Embalaje roto</option>
-                  <option value="Producto roto">Producto roto</option>
-                  <option value="Robado">Robado</option>
-                  <option value="Otro">Otro</option>
-                </select>
-              </div>
-            </div>
-            <div className="flex gap-2 mt-4">
-              <button onClick={() => { setMostrarMermaRapida(false); setProductoAccion(null); }}
-                className="flex-1 py-2 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50">Cancelar</button>
-              <button onClick={handleMermaRapida}
-                className="flex-1 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 flex items-center justify-center gap-2"><AlertTriangle size={16} /> Registrar</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {mostrarOfertaRapida && productoAccion && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl p-6 w-full max-w-sm">
-            <h3 className="font-bold text-gray-800 mb-1">Crear Oferta</h3>
-            <p className="text-sm text-gray-500 mb-4">{productoAccion.nombre}</p>
-            <div className="space-y-3">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Precio de oferta</label>
-                <input type="number" value={ofertaPrecio} onChange={(e) => setOfertaPrecio(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-red-500"
-                  placeholder="0" min="0" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Razón (opcional)</label>
-                <input type="text" value={ofertaRazon} onChange={(e) => setOfertaRazon(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-red-500"
-                  placeholder="Ej: Daño menor en embalaje" />
-              </div>
-            </div>
-            <div className="flex gap-2 mt-4">
-              <button onClick={() => { setMostrarOfertaRapida(false); setProductoAccion(null); }}
-                className="flex-1 py-2 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50">Cancelar</button>
-              <button onClick={handleOfertaRapida}
-                className="flex-1 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 flex items-center justify-center gap-2"><Tag size={16} /> Crear Oferta</button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {loading ? (
         <div className="flex items-center justify-center h-40"><Loader2 className="w-8 h-8 animate-spin text-blue-600" /></div>
       ) : (
@@ -462,7 +328,7 @@ export default function ProductManager() {
                         <p className="text-xs text-gray-400">Costo: {formatCurrency(p.precioCompra)}</p>
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <p className="font-medium text-gray-800">{p.stockActual} {p.unidad}</p>
+                        <p className="font-medium text-gray-800">{p.stock} {p.unidad}</p>
                         {p.stockCritico > 0 && <p className="text-xs text-gray-400">Mín: {p.stockCritico}</p>}
                       </td>
                       <td className="px-4 py-3 text-center">
@@ -472,10 +338,6 @@ export default function ProductManager() {
                         <div className="flex items-center justify-end gap-1">
                           <button onClick={() => handleAgregarStock(p)}
                             className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg transition" title="Agregar stock"><Plus size={16} /></button>
-                          <button onClick={() => { setProductoAccion(p); setMermaCantidad(""); setMermaMotivo("Vencido"); setMostrarMermaRapida(true); }}
-                            className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition" title="Merma"><AlertTriangle size={16} /></button>
-                          <button onClick={() => { setProductoAccion(p); setOfertaPrecio(""); setOfertaRazon(""); setMostrarOfertaRapida(true); }}
-                            className="p-1.5 text-orange-600 hover:bg-orange-50 rounded-lg transition" title="Oferta"><Tag size={16} /></button>
                           {isDueño && (
                             <>
                               <button onClick={() => handleEditar(p)}

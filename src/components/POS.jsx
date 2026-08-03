@@ -13,6 +13,13 @@ import {
   X, Check, Printer, Scale, Loader2
 } from "lucide-react";
 
+const METODO_STYLES = {
+  efectivo: { bg: "bg-green-50", border: "border-green-300", text: "text-green-700" },
+  tarjeta: { bg: "bg-blue-50", border: "border-blue-300", text: "text-blue-700" },
+  transferencia: { bg: "bg-purple-50", border: "border-purple-300", text: "text-purple-700" },
+  fiado: { bg: "bg-orange-50", border: "border-orange-300", text: "text-orange-700" },
+};
+
 export default function POS() {
   const { almacenId, user, userData } = useAuth();
   const [productos, setProductos] = useState([]);
@@ -39,9 +46,19 @@ export default function POS() {
 
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (e.key === "Enter" && document.activeElement === searchRef.current && productosFiltrados.length > 0) {
-        agregarAlCarrito(productosFiltrados[0]);
-        setSearch("");
+      if (e.key === "Enter" && document.activeElement === searchRef.current) {
+        e.preventDefault();
+        const filtrados = search.trim()
+          ? productos.filter(
+              (p) =>
+                p.nombre?.toLowerCase().includes(search.toLowerCase()) ||
+                p.codigoBarras?.includes(search)
+            )
+          : productos.slice(0, 20);
+        if (filtrados.length > 0) {
+          agregarAlCarrito(filtrados[0]);
+          setSearch("");
+        }
       }
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -69,16 +86,8 @@ export default function POS() {
     : productos.slice(0, 20);
 
   function agregarAlCarrito(producto) {
-    if ((producto.stockActual || 0) <= 0) {
-      mostrarMensaje(`Sin stock: ${producto.nombre}`);
-      return;
-    }
     const existente = carrito.find((c) => c.id === producto.id);
     if (existente) {
-      if (existente.cantidad + 1 > (producto.stockActual || 0)) {
-        mostrarMensaje(`Stock insuficiente: ${producto.nombre}`);
-        return;
-      }
       setCarrito(
         carrito.map((c) =>
           c.id === producto.id ? { ...c, cantidad: c.cantidad + 1 } : c
@@ -101,11 +110,6 @@ export default function POS() {
         if (c.id !== id) return c;
         const step = c.unidad === "kg" || c.unidad === "g" ? 0.1 : 1;
         const nueva = Math.max(step, c.cantidad + delta);
-        const prod = productos.find((p) => p.id === id);
-        if (prod && nueva > (prod.stockActual || 0)) {
-          mostrarMensaje("Stock insuficiente");
-          return c;
-        }
         return { ...c, cantidad: nueva };
       })
     );
@@ -114,11 +118,6 @@ export default function POS() {
   function setCantidadManual(id, valor) {
     const num = parseFloat(valor);
     if (isNaN(num) || num <= 0) return;
-    const prod = productos.find((p) => p.id === id);
-    if (prod && num > (prod.stockActual || 0)) {
-      mostrarMensaje("Stock insuficiente");
-      return;
-    }
     setCarrito(carrito.map((c) => (c.id === id ? { ...c, cantidad: num } : c)));
   }
 
@@ -129,52 +128,19 @@ export default function POS() {
   const total = carrito.reduce((sum, c) => sum + c.precioVenta * c.cantidad, 0);
 
   async function handleAbrirTurno() {
-    const montoStr = prompt("¿Cuánto efectivo hay en caja al iniciar el turno?", "0");
-    const montoInicial = Number(montoStr);
-    if (isNaN(montoInicial) || montoInicial < 0) {
-      alert("Ingresa un monto válido");
-      return;
-    }
     const nuevo = await salesService.createTurno(almacenId, {
       estado: "abierto",
       vendedorId: user.uid,
       vendedorNombre: userData?.nombre || user.email,
-      montoInicial,
+      montoInicial: 0,
       ventas: { efectivo: 0, tarjeta: 0, transferencia: 0, fiado: 0 },
     });
     setTurno(nuevo);
     mostrarMensaje("Turno abierto");
   }
 
-  async function calcularSaldoTurno(turnoId) {
-    const ventas = await salesService.getVentasTurno(almacenId, turnoId);
-    const fiados = await salesService.getFiadosRecuperadosTurno(almacenId, turnoId);
-
-    let efectivoVentas = 0;
-    ventas.forEach((v) => {
-      if (v.metodoPago === "efectivo") efectivoVentas += v.total || 0;
-    });
-
-    let efectivoRecuperado = 0;
-    fiados.forEach((f) => {
-      if (f.pagos) {
-        f.pagos.forEach((p) => {
-          if (p.metodo === "efectivo") efectivoRecuperado += p.monto || 0;
-        });
-      }
-    });
-
-    return {
-      montoInicial: turno?.montoInicial || 0,
-      efectivoVentas,
-      efectivoRecuperado,
-      totalEfectivo: (turno?.montoInicial || 0) + efectivoVentas + efectivoRecuperado,
-    };
-  }
-
   async function handleCerrarTurno() {
     if (!turno) return;
-    const saldo = await calcularSaldoTurno(turno.id);
     const ventasHoy = await salesService.getTodaySales(almacenId);
     const resumen = { efectivo: 0, tarjeta: 0, transferencia: 0, fiado: 0 };
     ventasHoy.forEach((v) => {
@@ -184,17 +150,7 @@ export default function POS() {
       estado: "cerrado",
       cerradoEn: new Date().toISOString(),
       ventas: resumen,
-      saldoCalculado: saldo,
     });
-
-    alert(`🧾 CIERRE DE TURNO\n\n` +
-      `Efectivo inicial: ${formatCurrency(saldo.montoInicial)}\n` +
-      `Ventas en efectivo: ${formatCurrency(saldo.efectivoVentas)}\n` +
-      `Fiados recuperados (efectivo): ${formatCurrency(saldo.efectivoRecuperado)}\n` +
-      `─────────────────────\n` +
-      `💰 TOTAL EFECTIVO ESPERADO: ${formatCurrency(saldo.totalEfectivo)}\n\n` +
-      `Revisa que el dinero en caja coincida con este monto.`);
-
     setTurno(null);
     mostrarMensaje("Turno cerrado");
   }
@@ -210,7 +166,7 @@ export default function POS() {
     try {
       for (const item of carrito) {
         const prod = await productsService.getProduct(item.id);
-        if (!prod || (prod.stockActual || 0) < item.cantidad) {
+        if (!prod || (prod.stock || 0) < item.cantidad) {
           alert(`Stock insuficiente: ${item.nombre}`);
           setLoading(false);
           return;
@@ -299,7 +255,6 @@ export default function POS() {
         <BarcodeScanner onScan={handleScan} onClose={() => setMostrarScanner(false)} />
       )}
 
-      {/* Turno */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Clock className={`w-5 h-5 ${turno ? "text-green-600" : "text-gray-400"}`} />
@@ -308,14 +263,9 @@ export default function POS() {
               {turno ? `Turno abierto - ${turno.vendedorNombre}` : "Sin turno activo"}
             </p>
             {turno && (
-              <>
-                <p className="text-sm text-gray-500">
-                  Abierto: {new Date(turno.createdAt).toLocaleTimeString("es-CL")}
-                </p>
-                <p className="text-sm text-green-600 font-medium">
-                  Efectivo inicial: {formatCurrency(turno.montoInicial || 0)}
-                </p>
-              </>
+              <p className="text-sm text-gray-500">
+                Abierto: {new Date(turno.createdAt).toLocaleTimeString("es-CL")}
+              </p>
             )}
           </div>
         </div>
@@ -337,9 +287,7 @@ export default function POS() {
       </div>
 
       <div className="grid lg:grid-cols-3 gap-6">
-        {/* Productos */}
         <div className="lg:col-span-2 space-y-4">
-          {/* Búsqueda */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
             <div className="flex gap-2">
               <div className="relative flex-1">
@@ -362,7 +310,6 @@ export default function POS() {
             </div>
           </div>
 
-          {/* Grid rápido */}
           {loadingProductos ? (
             <div className="flex items-center justify-center h-40">
               <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
@@ -380,7 +327,7 @@ export default function POS() {
                     {formatCurrency(p.precioVenta)}
                   </p>
                   <p className="text-xs text-gray-400 mt-0.5">
-                    Stock: {p.stockActual} {p.unidad}
+                    Stock: {p.stock} {p.unidad}
                   </p>
                   {p.enOferta && (
                     <span className="inline-block mt-1 text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded">
@@ -393,7 +340,6 @@ export default function POS() {
           )}
         </div>
 
-        {/* Carrito */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 flex flex-col h-fit">
           <div className="flex items-center gap-2 mb-4">
             <ShoppingCart className="w-5 h-5 text-blue-600" />
@@ -464,25 +410,28 @@ export default function POS() {
                   <span className="text-2xl font-bold text-blue-600">{formatCurrency(total)}</span>
                 </div>
 
-                {/* Métodos de pago */}
                 <div className="grid grid-cols-2 gap-2 mb-4">
-                  {METODOS_PAGO.map((mp) => (
-                    <button
-                      key={mp.value}
-                      onClick={() => setMetodoPago(mp.value)}
-                      className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition border ${
-                        metodoPago === mp.value
-                          ? `bg-${mp.color}-50 border-${mp.color}-300 text-${mp.color}-700`
-                          : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"
-                      }`}
-                    >
-                      {mp.value === "efectivo" && <DollarSign size={16} />}
-                      {mp.value === "tarjeta" && <CreditCard size={16} />}
-                      {mp.value === "transferencia" && <Smartphone size={16} />}
-                      {mp.value === "fiado" && <User size={16} />}
-                      {mp.label}
-                    </button>
-                  ))}
+                  {METODOS_PAGO.map((mp) => {
+                    const style = METODO_STYLES[mp.value];
+                    const active = metodoPago === mp.value;
+                    return (
+                      <button
+                        key={mp.value}
+                        onClick={() => setMetodoPago(mp.value)}
+                        className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition border ${
+                          active
+                            ? `${style.bg} ${style.border} ${style.text}`
+                            : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"
+                        }`}
+                      >
+                        {mp.value === "efectivo" && <DollarSign size={16} />}
+                        {mp.value === "tarjeta" && <CreditCard size={16} />}
+                        {mp.value === "transferencia" && <Smartphone size={16} />}
+                        {mp.value === "fiado" && <User size={16} />}
+                        {mp.label}
+                      </button>
+                    );
+                  })}
                 </div>
 
                 {metodoPago === "fiado" && (
@@ -529,7 +478,6 @@ export default function POS() {
         </div>
       </div>
 
-      {/* Modal editar cantidad */}
       {productoEditando && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-xl p-6 w-full max-w-xs">

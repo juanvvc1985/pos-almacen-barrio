@@ -22,15 +22,15 @@ export default function InventoryAlert() {
 
     productos.forEach((p) => {
       // Stock crítico
-      if (p.stockCritico && p.stockActual<= p.stockCritico && p.stockActual> 0) {
+      if (p.stockCritico && p.stock <= p.stockCritico && p.stock > 0) {
         alertasList.push({
           id: `stock-${p.id}`,
           tipo: "stock",
-          mensaje: `${p.nombre}: Stock bajo (${p.stockActual} ${p.unidad})`,
+          mensaje: `${p.nombre}: Stock bajo (${p.stock} ${p.unidad})`,
           producto: p,
         });
       }
-      if (p.stockActual=== 0) {
+      if (p.stock === 0) {
         alertasList.push({
           id: `sin-stock-${p.id}`,
           tipo: "sin-stock",

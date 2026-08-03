@@ -170,7 +170,6 @@ export async function toggleVendedorEstado(vendedorId, activo) {
 }
 
 export async function getVendedores(almacenId) {
-  // Solo un where para evitar índice compuesto; filtrar role localmente
   const q = query(collection(db, "users"), where("almacenId", "==", almacenId));
   const snap = await getDocs(q);
   return snap.docs
