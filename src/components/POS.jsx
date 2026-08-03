@@ -69,8 +69,18 @@ export default function POS() {
     : productos.slice(0, 20);
 
   function agregarAlCarrito(producto) {
+    // <-- Verificar stock antes de agregar
+    if ((producto.stockActual || 0) <= 0) {
+      mostrarMensaje(`Sin stockActual: ${producto.nombre}`);
+      return;
+    }
     const existente = carrito.find((c) => c.id === producto.id);
     if (existente) {
+      // <-- Verificar que no exceda el stock disponible
+      if (existente.cantidad + 1 > (producto.stockActual || 0)) {
+        mostrarMensaje(`Stock insuficiente: ${producto.nombre}`);
+        return;
+      }
       setCarrito(
         carrito.map((c) =>
           c.id === producto.id ? { ...c, cantidad: c.cantidad + 1 } : c
@@ -93,6 +103,12 @@ export default function POS() {
         if (c.id !== id) return c;
         const step = c.unidad === "kg" || c.unidad === "g" ? 0.1 : 1;
         const nueva = Math.max(step, c.cantidad + delta);
+        // <-- Verificar stock disponible
+        const prod = productos.find((p) => p.id === id);
+        if (prod && nueva > (prod.stockActual || 0)) {
+          mostrarMensaje("Stock insuficiente");
+          return c;
+        }
         return { ...c, cantidad: nueva };
       })
     );
@@ -101,6 +117,12 @@ export default function POS() {
   function setCantidadManual(id, valor) {
     const num = parseFloat(valor);
     if (isNaN(num) || num <= 0) return;
+    // <-- Verificar stock disponible
+    const prod = productos.find((p) => p.id === id);
+    if (prod && num > (prod.stockActual || 0)) {
+      mostrarMensaje("Stock insuficiente");
+      return;
+    }
     setCarrito(carrito.map((c) => (c.id === id ? { ...c, cantidad: num } : c)));
   }
 
@@ -150,7 +172,8 @@ export default function POS() {
       // Verificar stock
       for (const item of carrito) {
         const prod = await productsService.getProduct(item.id);
-        if (!prod || (prod.stock || 0) < item.cantidad) {
+        // <-- Cambiado de prod.stockActual a prod.stockActual
+        if (!prod || (prod.stockActual || 0) < item.cantidad) {
           alert(`Stock insuficiente: ${item.nombre}`);
           setLoading(false);
           return;
@@ -316,8 +339,9 @@ export default function POS() {
                   <p className="text-blue-600 font-bold text-sm mt-1">
                     {formatCurrency(p.precioVenta)}
                   </p>
+                  {/* <-- Cambiado de p.stockActuala p.stockActual */}
                   <p className="text-xs text-gray-400 mt-0.5">
-                    Stock: {p.stock} {p.unidad}
+                    stockActual: {p.stockActual} {p.unidad}
                   </p>
                   {p.enOferta && (
                     <span className="inline-block mt-1 text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded">

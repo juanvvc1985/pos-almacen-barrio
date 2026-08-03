@@ -23,9 +23,10 @@ export default function ProductManager() {
   const [cantidadStock, setCantidadStock] = useState("");
   const [loteVencimiento, setLoteVencimiento] = useState("");
 
+  // <-- Cambiado stock a stockActual en el estado del formulario
   const [form, setForm] = useState({
     nombre: "", codigoBarras: "", precioVenta: "", precioCompra: "",
-    stock: "", stockCritico: "", unidad: "unidad", categoria: "Abarrotes",
+    stockActual: "", stockCritico: "", unidad: "unidad", categoria: "Abarrotes",
     perecedero: false, diasAlertaVencimiento: 3, enOferta: false, precioOferta: "", lotes: [],
   });
 
@@ -52,7 +53,7 @@ export default function ProductManager() {
   function resetForm() {
     setForm({
       nombre: "", codigoBarras: "", precioVenta: "", precioCompra: "",
-      stock: "", stockCritico: "", unidad: "unidad", categoria: "Abarrotes",
+      stockActual: "", stockCritico: "", unidad: "unidad", categoria: "Abarrotes",
       perecedero: false, diasAlertaVencimiento: 3, enOferta: false, precioOferta: "", lotes: [],
     });
     setEditando(null);
@@ -64,7 +65,8 @@ export default function ProductManager() {
       nombre: producto.nombre || "", codigoBarras: producto.codigoBarras || "",
       precioVenta: producto.precioVenta?.toString() || "",
       precioCompra: producto.precioCompra?.toString() || "",
-      stock: producto.stock?.toString() || "",
+      // <-- Cambiado a stockActual
+      stockActual: producto.stockActual?.toString() || "",
       stockCritico: producto.stockCritico?.toString() || "",
       unidad: producto.unidad || "unidad", categoria: producto.categoria || "Abarrotes",
       perecedero: producto.perecedero || false,
@@ -81,7 +83,8 @@ export default function ProductManager() {
     const data = {
       nombre: form.nombre.trim(), codigoBarras: form.codigoBarras.trim() || null,
       precioVenta: Number(form.precioVenta) || 0, precioCompra: Number(form.precioCompra) || 0,
-      stock: Number(form.stock) || 0, stockCritico: Number(form.stockCritico) || 0,
+      // <-- Cambiado a stockActual
+      stockActual: Number(form.stockActual) || 0, stockCritico: Number(form.stockCritico) || 0,
       unidad: form.unidad, categoria: form.categoria,
       perecedero: form.perecedero, diasAlertaVencimiento: Number(form.diasAlertaVencimiento) || 3,
       enOferta: form.enOferta, precioOferta: form.enOferta ? Number(form.precioOferta) || 0 : null,
@@ -130,9 +133,10 @@ export default function ProductManager() {
     setMostrarScanner(false); setScannerMode("");
   }
 
+  // <-- Cambiado a stockActual
   function getStockStatus(producto) {
-    if (producto.stock === 0) return { label: "Sin stock", bg: "bg-red-50", text: "text-red-700" };
-    if (producto.stockCritico && producto.stock <= producto.stockCritico) return { label: "Crítico", bg: "bg-orange-50", text: "text-orange-700" };
+    if (producto.stockActual === 0) return { label: "Sin stock", bg: "bg-red-50", text: "text-red-700" };
+    if (producto.stockCritico && producto.stockActual <= producto.stockCritico) return { label: "Crítico", bg: "bg-orange-50", text: "text-orange-700" };
     return { label: "OK", bg: "bg-green-50", text: "text-green-700" };
   }
 
@@ -199,8 +203,9 @@ export default function ProductManager() {
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="0" min="0" />
             </div>
             <div>
+              {/* <-- Cambiado label y value a stockActual */}
               <label className="block text-sm font-medium text-gray-700 mb-1">Stock inicial</label>
-              <input type="number" value={form.stock} onChange={(e) => setForm({ ...form, stock: e.target.value })}
+              <input type="number" value={form.stockActual} onChange={(e) => setForm({ ...form, stockActual: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="0" min="0" step="0.01" />
             </div>
             <div>
@@ -328,7 +333,8 @@ export default function ProductManager() {
                         <p className="text-xs text-gray-400">Costo: {formatCurrency(p.precioCompra)}</p>
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <p className="font-medium text-gray-800">{p.stock} {p.unidad}</p>
+                        {/* <-- Cambiado de p.stockActuala p.stockActual */}
+                        <p className="font-medium text-gray-800">{p.stockActual} {p.unidad}</p>
                         {p.stockCritico > 0 && <p className="text-xs text-gray-400">Mín: {p.stockCritico}</p>}
                       </td>
                       <td className="px-4 py-3 text-center">
@@ -336,6 +342,7 @@ export default function ProductManager() {
                       </td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-1">
+                          {/* <-- Botón + disponible para dueño Y vendedor (ya estaba así) */}
                           <button onClick={() => handleAgregarStock(p)}
                             className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg transition" title="Agregar stock"><Plus size={16} /></button>
                           {isDueño && (

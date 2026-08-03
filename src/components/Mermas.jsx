@@ -45,8 +45,8 @@ export default function Mermas() {
       alert("Ingresa una cantidad válida");
       return;
     }
-    if (cantidad > producto.stock) {
-      alert(`Stock insuficiente. Disponible: ${producto.stock}`);
+    if (cantidad > producto.stockActual) {
+      alert(`Stock insuficiente. Disponible: ${producto.stockActual}`);
       return;
     }
 
@@ -137,7 +137,7 @@ export default function Mermas() {
                 <option value="">Seleccionar...</option>
                 {productos.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.nombre} (Stock: {p.stock} {p.unidad})
+                    {p.nombre} (stockActual: {p.stockActual} {p.unidad})
                   </option>
                 ))}
               </select>

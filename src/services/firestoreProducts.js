@@ -48,8 +48,8 @@ export async function deleteProduct(productId) {
 export async function addStock(productId, cantidad, loteData = null) {
   const product = await getProduct(productId);
   if (!product) throw new Error("Producto no encontrado");
-  const nuevoStock = (product.stock || 0) + cantidad;
-  const updates = { stock: nuevoStock, updatedAt: new Date().toISOString() };
+  const nuevoStock = (product.stockActual || 0) + cantidad;
+  const updates = { stockActual: nuevoStock, updatedAt: new Date().toISOString() };
   if (product.perecedero && loteData) {
     const lotes = product.lotes || [];
     lotes.push({
@@ -67,11 +67,11 @@ export async function addStock(productId, cantidad, loteData = null) {
 export async function discountStock(productId, cantidad) {
   const product = await getProduct(productId);
   if (!product) throw new Error("Producto no encontrado");
-  if ((product.stock || 0) < cantidad) {
+  if ((product.stockActual || 0) < cantidad) {
     throw new Error(`Stock insuficiente: ${product.nombre}`);
   }
   const updates = {
-    stock: product.stock - cantidad,
+    stockActual: product.stockActual - cantidad,
     updatedAt: new Date().toISOString(),
   };
   if (product.perecedero && product.lotes) {
