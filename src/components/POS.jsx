@@ -37,6 +37,12 @@ export default function POS() {
   const [cantidadEditando, setCantidadEditando] = useState("");
   const searchRef = useRef(null);
 
+  // Modales turno
+  const [mostrarAbrirTurno, setMostrarAbrirTurno] = useState(false);
+  const [montoInicial, setMontoInicial] = useState("");
+  const [mostrarCerrarTurno, setMostrarCerrarTurno] = useState(false);
+  const [resumenCierre, setResumenCierre] = useState(null);
+
   useEffect(() => {
     if (almacenId) {
       cargarProductos();
@@ -128,14 +134,17 @@ export default function POS() {
   const total = carrito.reduce((sum, c) => sum + c.precioVenta * c.cantidad, 0);
 
   async function handleAbrirTurno() {
+    const monto = Number(montoInicial) || 0;
     const nuevo = await salesService.createTurno(almacenId, {
       estado: "abierto",
       vendedorId: user.uid,
       vendedorNombre: userData?.nombre || user.email,
-      montoInicial: 0,
+      montoInicial: monto,
       ventas: { efectivo: 0, tarjeta: 0, transferencia: 0, fiado: 0 },
     });
     setTurno(nuevo);
+    setMostrarAbrirTurno(false);
+    setMontoInicial("");
     mostrarMensaje("Turno abierto");
   }
 
@@ -146,12 +155,33 @@ export default function POS() {
     ventasHoy.forEach((v) => {
       if (resumen[v.metodoPago] !== undefined) resumen[v.metodoPago] += v.total;
     });
+    const totalVentas = Object.values(resumen).reduce((a, b) => a + b, 0);
+    const efectivoEnCaja = (turno.montoInicial || 0) + (resumen.efectivo || 0);
+
+    setResumenCierre({
+      ...resumen,
+      totalVentas,
+      efectivoEnCaja,
+      montoInicial: turno.montoInicial || 0,
+    });
+    setMostrarCerrarTurno(true);
+  }
+
+  async function confirmarCerrarTurno() {
+    if (!turno || !resumenCierre) return;
     await salesService.updateTurno(turno.id, {
       estado: "cerrado",
       cerradoEn: new Date().toISOString(),
-      ventas: resumen,
+      ventas: {
+        efectivo: resumenCierre.efectivo,
+        tarjeta: resumenCierre.tarjeta,
+        transferencia: resumenCierre.transferencia,
+        fiado: resumenCierre.fiado,
+      },
     });
     setTurno(null);
+    setMostrarCerrarTurno(false);
+    setResumenCierre(null);
     mostrarMensaje("Turno cerrado");
   }
 
@@ -255,6 +285,65 @@ export default function POS() {
         <BarcodeScanner onScan={handleScan} onClose={() => setMostrarScanner(false)} />
       )}
 
+      {/* Modal Abrir Turno */}
+      {mostrarAbrirTurno && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl p-6 w-full max-w-sm">
+            <h3 className="font-bold text-gray-800 mb-1">Abrir Turno</h3>
+            <p className="text-sm text-gray-500 mb-4">Ingresa el efectivo inicial en caja</p>
+            <div className="flex items-center gap-2 mb-4">
+              <DollarSign size={18} className="text-gray-400" />
+              <input
+                type="number"
+                value={montoInicial}
+                onChange={(e) => setMontoInicial(e.target.value)}
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-lg font-mono text-center outline-none focus:ring-2 focus:ring-green-500"
+                placeholder="0"
+                min="0"
+                autoFocus
+              />
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setMostrarAbrirTurno(false)} className="flex-1 py-2 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50">
+                Cancelar
+              </button>
+              <button onClick={handleAbrirTurno} className="flex-1 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center justify-center gap-2">
+                <Check size={16} /> Abrir Turno
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Cerrar Turno */}
+      {mostrarCerrarTurno && resumenCierre && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl p-6 w-full max-w-sm">
+            <h3 className="font-bold text-gray-800 mb-1">Cerrar Turno</h3>
+            <p className="text-sm text-gray-500 mb-4">Resumen del turno para cuadrar caja</p>
+            <div className="space-y-2 text-sm mb-4">
+              <div className="flex justify-between"><span className="text-gray-500">Efectivo inicial:</span><span className="font-medium">{formatCurrency(resumenCierre.montoInicial)}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">Ventas efectivo:</span><span className="font-medium text-green-600">{formatCurrency(resumenCierre.efectivo)}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">Ventas tarjeta:</span><span className="font-medium text-blue-600">{formatCurrency(resumenCierre.tarjeta)}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">Transferencias:</span><span className="font-medium text-purple-600">{formatCurrency(resumenCierre.transferencia)}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">Fiados:</span><span className="font-medium text-orange-600">{formatCurrency(resumenCierre.fiado)}</span></div>
+              <div className="border-t pt-2 flex justify-between text-base font-bold"><span>Total ventas:</span><span>{formatCurrency(resumenCierre.totalVentas)}</span></div>
+              <div className="flex justify-between text-base font-bold text-green-700 bg-green-50 px-3 py-2 rounded-lg">
+                <span>Efectivo en caja:</span><span>{formatCurrency(resumenCierre.efectivoEnCaja)}</span>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setMostrarCerrarTurno(false)} className="flex-1 py-2 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50">
+                Cancelar
+              </button>
+              <button onClick={confirmarCerrarTurno} className="flex-1 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 flex items-center justify-center gap-2">
+                <Check size={16} /> Cerrar y Guardar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Clock className={`w-5 h-5 ${turno ? "text-green-600" : "text-gray-400"}`} />
@@ -265,6 +354,7 @@ export default function POS() {
             {turno && (
               <p className="text-sm text-gray-500">
                 Abierto: {new Date(turno.createdAt).toLocaleTimeString("es-CL")}
+                {turno.montoInicial > 0 && ` • Efectivo inicial: ${formatCurrency(turno.montoInicial)}`}
               </p>
             )}
           </div>
@@ -278,7 +368,7 @@ export default function POS() {
           </button>
         ) : (
           <button
-            onClick={handleAbrirTurno}
+            onClick={() => setMostrarAbrirTurno(true)}
             className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition"
           >
             Abrir Turno

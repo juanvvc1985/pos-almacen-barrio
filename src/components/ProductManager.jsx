@@ -10,6 +10,17 @@ import {
   Loader2
 } from "lucide-react";
 
+function generateId() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
 export default function ProductManager() {
   const { almacenId, isDueño } = useAuth();
   const [productos, setProductos] = useState([]);
@@ -27,6 +38,7 @@ export default function ProductManager() {
     nombre: "", codigoBarras: "", precioVenta: "", precioCompra: "",
     stock: "", stockCritico: "", unidad: "unidad", categoria: "Abarrotes",
     perecedero: false, diasAlertaVencimiento: 3, enOferta: false, precioOferta: "", lotes: [],
+    fechaVencimiento: "",
   });
 
   useEffect(() => {
@@ -54,6 +66,7 @@ export default function ProductManager() {
       nombre: "", codigoBarras: "", precioVenta: "", precioCompra: "",
       stock: "", stockCritico: "", unidad: "unidad", categoria: "Abarrotes",
       perecedero: false, diasAlertaVencimiento: 3, enOferta: false, precioOferta: "", lotes: [],
+      fechaVencimiento: "",
     });
     setEditando(null);
   }
@@ -71,6 +84,7 @@ export default function ProductManager() {
       diasAlertaVencimiento: producto.diasAlertaVencimiento || 3,
       enOferta: producto.enOferta || false,
       precioOferta: producto.precioOferta?.toString() || "", lotes: producto.lotes || [],
+      fechaVencimiento: "",
     });
     setEditando(producto.id);
     setMostrarForm(true);
@@ -87,6 +101,17 @@ export default function ProductManager() {
       enOferta: form.enOferta, precioOferta: form.enOferta ? Number(form.precioOferta) || 0 : null,
       lotes: form.lotes || [],
     };
+
+    // Si es perecedero y se ingresó fecha de vencimiento, crear lote inicial
+    if (form.perecedero && form.fechaVencimiento) {
+      data.lotes = [{
+        id: generateId(),
+        cantidad: data.stock,
+        fechaVencimiento: form.fechaVencimiento,
+        fechaIngreso: new Date().toISOString(),
+      }];
+    }
+
     if (!data.nombre) { alert("El nombre es obligatorio"); return; }
     try {
       if (editando) await productsService.updateProduct(editando, data);
@@ -146,12 +171,10 @@ export default function ProductManager() {
           <Package className="w-6 h-6 text-blue-600" /> Productos
         </h1>
         <div className="flex gap-2">
-          {isDueño && (
-            <button onClick={() => { resetForm(); setMostrarForm(true); }}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2">
-              <Plus size={18} /> Nuevo Producto
-            </button>
-          )}
+          <button onClick={() => { resetForm(); setMostrarForm(true); }}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2">
+            <Plus size={18} /> Nuevo Producto
+          </button>
           <button onClick={() => { setScannerMode("stock"); setMostrarScanner(true); }}
             className="bg-green-100 hover:bg-green-200 text-green-700 px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2">
             <ScanLine size={18} /> Escanear Stock
@@ -168,7 +191,7 @@ export default function ProductManager() {
         </div>
       </div>
 
-      {mostrarForm && isDueño && (
+      {mostrarForm && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-bold text-gray-800">{editando ? "Editar Producto" : "Nuevo Producto"}</h2>
@@ -230,13 +253,20 @@ export default function ProductManager() {
               </label>
             </div>
             {form.perecedero && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Días de alerta antes de vencer</label>
-                <select value={form.diasAlertaVencimiento} onChange={(e) => setForm({ ...form, diasAlertaVencimiento: Number(e.target.value) })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
-                  {DIAS_ALERTA_VENCIMIENTO.map((d) => <option key={d} value={d}>{d} días</option>)}
-                </select>
-              </div>
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Días de alerta antes de vencer</label>
+                  <select value={form.diasAlertaVencimiento} onChange={(e) => setForm({ ...form, diasAlertaVencimiento: Number(e.target.value) })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                    {DIAS_ALERTA_VENCIMIENTO.map((d) => <option key={d} value={d}>{d} días</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de vencimiento del producto</label>
+                  <input type="date" value={form.fechaVencimiento} onChange={(e) => setForm({ ...form, fechaVencimiento: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+                </div>
+              </>
             )}
             <div className="md:col-span-2">
               <label className="flex items-center gap-2 cursor-pointer">

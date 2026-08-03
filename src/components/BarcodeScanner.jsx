@@ -1,71 +1,56 @@
 import { useEffect, useRef, useState } from "react";
-import { Html5Qrcode } from "html5-qrcode";
+import { Html5Qrcode, Html5QrcodeScannerState } from "html5-qrcode";
 import { X, Camera } from "lucide-react";
 
 export default function BarcodeScanner({ onScan, onClose }) {
   const [error, setError] = useState("");
-  const [ready, setReady] = useState(false);
   const scannerRef = useRef(null);
   const containerRef = useRef(null);
-  const onScanRef = useRef(onScan);
-  const onCloseRef = useRef(onClose);
-
-  // Mantener refs actualizadas sin reiniciar el scanner
-  useEffect(() => {
-    onScanRef.current = onScan;
-    onCloseRef.current = onClose;
-  }, [onScan, onClose]);
+  const activeRef = useRef(true);
 
   useEffect(() => {
     if (!containerRef.current) return;
+    activeRef.current = true;
 
     const scanner = new Html5Qrcode("scanner-container");
     scannerRef.current = scanner;
 
-    const config = {
-      fps: 10,
-      qrbox: { width: 250, height: 250 },
-      aspectRatio: 1.0,
-    };
-
-    Html5Qrcode.getCameras()
-      .then((cameras) => {
-        if (cameras && cameras.length) {
-          const cameraId = cameras.find((c) => c.label.toLowerCase().includes("back"))?.id || cameras[0].id;
-          return scanner.start(
-            { deviceId: { exact: cameraId } },
-            config,
-            (decodedText) => {
-              onScanRef.current(decodedText);
-              onCloseRef.current();
-            },
-            () => {}
-          );
-        } else {
-          return scanner.start(
-            { facingMode: "environment" },
-            config,
-            (decodedText) => {
-              onScanRef.current(decodedText);
-              onCloseRef.current();
-            },
-            () => {}
-          );
+    scanner
+      .start(
+        { facingMode: "environment" },
+        { fps: 10, qrbox: { width: 250, height: 250 } },
+        (decodedText) => {
+          onScan(decodedText);
+          onClose();
+        },
+        () => {}
+      )
+      .then(() => {
+        if (!activeRef.current) {
+          scanner
+            .stop()
+            .then(() => scanner.clear())
+            .catch(() => {});
         }
       })
-      .then(() => setReady(true))
       .catch((err) => {
-        setError("No se pudo iniciar la cámara. Verifica los permisos.");
+        if (activeRef.current) {
+          setError("No se pudo iniciar la cámara. Asegúrate de dar permisos.");
+        }
         console.error(err);
       });
 
     return () => {
-      if (scannerRef.current) {
-        scannerRef.current.stop().catch(() => {});
-        scannerRef.current.clear().catch(() => {});
+      activeRef.current = false;
+      const s = scannerRef.current;
+      if (!s) return;
+      if (s.getState() === Html5QrcodeScannerState.SCANNING) {
+        s.stop()
+          .then(() => s.clear())
+          .catch(() => {});
       }
     };
-  }, []);
+  }, [onScan, onClose]);
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-90 z-50 flex flex-col items-center justify-center p-4">
@@ -96,7 +81,7 @@ export default function BarcodeScanner({ onScan, onClose }) {
         />
 
         <p className="text-white/70 text-sm text-center mt-4">
-          {ready ? "Apunta la cámara al código de barras" : "Iniciando cámara..."}
+          Apunta la cámara al código de barras
         </p>
       </div>
     </div>
