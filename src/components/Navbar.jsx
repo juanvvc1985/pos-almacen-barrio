@@ -2,6 +2,7 @@ import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { salesService } from "../services/firestoreSales";
 import { formatCurrency } from "../utils/format";
+import PlanBadge from "../components/PlanBadge";
 import { 
   ShoppingCart, Package, BarChart3, AlertTriangle, 
   Users, Tag, LogOut, Menu, X, UserPlus 
@@ -87,6 +88,7 @@ export default function Navbar() {
               ))}
             </div>
             <div className="hidden md:flex items-center gap-4">
+              <PlanBadge />
               <span className="text-sm text-gray-500">
                 {userData?.nombre} • {isDueño ? "Dueño" : "Vendedor"}
               </span>

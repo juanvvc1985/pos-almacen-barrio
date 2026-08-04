@@ -1,13 +1,14 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { productsService } from "../services/firestoreProducts";
+import { puedeCrearProducto, LIMITES } from "../services/planLimits";
 import { UNIDADES, CATEGORIAS, DIAS_ALERTA_VENCIMIENTO } from "../types/index";
 import { formatCurrency } from "../utils/format";
 import BarcodeScanner from "./BarcodeScanner";
 import InventoryAlert from "./InventoryAlert";
 import {
   Search, Plus, Edit2, Trash2, Package, X, Check, ScanLine,
-  Loader2
+  Loader2, Crown, AlertTriangle
 } from "lucide-react";
 
 function generateId() {
@@ -33,6 +34,7 @@ export default function ProductManager() {
   const [productoStock, setProductoStock] = useState(null);
   const [cantidadStock, setCantidadStock] = useState("");
   const [loteVencimiento, setLoteVencimiento] = useState("");
+  const [planInfo, setPlanInfo] = useState({ plan: "basico", usados: 0, limite: 500, permitido: true });
 
   const [form, setForm] = useState({
     nombre: "", codigoBarras: "", precioVenta: "", precioCompra: "",
@@ -42,7 +44,10 @@ export default function ProductManager() {
   });
 
   useEffect(() => {
-    if (almacenId) cargarProductos();
+    if (almacenId) {
+      cargarProductos();
+      cargarPlanInfo();
+    }
   }, [almacenId]);
 
   async function cargarProductos() {
@@ -50,6 +55,16 @@ export default function ProductManager() {
     const data = await productsService.getProducts(almacenId);
     setProductos(data);
     setLoading(false);
+  }
+
+  async function cargarPlanInfo() {
+    const r = await puedeCrearProducto(almacenId);
+    setPlanInfo({
+      plan: r.plan || "basico",
+      usados: r.usados ?? productos.length,
+      limite: r.limite ?? 500,
+      permitido: r.permitido,
+    });
   }
 
   const productosFiltrados = search.trim()
@@ -91,7 +106,6 @@ export default function ProductManager() {
   }
 
   async function handleGuardar() {
-    // VENDEDOR Y DUEÑO pueden crear productos
     const data = {
       nombre: form.nombre.trim(), codigoBarras: form.codigoBarras.trim() || null,
       precioVenta: Number(form.precioVenta) || 0, precioCompra: Number(form.precioCompra) || 0,
@@ -114,13 +128,13 @@ export default function ProductManager() {
     if (!data.nombre) { alert("El nombre es obligatorio"); return; }
     try {
       if (editando) {
-        // Solo dueño puede editar
         if (!isDueño) { alert("Solo el dueño puede editar productos"); return; }
         await productsService.updateProduct(editando, data);
       } else {
         await productsService.createProduct(almacenId, data);
       }
       await cargarProductos();
+      await cargarPlanInfo();
       setMostrarForm(false); resetForm();
     } catch (err) { alert("Error al guardar: " + err.message); }
   }
@@ -130,6 +144,7 @@ export default function ProductManager() {
     if (!confirm("¿Eliminar este producto permanentemente?")) return;
     await productsService.deleteProduct(id);
     await cargarProductos();
+    await cargarPlanInfo();
   }
 
   async function handleAgregarStock(producto) {
@@ -140,7 +155,7 @@ export default function ProductManager() {
   async function confirmarAgregarStock() {
     if (!productoStock || !cantidadStock) return;
     const cantidad = Number(cantidadStock);
-    if (isNaN(cantidad) || cantidad <= 0) { alert("Ingresa una cantidad válida"); return; }
+    if (isNaN(cantidad) || cantidad <= 0) { alert("Ingresa una cantidad valida"); return; }
     const loteData = productoStock.perecedero && loteVencimiento ? { fechaVencimiento: loteVencimiento } : null;
     try {
       await productsService.addStock(productoStock.id, cantidad, loteData);
@@ -161,9 +176,11 @@ export default function ProductManager() {
 
   function getStockStatus(producto) {
     if (producto.stock === 0) return { label: "Sin stock", bg: "bg-red-50", text: "text-red-700" };
-    if (producto.stockCritico && producto.stock <= producto.stockCritico) return { label: "Crítico", bg: "bg-orange-50", text: "text-orange-700" };
+    if (producto.stockCritico && producto.stock <= producto.stockCritico) return { label: "Critico", bg: "bg-orange-50", text: "text-orange-700" };
     return { label: "OK", bg: "bg-green-50", text: "text-green-700" };
   }
+
+  const alLimite = planInfo.usados >= planInfo.limite && planInfo.limite !== Infinity;
 
   return (
     <div>
@@ -176,7 +193,8 @@ export default function ProductManager() {
         </h1>
         <div className="flex gap-2">
           <button onClick={() => { resetForm(); setMostrarForm(true); }}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2">
+            disabled={alLimite && !editando}
+            className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2">
             <Plus size={18} /> Nuevo Producto
           </button>
           <button onClick={() => { setScannerMode("stock"); setMostrarScanner(true); }}
@@ -186,11 +204,35 @@ export default function ProductManager() {
         </div>
       </div>
 
+      <div className={`flex items-center justify-between mb-4 p-3 rounded-lg border text-sm ${
+        planInfo.plan === "pro"
+          ? "bg-purple-50 border-purple-200 text-purple-700"
+          : "bg-gray-50 border-gray-200 text-gray-600"
+      }`}>
+        <div className="flex items-center gap-2">
+          <Crown size={16} />
+          <span className="font-medium">Plan {planInfo.plan.toUpperCase()}</span>
+          <span>• Productos: {planInfo.usados} / {planInfo.limite === Infinity ? "∞" : planInfo.limite}</span>
+        </div>
+        {planInfo.plan === "basico" && (
+          <span className="text-xs bg-white px-2 py-1 rounded border border-gray-200">
+            Upgrade a Pro para productos ilimitados
+          </span>
+        )}
+      </div>
+
+      {alLimite && (
+        <div className="bg-orange-50 border border-orange-200 text-orange-700 px-4 py-3 rounded-lg mb-4 text-sm flex items-center gap-2">
+          <AlertTriangle size={16} />
+          Has alcanzado el limite de productos de tu plan. Elimina productos o actualiza a Pro.
+        </div>
+      )}
+
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-4">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
           <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar por nombre, código o categoría..."
+            placeholder="Buscar por nombre, codigo o categoria..."
             className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
         </div>
       </div>
@@ -208,7 +250,7 @@ export default function ProductManager() {
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Ej: Harina 1kg" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Código de barras</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Codigo de barras</label>
               <div className="flex gap-2">
                 <input type="text" value={form.codigoBarras} onChange={(e) => setForm({ ...form, codigoBarras: e.target.value })}
                   className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Escanea o escribe" />
@@ -231,7 +273,7 @@ export default function ProductManager() {
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="0" min="0" step="0.01" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Stock crítico (alerta)</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Stock critico (alerta)</label>
               <input type="number" value={form.stockCritico} onChange={(e) => setForm({ ...form, stockCritico: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="5" min="0" step="0.01" />
             </div>
@@ -243,7 +285,7 @@ export default function ProductManager() {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Categoría</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Categoria</label>
               <select value={form.categoria} onChange={(e) => setForm({ ...form, categoria: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
                 {CATEGORIAS.map((c) => <option key={c} value={c}>{c}</option>)}
@@ -259,10 +301,10 @@ export default function ProductManager() {
             {form.perecedero && (
               <>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Días de alerta antes de vencer</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Dias de alerta antes de vencer</label>
                   <select value={form.diasAlertaVencimiento} onChange={(e) => setForm({ ...form, diasAlertaVencimiento: Number(e.target.value) })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
-                    {DIAS_ALERTA_VENCIMIENTO.map((d) => <option key={d} value={d}>{d} días</option>)}
+                    {DIAS_ALERTA_VENCIMIENTO.map((d) => <option key={d} value={d}>{d} dias</option>)}
                   </select>
                 </div>
                 <div>
@@ -363,7 +405,7 @@ export default function ProductManager() {
                       </td>
                       <td className="px-4 py-3 text-right">
                         <p className="font-medium text-gray-800">{p.stock} {p.unidad}</p>
-                        {p.stockCritico > 0 && <p className="text-xs text-gray-400">Mín: {p.stockCritico}</p>}
+                        {p.stockCritico > 0 && <p className="text-xs text-gray-400">Min: {p.stockCritico}</p>}
                       </td>
                       <td className="px-4 py-3 text-center">
                         <span className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${status.bg} ${status.text}`}>{status.label}</span>

@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { usersService } from "../services/firestoreUsers";
-import { UserPlus, Trash2, Edit2, Check, X, Loader2, UserCheck, UserX } from "lucide-react";
+import { puedeCrearVendedor, LIMITES } from "../services/planLimits";
+import { UserPlus, Trash2, UserCheck, UserX, Loader2, Crown, AlertTriangle } from "lucide-react";
 
 export default function AdminVendedores() {
   const { userData } = useAuth();
@@ -10,16 +11,30 @@ export default function AdminVendedores() {
   const [mostrarForm, setMostrarForm] = useState(false);
   const [form, setForm] = useState({ username: "", password: "", nombre: "" });
   const [error, setError] = useState("");
+  const [planInfo, setPlanInfo] = useState({ plan: "basico", usados: 0, limite: 1, permitido: true });
 
   useEffect(() => {
-    if (userData?.almacenId) cargarVendedores();
+    if (userData?.almacenId) {
+      cargarTodo();
+    }
   }, [userData]);
 
-  async function cargarVendedores() {
+  async function cargarTodo() {
     setLoading(true);
     const data = await usersService.getVendedores(userData.almacenId);
     setVendedores(data);
+    await cargarPlanInfo(data.length);
     setLoading(false);
+  }
+
+  async function cargarPlanInfo(cantidadActual = null) {
+    const r = await puedeCrearVendedor(userData.almacenId);
+    setPlanInfo({
+      plan: r.plan || "basico",
+      usados: r.usados ?? cantidadActual ?? vendedores.length,
+      limite: r.limite ?? 1,
+      permitido: r.permitido,
+    });
   }
 
   async function handleCrear(e) {
@@ -34,28 +49,30 @@ export default function AdminVendedores() {
       });
       setForm({ username: "", password: "", nombre: "" });
       setMostrarForm(false);
-      await cargarVendedores();
+      await cargarTodo();
     } catch (err) {
       setError(err.message || "Error al crear vendedor");
     }
   }
 
   async function toggleActivo(vendedor) {
-    await usersService.updateVendedor(vendedor.uid, { activo: !vendedor.activo });
-    await cargarVendedores();
+    await usersService.updateVendedor(vendedor.id, { activo: !vendedor.activo });
+    await cargarTodo();
   }
 
-  // ✅ CORREGIDO: pasar el username para liberarlo
   async function handleEliminar(vendedor) {
-    if (!confirm(`¿Eliminar permanentemente a ${vendedor.nombre}?\\n\\nEsta acción no se puede deshacer.`)) return;
+    if (!confirm(`¿Eliminar permanentemente a ${vendedor.nombre}?\n\nEsta acción no se puede deshacer.`)) return;
     try {
-      await usersService.deleteVendedor(vendedor.uid, vendedor.username);
-      await cargarVendedores();
+      // Usar vendedor.id (doc ID = uid) y vendedor.username
+      await usersService.deleteVendedor(vendedor.id, vendedor.username);
+      await cargarTodo();
     } catch (err) {
       alert("Error al eliminar: " + (err.message || "Verifica las reglas de Firestore"));
       console.error(err);
     }
   }
+
+  const alLimite = planInfo.usados >= planInfo.limite && planInfo.limite !== Infinity;
 
   if (loading) {
     return (
@@ -73,11 +90,36 @@ export default function AdminVendedores() {
         </h1>
         <button
           onClick={() => setMostrarForm(!mostrarForm)}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2"
+          disabled={alLimite}
+          className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2"
         >
           <UserPlus size={18} /> Nuevo Vendedor
         </button>
       </div>
+
+      <div className={`flex items-center justify-between mb-4 p-3 rounded-lg border text-sm ${
+        planInfo.plan === "pro"
+          ? "bg-purple-50 border-purple-200 text-purple-700"
+          : "bg-gray-50 border-gray-200 text-gray-600"
+      }`}>
+        <div className="flex items-center gap-2">
+          <Crown size={16} />
+          <span className="font-medium">Plan {planInfo.plan.toUpperCase()}</span>
+          <span>• Vendedores: {planInfo.usados} / {planInfo.limite === Infinity ? "∞" : planInfo.limite}</span>
+        </div>
+        {planInfo.plan === "basico" && (
+          <span className="text-xs bg-white px-2 py-1 rounded border border-gray-200">
+            Upgrade a Pro para vendedores ilimitados
+          </span>
+        )}
+      </div>
+
+      {alLimite && (
+        <div className="bg-orange-50 border border-orange-200 text-orange-700 px-4 py-3 rounded-lg mb-4 text-sm flex items-center gap-2">
+          <AlertTriangle size={16} />
+          Has alcanzado el límite de vendedores de tu plan. Elimina uno o actualiza a Pro.
+        </div>
+      )}
 
       {mostrarForm && (
         <form onSubmit={handleCrear} className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
@@ -86,34 +128,19 @@ export default function AdminVendedores() {
           <div className="grid md:grid-cols-3 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Nombre</label>
-              <input
-                type="text"
-                value={form.nombre}
-                onChange={(e) => setForm({ ...form, nombre: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                required
-              />
+              <input type="text" value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" required />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Usuario (login)</label>
-              <input
-                type="text"
-                value={form.username}
-                onChange={(e) => setForm({ ...form, username: e.target.value.toLowerCase().replace(/\\s/g, "") })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                required
-              />
+              <input type="text" value={form.username}
+                onChange={(e) => setForm({ ...form, username: e.target.value.toLowerCase().replace(/\s/g, "") })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" required />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Contraseña</label>
-              <input
-                type="password"
-                value={form.password}
-                onChange={(e) => setForm({ ...form, password: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                required
-                minLength={6}
-              />
+              <input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" required minLength={6} />
             </div>
           </div>
           <div className="flex gap-3 mt-4">
@@ -139,7 +166,7 @@ export default function AdminVendedores() {
           </thead>
           <tbody className="divide-y divide-gray-100">
             {vendedores.map((v) => (
-              <tr key={v.uid} className="hover:bg-gray-50">
+              <tr key={v.id} className="hover:bg-gray-50">
                 <td className="px-4 py-3 font-medium text-gray-800">{v.nombre}</td>
                 <td className="px-4 py-3 text-gray-600">{v.username}</td>
                 <td className="px-4 py-3">
@@ -150,18 +177,13 @@ export default function AdminVendedores() {
                 </td>
                 <td className="px-4 py-3 text-right">
                   <div className="flex items-center justify-end gap-2">
-                    <button
-                      onClick={() => toggleActivo(v)}
+                    <button onClick={() => toggleActivo(v)}
                       className={`p-1.5 rounded-lg transition ${v.activo ? "text-amber-600 hover:bg-amber-50" : "text-green-600 hover:bg-green-50"}`}
-                      title={v.activo ? "Desactivar" : "Activar"}
-                    >
+                      title={v.activo ? "Desactivar" : "Activar"}>
                       {v.activo ? <UserX size={16} /> : <UserCheck size={16} />}
                     </button>
-                    <button
-                      onClick={() => handleEliminar(v)}
-                      className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition"
-                      title="Eliminar"
-                    >
+                    <button onClick={() => handleEliminar(v)}
+                      className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition" title="Eliminar">
                       <Trash2 size={16} />
                     </button>
                   </div>

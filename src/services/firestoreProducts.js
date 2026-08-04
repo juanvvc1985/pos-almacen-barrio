@@ -4,6 +4,7 @@ import {
   collection, query, where, getDocs, addDoc,
   runTransaction,
 } from "firebase/firestore";
+import { puedeCrearProducto } from "./planLimits";
 
 const COLLECTION = "productos";
 
@@ -36,6 +37,9 @@ export async function getProduct(productId) {
 }
 
 export async function createProduct(almacenId, productData) {
+  const check = await puedeCrearProducto(almacenId);
+  if (!check.permitido) throw new Error(check.mensaje);
+
   const data = {
     ...productData,
     almacenId,
@@ -56,7 +60,6 @@ export async function deleteProduct(productId) {
   await deleteDoc(doc(db, COLLECTION, productId));
 }
 
-// ✅ TRANSACCIÓN ATÓMICA — evita stock negativo cuando 2 vendedores venden simultáneo
 export async function addStock(productId, cantidad, loteData = null) {
   const productRef = doc(db, COLLECTION, productId);
 
@@ -84,7 +87,6 @@ export async function addStock(productId, cantidad, loteData = null) {
   });
 }
 
-// ✅ TRANSACCIÓN ATÓMICA — lectura + verificación + escritura en bloque
 export async function discountStock(productId, cantidad) {
   const productRef = doc(db, COLLECTION, productId);
 
@@ -104,7 +106,6 @@ export async function discountStock(productId, cantidad) {
       updatedAt: new Date().toISOString(),
     };
 
-    // FIFO lotes perecederos dentro de la misma transacción
     if (product.perecedero && product.lotes) {
       let restante = cantidad;
       const lotes = [...product.lotes].sort(
