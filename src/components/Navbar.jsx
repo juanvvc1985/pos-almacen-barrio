@@ -126,7 +126,6 @@ export default function Navbar() {
         )}
       </nav>
 
-      {/* Modal cierre de turno al logout */}
       {mostrarCierreLogout && resumenLogout && (
         <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
           <div className="bg-white rounded-xl p-6 w-full max-w-sm">

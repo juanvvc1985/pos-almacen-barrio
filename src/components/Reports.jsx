@@ -11,7 +11,7 @@ import autoTable from "jspdf-autotable";
 import {
   BarChart3, Download, Calendar, TrendingUp, Package,
   DollarSign, CreditCard, Smartphone, Users, AlertTriangle,
-  Loader2, Search, ArrowUpDown
+  Loader2, Search, ArrowUpDown, Repeat
 } from "lucide-react";
 
 const COLORS = ["#3b82f6", "#10b981", "#8b5cf6", "#f59e0b", "#ef4444", "#6b7280"];
@@ -70,15 +70,32 @@ export default function Reports() {
     ? ventas.filter((v) => v.createdAt >= fechaFiltro)
     : ventas;
 
-  const totalVentas = ventasFiltradas.reduce((s, v) => s + (v.total || 0), 0);
-  const porMetodo = {};
-  ventasFiltradas.forEach((v) => {
-    porMetodo[v.metodoPago] = (porMetodo[v.metodoPago] || 0) + (v.total || 0);
+  // Separar ventas normales de recuperaciones de fiado
+  const ventasNormales = ventasFiltradas.filter((v) => v.tipo !== "fiado-recuperado");
+  const recuperacionesFiado = ventasFiltradas.filter((v) => v.tipo === "fiado-recuperado");
+
+  // Totales por método para ventas normales
+  const porMetodoVentas = { efectivo: 0, tarjeta: 0, transferencia: 0, fiado: 0 };
+  ventasNormales.forEach((v) => {
+    if (porMetodoVentas[v.metodoPago] !== undefined) porMetodoVentas[v.metodoPago] += v.total || 0;
   });
-  const chartData = Object.entries(porMetodo).map(([name, value]) => ({
-    name: name.charAt(0).toUpperCase() + name.slice(1),
-    value,
-  }));
+
+  // Totales por método para recuperaciones de fiado
+  const porMetodoRecuperacion = { efectivo: 0, tarjeta: 0, transferencia: 0 };
+  recuperacionesFiado.forEach((v) => {
+    if (porMetodoRecuperacion[v.metodoPago] !== undefined) porMetodoRecuperacion[v.metodoPago] += v.total || 0;
+  });
+
+  const totalVentasNormales = ventasNormales.reduce((s, v) => s + (v.total || 0), 0);
+  const totalRecuperaciones = recuperacionesFiado.reduce((s, v) => s + (v.total || 0), 0);
+  const totalVentasGlobal = totalVentasNormales + totalRecuperaciones;
+
+  // Datos para gráfico de barras agrupado
+  const chartData = [
+    { name: "Efectivo", venta: porMetodoVentas.efectivo || 0, recuperacion: porMetodoRecuperacion.efectivo || 0 },
+    { name: "Tarjeta", venta: porMetodoVentas.tarjeta || 0, recuperacion: porMetodoRecuperacion.tarjeta || 0 },
+    { name: "Transferencia", venta: porMetodoVentas.transferencia || 0, recuperacion: porMetodoRecuperacion.transferencia || 0 },
+  ];
 
   const fiadosPendientes = fiados.filter((f) => f.estado === "pendiente" || f.estado === "parcial");
   const totalFiadoPendiente = fiadosPendientes.reduce((s, f) => s + ((f.total || 0) - (f.pagos?.reduce((p, pay) => p + (pay.monto || 0), 0) || 0)), 0);
@@ -212,35 +229,68 @@ export default function Reports() {
             ))}
           </div>
 
+          {/* Resumen desglosado */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
               <p className="text-sm text-gray-500">Total Ventas</p>
-              <p className="text-2xl font-bold text-gray-800">{formatCurrency(totalVentas)}</p>
+              <p className="text-2xl font-bold text-gray-800">{formatCurrency(totalVentasGlobal)}</p>
             </div>
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-              <p className="text-sm text-gray-500">Efectivo</p>
-              <p className="text-2xl font-bold text-green-600">{formatCurrency(porMetodo.efectivo || 0)}</p>
+              <p className="text-sm text-gray-500">Ventas Normales</p>
+              <p className="text-2xl font-bold text-blue-600">{formatCurrency(totalVentasNormales)}</p>
             </div>
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-              <p className="text-sm text-gray-500">Tarjeta</p>
-              <p className="text-2xl font-bold text-blue-600">{formatCurrency(porMetodo.tarjeta || 0)}</p>
+              <p className="text-sm text-gray-500">Recuperación Fiados</p>
+              <p className="text-2xl font-bold text-green-600">{formatCurrency(totalRecuperaciones)}</p>
             </div>
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-              <p className="text-sm text-gray-500">Transferencia</p>
-              <p className="text-2xl font-bold text-purple-600">{formatCurrency(porMetodo.transferencia || 0)}</p>
+              <p className="text-sm text-gray-500">Fiados (crédito)</p>
+              <p className="text-2xl font-bold text-orange-600">{formatCurrency(porMetodoVentas.fiado || 0)}</p>
             </div>
           </div>
 
-          {chartData.length > 0 && (
+          {/* Desglose por método */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <h3 className="font-semibold text-gray-800 mb-4">Desglose por método de pago</h3>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
+              <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                <p className="text-xs text-green-700 font-medium">Efectivo — Ventas</p>
+                <p className="text-xl font-bold text-green-800">{formatCurrency(porMetodoVentas.efectivo)}</p>
+              </div>
+              <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                <p className="text-xs text-green-700 font-medium">Efectivo — Recuperación</p>
+                <p className="text-xl font-bold text-green-800">{formatCurrency(porMetodoRecuperacion.efectivo)}</p>
+              </div>
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                <p className="text-xs text-blue-700 font-medium">Tarjeta — Ventas</p>
+                <p className="text-xl font-bold text-blue-800">{formatCurrency(porMetodoVentas.tarjeta)}</p>
+              </div>
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                <p className="text-xs text-blue-700 font-medium">Tarjeta — Recuperación</p>
+                <p className="text-xl font-bold text-blue-800">{formatCurrency(porMetodoRecuperacion.tarjeta)}</p>
+              </div>
+              <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
+                <p className="text-xs text-purple-700 font-medium">Transferencia — Ventas</p>
+                <p className="text-xl font-bold text-purple-800">{formatCurrency(porMetodoVentas.transferencia)}</p>
+              </div>
+              <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
+                <p className="text-xs text-purple-700 font-medium">Transferencia — Recuperación</p>
+                <p className="text-xl font-bold text-purple-800">{formatCurrency(porMetodoRecuperacion.transferencia)}</p>
+              </div>
+            </div>
+          </div>
+
+          {chartData.some((d) => d.venta > 0 || d.recuperacion > 0) && (
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-              <h3 className="font-semibold text-gray-800 mb-4">Ventas por método de pago</h3>
+              <h3 className="font-semibold text-gray-800 mb-4">Ventas vs Recuperación por método</h3>
               <ResponsiveContainer width="100%" height={300}>
                 <BarChart data={chartData}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="name" />
                   <YAxis tickFormatter={(v) => `$${v.toLocaleString("es-CL")}`} />
                   <Tooltip formatter={(v) => formatCurrency(v)} />
-                  <Bar dataKey="value" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="venta" name="Ventas" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="recuperacion" name="Recuperación fiado" fill="#10b981" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -253,6 +303,7 @@ export default function Reports() {
                   <th className="text-left px-4 py-3">Fecha</th>
                   <th className="text-left px-4 py-3">Vendedor</th>
                   <th className="text-left px-4 py-3">Método</th>
+                  <th className="text-left px-4 py-3">Tipo</th>
                   <th className="text-right px-4 py-3">Total</th>
                 </tr>
               </thead>
@@ -263,6 +314,17 @@ export default function Reports() {
                     <td className="px-4 py-2">{v.vendedorNombre}</td>
                     <td className="px-4 py-2">
                       <span className="capitalize px-2 py-0.5 rounded-full text-xs bg-gray-100">{v.metodoPago}</span>
+                    </td>
+                    <td className="px-4 py-2">
+                      {v.tipo === "fiado-recuperado" ? (
+                        <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full flex items-center gap-1 w-fit">
+                          <Repeat size={12} /> Recuperación fiado
+                        </span>
+                      ) : v.metodoPago === "fiado" ? (
+                        <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">Venta fiado</span>
+                      ) : (
+                        <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">Venta normal</span>
+                      )}
                     </td>
                     <td className="px-4 py-2 text-right font-medium">{formatCurrency(v.total)}</td>
                   </tr>

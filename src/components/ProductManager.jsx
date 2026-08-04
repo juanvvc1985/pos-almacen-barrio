@@ -91,7 +91,7 @@ export default function ProductManager() {
   }
 
   async function handleGuardar() {
-    if (!isDueño) return;
+    // VENDEDOR Y DUEÑO pueden crear productos
     const data = {
       nombre: form.nombre.trim(), codigoBarras: form.codigoBarras.trim() || null,
       precioVenta: Number(form.precioVenta) || 0, precioCompra: Number(form.precioCompra) || 0,
@@ -102,7 +102,6 @@ export default function ProductManager() {
       lotes: form.lotes || [],
     };
 
-    // Si es perecedero y se ingresó fecha de vencimiento, crear lote inicial
     if (form.perecedero && form.fechaVencimiento) {
       data.lotes = [{
         id: generateId(),
@@ -114,8 +113,13 @@ export default function ProductManager() {
 
     if (!data.nombre) { alert("El nombre es obligatorio"); return; }
     try {
-      if (editando) await productsService.updateProduct(editando, data);
-      else await productsService.createProduct(almacenId, data);
+      if (editando) {
+        // Solo dueño puede editar
+        if (!isDueño) { alert("Solo el dueño puede editar productos"); return; }
+        await productsService.updateProduct(editando, data);
+      } else {
+        await productsService.createProduct(almacenId, data);
+      }
       await cargarProductos();
       setMostrarForm(false); resetForm();
     } catch (err) { alert("Error al guardar: " + err.message); }

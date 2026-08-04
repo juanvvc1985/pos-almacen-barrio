@@ -37,7 +37,6 @@ export default function POS() {
   const [cantidadEditando, setCantidadEditando] = useState("");
   const searchRef = useRef(null);
 
-  // Modales turno
   const [mostrarAbrirTurno, setMostrarAbrirTurno] = useState(false);
   const [montoInicial, setMontoInicial] = useState("");
   const [mostrarCerrarTurno, setMostrarCerrarTurno] = useState(false);
@@ -285,7 +284,6 @@ export default function POS() {
         <BarcodeScanner onScan={handleScan} onClose={() => setMostrarScanner(false)} />
       )}
 
-      {/* Modal Abrir Turno */}
       {mostrarAbrirTurno && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-xl p-6 w-full max-w-sm">
@@ -315,7 +313,6 @@ export default function POS() {
         </div>
       )}
 
-      {/* Modal Cerrar Turno */}
       {mostrarCerrarTurno && resumenCierre && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-xl p-6 w-full max-w-sm">
