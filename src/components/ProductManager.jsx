@@ -62,7 +62,7 @@ export default function ProductManager() {
     setPlanInfo({
       plan: r.plan || "basico",
       usados: r.usados ?? productos.length,
-      limite: r.limite ?? 500,
+      limite: r.limite ?? LIMITES.basico.productos,
       permitido: r.permitido,
     });
   }

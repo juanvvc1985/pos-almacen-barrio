@@ -1,0 +1,5391 @@
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+
+# File Summary
+
+## Purpose
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+
+## File Format
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  a. A header with the file path (## File: path/to/file)
+  b. The full contents of the file in a code block
+
+## Usage Guidelines
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+
+## Notes
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+
+# Directory Structure
+````
+public/
+  manifest.json
+src/
+  components/
+    BarcodeScanner.jsx
+    Fiados.jsx
+    InventoryAlert.jsx
+    Mermas.jsx
+    Navbar.jsx
+    Offers.jsx
+    PlanBadge.jsx
+    POS.jsx
+    ProductManager.jsx
+    Reports.jsx
+  firebase/
+    config.js
+    firebase.js
+  hooks/
+    useAuth.jsx
+    useTurno.js
+  pages/
+    AdminVendedores.jsx
+    Dashboard.jsx
+    Login.jsx
+    Register.jsx
+    RegisterVendedor.jsx
+  services/
+    firestoreConfig.js
+    firestoreFiados.js
+    firestoreMermas.js
+    firestoreProducts.js
+    firestoreSales.js
+    firestoreUsers.js
+    planLimits.js
+  types/
+    index.js
+  utils/
+    format.js
+  App.jsx
+  index.css
+  main.jsx
+.gitattributes
+.gitignore
+COMPILAR_Y_VER.bat
+DIAGNOSTICO.bat
+firestore.indexes.json
+firestore.rules
+fix-stock.cjs
+index.html
+INICIAR_SIMPLE.cmd
+INICIAR.bat
+INSTRUCCIONES_v5.md
+INSTRUCCIONES.txt
+package.json
+postcss.config.js
+README.md
+tailwind.config.js
+vite.config.js
+````
+
+# Files
+
+## File: public/manifest.json
+````json
+{
+  "name": "POS Almacen de Barrio",
+  "short_name": "POS Almacen",
+  "description": "Sistema de punto de venta para almacenes de barrio",
+  "theme_color": "#2563eb",
+  "background_color": "#ffffff",
+  "display": "standalone",
+  "start_url": "/",
+  "icons": [
+    { "src": "/icon-192x192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512x512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
+````
+
+## File: src/components/BarcodeScanner.jsx
+````javascript
+import { useEffect, useRef, useState } from "react";
+import { Html5Qrcode, Html5QrcodeScannerState } from "html5-qrcode";
+import { X, Camera } from "lucide-react";
+
+export default function BarcodeScanner({ onScan, onClose }) {
+  const [error, setError] = useState("");
+  const scannerRef = useRef(null);
+  const containerRef = useRef(null);
+  const activeRef = useRef(true);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    activeRef.current = true;
+
+    const scanner = new Html5Qrcode("scanner-container");
+    scannerRef.current = scanner;
+
+    scanner
+      .start(
+        { facingMode: "environment" },
+        { fps: 10, qrbox: { width: 250, height: 250 } },
+        (decodedText) => {
+          onScan(decodedText);
+          onClose();
+        },
+        () => {}
+      )
+      .then(() => {
+        if (!activeRef.current) {
+          scanner
+            .stop()
+            .then(() => scanner.clear())
+            .catch(() => {});
+        }
+      })
+      .catch((err) => {
+        if (activeRef.current) {
+          setError("No se pudo iniciar la cámara. Asegúrate de dar permisos.");
+        }
+        console.error(err);
+      });
+
+    return () => {
+      activeRef.current = false;
+      const s = scannerRef.current;
+      if (!s) return;
+      if (s.getState() === Html5QrcodeScannerState.SCANNING) {
+        s.stop()
+          .then(() => s.clear())
+          .catch(() => {});
+      }
+    };
+  }, [onScan, onClose]);
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-90 z-50 flex flex-col items-center justify-center p-4">
+      <div className="w-full max-w-md">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2 text-white">
+            <Camera size={20} />
+            <span className="font-medium">Escanear código</span>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-2 text-white hover:bg-white/10 rounded-lg transition"
+          >
+            <X size={24} />
+          </button>
+        </div>
+
+        {error && (
+          <div className="bg-red-500 text-white px-4 py-3 rounded-lg mb-4 text-sm">
+            {error}
+          </div>
+        )}
+
+        <div
+          id="scanner-container"
+          ref={containerRef}
+          className="w-full aspect-square bg-black rounded-xl overflow-hidden"
+        />
+
+        <p className="text-white/70 text-sm text-center mt-4">
+          Apunta la cámara al código de barras
+        </p>
+      </div>
+    </div>
+  );
+}
+````
+
+## File: src/components/Fiados.jsx
+````javascript
+import { useState, useEffect } from "react";
+import { useAuth } from "../hooks/useAuth";
+import { fiadosService } from "../services/firestoreFiados";
+import { salesService } from "../services/firestoreSales";
+import { METODOS_PAGO } from "../types/index";
+import { formatCurrency, formatDate } from "../utils/format";
+import { Users, Trash2, DollarSign, CreditCard, Smartphone, Loader2, Search, CheckCircle } from "lucide-react";
+
+export default function Fiados() {
+  const { almacenId, isDueño } = useAuth();
+  const [fiados, setFiados] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filtro, setFiltro] = useState("todas");
+  const [search, setSearch] = useState("");
+  const [fiadoPago, setFiadoPago] = useState(null);
+  const [pagoData, setPagoData] = useState({ monto: "", metodoPago: "efectivo" });
+
+  useEffect(() => {
+    if (almacenId) cargarFiados();
+  }, [almacenId]);
+
+  async function cargarFiados() {
+    setLoading(true);
+    const data = await fiadosService.getFiados(almacenId);
+    setFiados(data);
+    setLoading(false);
+  }
+
+  const fiadosFiltrados = fiados.filter((f) => {
+    if (filtro !== "todas" && f.estado !== filtro) return false;
+    if (search.trim()) {
+      const term = search.toLowerCase();
+      return f.clienteNombre?.toLowerCase().includes(term) || f.clienteTelefono?.includes(term);
+    }
+    return true;
+  });
+
+  async function handlePagar() {
+    if (!fiadoPago || !pagoData.monto) return;
+    const monto = Number(pagoData.monto);
+    if (isNaN(monto) || monto <= 0) { alert("Ingresa un monto válido"); return; }
+    try {
+      await fiadosService.addPago(fiadoPago.id, { monto, metodoPago: pagoData.metodoPago, fecha: new Date().toISOString() });
+      await salesService.createSale(almacenId, {
+        productos: [{ nombre: `Recuperación fiado - ${fiadoPago.clienteNombre}`, cantidad: 1, precioUnitario: monto, total: monto }],
+        total: monto, metodoPago: pagoData.metodoPago, tipo: "fiado-recuperado",
+        fiadoId: fiadoPago.id, vendedorNombre: "Sistema",
+      });
+      await cargarFiados();
+      setFiadoPago(null); setPagoData({ monto: "", metodoPago: "efectivo" });
+    } catch (err) { alert("Error al registrar pago"); }
+  }
+
+  async function handleEliminar(id) {
+    if (!confirm("¿Eliminar esta deuda?")) return;
+    await fiadosService.deleteFiado(id);
+    await cargarFiados();
+  }
+
+  const totalPendiente = fiados.filter((f) => f.estado === "pendiente" || f.estado === "parcial")
+    .reduce((s, f) => s + ((f.total || 0) - (f.pagos?.reduce((p, pay) => p + (pay.monto || 0), 0) || 0)), 0);
+  const totalPagado = fiados.reduce((s, f) => s + (f.pagos?.reduce((p, pay) => p + (pay.monto || 0), 0) || 0), 0);
+
+  if (loading) return <div className="flex items-center justify-center h-64"><Loader2 className="w-8 h-8 animate-spin text-blue-600" /></div>;
+
+  return (
+    <div>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+        <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><Users className="w-6 h-6 text-orange-600" /> Fiados / Ventas a Crédito</h1>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+          <p className="text-sm text-gray-500">Total Pendiente</p>
+          <p className="text-2xl font-bold text-orange-600">{formatCurrency(totalPendiente)}</p>
+        </div>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+          <p className="text-sm text-gray-500">Total Recuperado</p>
+          <p className="text-2xl font-bold text-green-600">{formatCurrency(totalPagado)}</p>
+        </div>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+          <p className="text-sm text-gray-500">Deudas Activas</p>
+          <p className="text-2xl font-bold text-gray-800">{fiados.filter((f) => f.estado !== "pagada").length}</p>
+        </div>
+      </div>
+      <div className="flex flex-col sm:flex-row gap-4 mb-6">
+        <div className="flex gap-2 overflow-x-auto">
+          {[{ value: "todas", label: "Todas" }, { value: "pendiente", label: "Pendientes" }, { value: "parcial", label: "Parciales" }, { value: "pagada", label: "Pagadas" }].map((f) => (
+            <button key={f.value} onClick={() => setFiltro(f.value)}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition whitespace-nowrap ${filtro === f.value ? "bg-orange-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>{f.label}</button>
+          ))}
+        </div>
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+          <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
+            placeholder="Buscar cliente..." className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-orange-500 outline-none" />
+        </div>
+      </div>
+      <div className="space-y-4">
+        {fiadosFiltrados.map((f) => {
+          const pagado = f.pagos?.reduce((s, p) => s + (p.monto || 0), 0) || 0;
+          const restante = (f.total || 0) - pagado;
+          const porcentaje = f.total ? (pagado / f.total) * 100 : 0;
+          const dias = Math.floor((new Date() - new Date(f.createdAt)) / (1000 * 60 * 60 * 24));
+          const atrasada = dias > 7 && f.estado !== "pagada";
+          return (
+            <div key={f.id} className={`bg-white rounded-xl shadow-sm border p-4 ${atrasada ? "border-red-300" : "border-gray-200"}`}>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="font-bold text-gray-800">{f.clienteNombre}</h3>
+                    {atrasada && <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-medium">Atrasada ({dias} días)</span>}
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${f.estado === "pagada" ? "bg-green-100 text-green-700" : f.estado === "parcial" ? "bg-yellow-100 text-yellow-700" : "bg-orange-100 text-orange-700"}`}>{f.estado}</span>
+                  </div>
+                  <p className="text-sm text-gray-500 mt-1">{f.clienteTelefono && `${f.clienteTelefono} • `}{formatDate(f.createdAt)}</p>
+                  <div className="mt-2 space-y-1">{f.productos?.map((prod, i) => <p key={i} className="text-sm text-gray-600">{prod.cantidad}x {prod.nombre} = {formatCurrency(prod.total)}</p>)}</div>
+                </div>
+                <div className="text-right min-w-[140px]">
+                  <p className="text-2xl font-bold text-gray-800">{formatCurrency(f.total)}</p>
+                  <p className="text-sm text-gray-500">Pagado: {formatCurrency(pagado)}</p>
+                  {f.estado !== "pagada" && <p className="text-sm font-medium text-orange-600">Resta: {formatCurrency(restante)}</p>}
+                  <div className="w-full bg-gray-200 rounded-full h-2 mt-2"><div className="bg-green-500 h-2 rounded-full transition-all" style={{ width: `${Math.min(porcentaje, 100)}%` }} /></div>
+                </div>
+              </div>
+              {f.pagos?.length > 0 && (
+                <div className="mt-3 pt-3 border-t border-gray-100">
+                  <p className="text-xs font-medium text-gray-500 mb-1">Historial de pagos:</p>
+                  <div className="space-y-1">{f.pagos.map((pago, i) => (
+                    <div key={i} className="flex items-center justify-between text-sm">
+                      <span className="text-gray-600">{formatDate(pago.fecha)} • {pago.metodoPago}</span>
+                      <span className="font-medium text-green-600">{formatCurrency(pago.monto)}</span>
+                    </div>
+                  ))}</div>
+                </div>
+              )}
+              {f.estado !== "pagada" && (
+                <div className="mt-3 pt-3 border-t border-gray-100 flex gap-2">
+                  <button onClick={() => { setFiadoPago(f); setPagoData({ monto: restante.toString(), metodoPago: "efectivo" }); }}
+                    className="flex-1 bg-orange-100 hover:bg-orange-200 text-orange-700 py-2 rounded-lg text-sm font-medium transition">Registrar Pago</button>
+                  {isDueño && (
+                    <button onClick={() => handleEliminar(f.id)} className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition"><Trash2 size={18} /></button>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {fiadosFiltrados.length === 0 && <div className="text-center py-8 text-gray-400"><Users size={40} className="mx-auto mb-2" /><p>No hay deudas en esta categoría</p></div>}
+
+      {fiadoPago && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl p-6 w-full max-w-sm">
+            <h3 className="font-bold text-gray-800 mb-1">Registrar Pago</h3>
+            <p className="text-sm text-gray-500 mb-4">{fiadoPago.clienteNombre}</p>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Monto</label>
+                <input type="number" value={pagoData.monto} onChange={(e) => setPagoData({ ...pagoData, monto: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-lg font-mono text-center outline-none focus:ring-2 focus:ring-orange-500" autoFocus />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Método de pago</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {METODOS_PAGO.filter((m) => m.value !== "fiado").map((mp) => (
+                    <button key={mp.value} onClick={() => setPagoData({ ...pagoData, metodoPago: mp.value })}
+                      className={`flex flex-col items-center gap-1 p-2 rounded-lg text-xs font-medium transition border ${pagoData.metodoPago === mp.value ? "bg-orange-50 border-orange-300 text-orange-700" : "bg-white border-gray-200 text-gray-600"}`}>
+                      {mp.value === "efectivo" && <DollarSign size={16} />}{mp.value === "tarjeta" && <CreditCard size={16} />}{mp.value === "transferencia" && <Smartphone size={16} />}{mp.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-2 mt-4">
+              <button onClick={() => setFiadoPago(null)} className="flex-1 py-2 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50">Cancelar</button>
+              <button onClick={handlePagar} className="flex-1 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 flex items-center justify-center gap-2"><CheckCircle size={16} /> Confirmar</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+````
+
+## File: src/components/InventoryAlert.jsx
+````javascript
+import { useEffect, useState } from "react";
+import { useAuth } from "../hooks/useAuth";
+import { productsService } from "../services/firestoreProducts";
+import { AlertTriangle, X } from "lucide-react";
+import { diasHastaVencimiento } from "../utils/format";
+
+export default function InventoryAlert() {
+  const { almacenId } = useAuth();
+  const [alertas, setAlertas] = useState([]);
+  const [cerradas, setCerradas] = useState(() => {
+    return JSON.parse(localStorage.getItem("alertas_cerradas") || "[]");
+  });
+
+  useEffect(() => {
+    if (!almacenId) return;
+    cargarAlertas();
+  }, [almacenId]);
+
+  async function cargarAlertas() {
+    const productos = await productsService.getProducts(almacenId);
+    const alertasList = [];
+
+    productos.forEach((p) => {
+      // Stock crítico
+      if (p.stockCritico && p.stock <= p.stockCritico && p.stock > 0) {
+        alertasList.push({
+          id: `stock-${p.id}`,
+          tipo: "stock",
+          mensaje: `${p.nombre}: Stock bajo (${p.stock} ${p.unidad})`,
+          producto: p,
+        });
+      }
+      if (p.stock === 0) {
+        alertasList.push({
+          id: `sin-stock-${p.id}`,
+          tipo: "sin-stock",
+          mensaje: `${p.nombre}: Sin stock`,
+          producto: p,
+        });
+      }
+
+      // Vencimientos
+      if (p.perecedero && p.lotes) {
+        p.lotes.forEach((lote) => {
+          const dias = diasHastaVencimiento(lote.fechaVencimiento);
+          if (dias !== null && dias <= (p.diasAlertaVencimiento || 3) && dias >= 0) {
+            alertasList.push({
+              id: `venc-${p.id}-${lote.id}`,
+              tipo: "vencimiento",
+              mensaje: `${p.nombre}: Vence en ${dias} días`,
+              producto: p,
+            });
+          }
+          if (dias !== null && dias < 0) {
+            alertasList.push({
+              id: `vencido-${p.id}-${lote.id}`,
+              tipo: "vencido",
+              mensaje: `${p.nombre}: Producto vencido`,
+              producto: p,
+            });
+          }
+        });
+      }
+    });
+
+    setAlertas(alertasList);
+  }
+
+  function cerrarAlerta(id) {
+    const nuevas = [...cerradas, id];
+    setCerradas(nuevas);
+    localStorage.setItem("alertas_cerradas", JSON.stringify(nuevas));
+  }
+
+  const alertasVisibles = alertas.filter((a) => !cerradas.includes(a.id));
+  if (alertasVisibles.length === 0) return null;
+
+  return (
+    <div className="space-y-2 mb-4">
+      {alertasVisibles.map((alerta) => (
+        <div
+          key={alerta.id}
+          className={`flex items-center justify-between px-4 py-3 rounded-lg text-sm ${
+            alerta.tipo === "vencido"
+              ? "bg-red-50 border border-red-200 text-red-700"
+              : alerta.tipo === "sin-stock"
+              ? "bg-red-50 border border-red-200 text-red-700"
+              : "bg-orange-50 border border-orange-200 text-orange-700"
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <AlertTriangle size={16} />
+            <span>{alerta.mensaje}</span>
+          </div>
+          <button
+            onClick={() => cerrarAlerta(alerta.id)}
+            className="p-1 hover:bg-black/5 rounded transition"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+````
+
+## File: src/components/Mermas.jsx
+````javascript
+import { useState, useEffect } from "react";
+import { useAuth } from "../hooks/useAuth";
+import { mermasService } from "../services/firestoreMermas";
+import { productsService } from "../services/firestoreProducts";
+import { MOTIVOS_MERMA } from "../types/index";
+import { formatCurrency, formatDate } from "../utils/format";
+import { AlertTriangle, Plus, Trash2, Tag, Loader2 } from "lucide-react";
+
+export default function Mermas() {
+  const { almacenId } = useAuth();
+  const [productos, setProductos] = useState([]);
+  const [mermas, setMermas] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [mostrarForm, setMostrarForm] = useState(false);
+  const [form, setForm] = useState({
+    productoId: "",
+    cantidad: "",
+    motivo: MOTIVOS_MERMA[0],
+    notas: "",
+  });
+
+  useEffect(() => {
+    if (almacenId) cargarDatos();
+  }, [almacenId]);
+
+  async function cargarDatos() {
+    setLoading(true);
+    const [p, m] = await Promise.all([
+      productsService.getProducts(almacenId),
+      mermasService.getMermas(almacenId),
+    ]);
+    setProductos(p);
+    setMermas(m);
+    setLoading(false);
+  }
+
+  async function handleGuardar() {
+    const producto = productos.find((p) => p.id === form.productoId);
+    if (!producto) {
+      alert("Selecciona un producto");
+      return;
+    }
+    const cantidad = Number(form.cantidad);
+    if (isNaN(cantidad) || cantidad <= 0) {
+      alert("Ingresa una cantidad válida");
+      return;
+    }
+    if (cantidad > producto.stock) {
+      alert(`Stock insuficiente. Disponible: ${producto.stock}`);
+      return;
+    }
+
+    const perdidaEstimada = (producto.precioCompra || 0) * cantidad;
+
+    try {
+      // Descontar stock
+      await productsService.discountStock(producto.id, cantidad);
+
+      // Registrar merma
+      await mermasService.createMerma(almacenId, {
+        productoId: producto.id,
+        productoNombre: producto.nombre,
+        cantidad,
+        motivo: form.motivo,
+        notas: form.notas,
+        perdidaEstimada,
+        unidad: producto.unidad,
+      });
+
+      await cargarDatos();
+      setMostrarForm(false);
+      setForm({ productoId: "", cantidad: "", motivo: MOTIVOS_MERMA[0], notas: "" });
+    } catch (err) {
+      alert("Error al registrar merma");
+    }
+  }
+
+  async function handleEliminar(id) {
+    if (!confirm("¿Eliminar esta merma?")) return;
+    await mermasService.deleteMerma(id);
+    await cargarDatos();
+  }
+
+  const totalMermas = mermas.reduce((s, m) => s + (m.perdidaEstimada || 0), 0);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+          <AlertTriangle className="w-6 h-6 text-red-600" />
+          Control de Mermas
+        </h1>
+        <button
+          onClick={() => setMostrarForm(!mostrarForm)}
+          className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2"
+        >
+          <Plus size={18} /> Registrar Merma
+        </button>
+      </div>
+
+      {/* Resumen */}
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+          <p className="text-sm text-gray-500">Total Mermas</p>
+          <p className="text-2xl font-bold text-gray-800">{mermas.length}</p>
+        </div>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+          <p className="text-sm text-gray-500">Pérdida Estimada</p>
+          <p className="text-2xl font-bold text-red-600">{formatCurrency(totalMermas)}</p>
+        </div>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+          <p className="text-sm text-gray-500">Productos Afectados</p>
+          <p className="text-2xl font-bold text-gray-800">{new Set(mermas.map((m) => m.productoId)).size}</p>
+        </div>
+      </div>
+
+      {/* Formulario */}
+      {mostrarForm && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+          <h2 className="text-lg font-bold text-gray-800 mb-4">Nueva Merma</h2>
+          <div className="grid md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Producto</label>
+              <select
+                value={form.productoId}
+                onChange={(e) => setForm({ ...form, productoId: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 outline-none"
+              >
+                <option value="">Seleccionar...</option>
+                {productos.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.nombre} (Stock: {p.stock} {p.unidad})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Cantidad</label>
+              <input
+                type="number"
+                value={form.cantidad}
+                onChange={(e) => setForm({ ...form, cantidad: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 outline-none"
+                min="0"
+                step="0.01"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Motivo</label>
+              <select
+                value={form.motivo}
+                onChange={(e) => setForm({ ...form, motivo: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 outline-none"
+              >
+                {MOTIVOS_MERMA.map((m) => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Notas</label>
+              <input
+                type="text"
+                value={form.notas}
+                onChange={(e) => setForm({ ...form, notas: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 outline-none"
+                placeholder="Opcional"
+              />
+            </div>
+          </div>
+          <div className="flex gap-3 mt-4">
+            <button
+              onClick={() => setMostrarForm(false)}
+              className="px-4 py-2 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={handleGuardar}
+              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition"
+            >
+              Registrar Merma
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Tabla */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-gray-50 border-b border-gray-200">
+            <tr>
+              <th className="text-left px-4 py-3">Fecha</th>
+              <th className="text-left px-4 py-3">Producto</th>
+              <th className="text-left px-4 py-3">Motivo</th>
+              <th className="text-right px-4 py-3">Cantidad</th>
+              <th className="text-right px-4 py-3">Pérdida</th>
+              <th className="text-right px-4 py-3">Acciones</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {mermas.map((m) => (
+              <tr key={m.id} className="hover:bg-gray-50">
+                <td className="px-4 py-2 text-gray-600">{formatDate(m.createdAt)}</td>
+                <td className="px-4 py-2">{m.productoNombre}</td>
+                <td className="px-4 py-2">{m.motivo}</td>
+                <td className="px-4 py-2 text-right">{m.cantidad} {m.unidad}</td>
+                <td className="px-4 py-2 text-right font-medium text-red-600">{formatCurrency(m.perdidaEstimada)}</td>
+                <td className="px-4 py-2 text-right">
+                  <button
+                    onClick={() => handleEliminar(m.id)}
+                    className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {mermas.length === 0 && (
+          <div className="text-center py-8 text-gray-400">
+            <AlertTriangle size={40} className="mx-auto mb-2" />
+            <p>No hay mermas registradas</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+````
+
+## File: src/components/Navbar.jsx
+````javascript
+import { Link, useLocation } from "react-router-dom";
+import { useAuth } from "../hooks/useAuth";
+import { salesService } from "../services/firestoreSales";
+import { formatCurrency } from "../utils/format";
+import PlanBadge from "../components/PlanBadge";
+import { 
+  ShoppingCart, Package, BarChart3, AlertTriangle, 
+  Users, Tag, LogOut, Menu, X, UserPlus 
+} from "lucide-react";
+import { useState } from "react";
+
+export default function Navbar() {
+  const { isDueño, isVendedor, userData, logout, almacenId } = useAuth();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [mostrarCierreLogout, setMostrarCierreLogout] = useState(false);
+  const [resumenLogout, setResumenLogout] = useState(null);
+  const location = useLocation();
+
+  const isActive = (path) => location.pathname === path;
+
+  const navItems = [
+    { path: "/vender", label: "Vender", icon: ShoppingCart, show: true },
+    { path: "/productos", label: "Productos", icon: Package, show: true },
+    { path: "/fiados", label: "Fiados", icon: Users, show: true },
+    { path: "/ofertas", label: "Ofertas", icon: Tag, show: isDueño },
+    { path: "/mermas", label: "Mermas", icon: AlertTriangle, show: isDueño },
+    { path: "/informes", label: "Informes", icon: BarChart3, show: isDueño },
+    { path: "/vendedores", label: "Vendedores", icon: UserPlus, show: isDueño },
+  ];
+
+  async function handleLogout() {
+    if (!almacenId) {
+      logout();
+      return;
+    }
+    const turno = await salesService.getTurnoActivo(almacenId);
+    if (turno) {
+      const ventasHoy = await salesService.getTodaySales(almacenId);
+      const resumen = { efectivo: 0, tarjeta: 0, transferencia: 0, fiado: 0 };
+      ventasHoy.forEach((v) => {
+        if (resumen[v.metodoPago] !== undefined) resumen[v.metodoPago] += v.total;
+      });
+      const totalVentas = Object.values(resumen).reduce((a, b) => a + b, 0);
+      setResumenLogout({
+        ...resumen,
+        totalVentas,
+        efectivoEnCaja: (turno.montoInicial || 0) + (resumen.efectivo || 0),
+        montoInicial: turno.montoInicial || 0,
+        turnoId: turno.id,
+      });
+      setMostrarCierreLogout(true);
+    } else {
+      logout();
+    }
+  }
+
+  async function confirmarCerrarYLogout() {
+    if (!resumenLogout) return;
+    await salesService.updateTurno(resumenLogout.turnoId, {
+      estado: "cerrado",
+      cerradoEn: new Date().toISOString(),
+      ventas: {
+        efectivo: resumenLogout.efectivo,
+        tarjeta: resumenLogout.tarjeta,
+        transferencia: resumenLogout.transferencia,
+        fiado: resumenLogout.fiado,
+      },
+    });
+    setMostrarCierreLogout(false);
+    setResumenLogout(null);
+    logout();
+  }
+
+  return (
+    <>
+      <nav className="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-50">
+        <div className="container mx-auto px-4 max-w-7xl">
+          <div className="flex items-center justify-between h-16">
+            <Link to="/" className="font-bold text-xl text-blue-600">POS Almacén</Link>
+            <div className="hidden md:flex items-center space-x-1">
+              {navItems.filter(i => i.show).map((item) => (
+                <Link key={item.path} to={item.path}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition ${
+                    isActive(item.path) ? "bg-blue-50 text-blue-700" : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                  }`}>
+                  <item.icon size={18} /> {item.label}
+                </Link>
+              ))}
+            </div>
+            <div className="hidden md:flex items-center gap-4">
+              <PlanBadge />
+              <span className="text-sm text-gray-500">
+                {userData?.nombre} • {isDueño ? "Dueño" : "Vendedor"}
+              </span>
+              <button onClick={handleLogout}
+                className="flex items-center gap-2 text-gray-500 hover:text-red-600 transition text-sm">
+                <LogOut size={18} /> Salir
+              </button>
+            </div>
+            <button onClick={() => setMenuOpen(!menuOpen)}
+              className="md:hidden p-2 rounded-lg hover:bg-gray-100">
+              {menuOpen ? <X size={24} /> : <Menu size={24} />}
+            </button>
+          </div>
+        </div>
+        {menuOpen && (
+          <div className="md:hidden border-t border-gray-200 bg-white">
+            <div className="px-4 py-2 space-y-1">
+              {navItems.filter(i => i.show).map((item) => (
+                <Link key={item.path} to={item.path} onClick={() => setMenuOpen(false)}
+                  className={`flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium ${
+                    isActive(item.path) ? "bg-blue-50 text-blue-700" : "text-gray-600 hover:bg-gray-50"
+                  }`}>
+                  <item.icon size={18} /> {item.label}
+                </Link>
+              ))}
+              <div className="border-t border-gray-100 pt-2 mt-2">
+                <div className="px-3 py-2 text-sm text-gray-500">
+                  {userData?.nombre} • {isDueño ? "Dueño" : "Vendedor"}
+                </div>
+                <button onClick={() => { handleLogout(); setMenuOpen(false); }}
+                  className="flex items-center gap-3 px-3 py-3 text-red-600 text-sm font-medium w-full">
+                  <LogOut size={18} /> Cerrar sesión
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </nav>
+
+      {mostrarCierreLogout && resumenLogout && (
+        <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl p-6 w-full max-w-sm">
+            <h3 className="font-bold text-gray-800 mb-1">Hay un turno activo</h3>
+            <p className="text-sm text-gray-500 mb-4">Cuadra la caja antes de salir</p>
+            <div className="space-y-2 text-sm mb-4">
+              <div className="flex justify-between"><span className="text-gray-500">Efectivo inicial:</span><span className="font-medium">{formatCurrency(resumenLogout.montoInicial)}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">Ventas efectivo:</span><span className="font-medium text-green-600">{formatCurrency(resumenLogout.efectivo)}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">Ventas tarjeta:</span><span className="font-medium text-blue-600">{formatCurrency(resumenLogout.tarjeta)}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">Transferencias:</span><span className="font-medium text-purple-600">{formatCurrency(resumenLogout.transferencia)}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">Fiados:</span><span className="font-medium text-orange-600">{formatCurrency(resumenLogout.fiado)}</span></div>
+              <div className="border-t pt-2 flex justify-between text-base font-bold"><span>Total ventas:</span><span>{formatCurrency(resumenLogout.totalVentas)}</span></div>
+              <div className="flex justify-between text-base font-bold text-green-700 bg-green-50 px-3 py-2 rounded-lg">
+                <span>Efectivo en caja:</span><span>{formatCurrency(resumenLogout.efectivoEnCaja)}</span>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setMostrarCierreLogout(false)} className="flex-1 py-2 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50">
+                Cancelar
+              </button>
+              <button onClick={confirmarCerrarYLogout} className="flex-1 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 flex items-center justify-center gap-2">
+                <LogOut size={16} /> Cerrar todo
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+````
+
+## File: src/components/Offers.jsx
+````javascript
+import { useState, useEffect } from "react";
+import { useAuth } from "../hooks/useAuth";
+import { productsService } from "../services/firestoreProducts";
+import { formatCurrency } from "../utils/format";
+import { Tag, Plus, X, Check, Loader2, Percent } from "lucide-react";
+
+export default function Offers() {
+  const { almacenId } = useAuth();
+  const [productos, setProductos] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [mostrarForm, setMostrarForm] = useState(false);
+  const [form, setForm] = useState({ productoId: "", precioOferta: "", razon: "" });
+
+  useEffect(() => {
+    if (almacenId) cargarProductos();
+  }, [almacenId]);
+
+  async function cargarProductos() {
+    setLoading(true);
+    const data = await productsService.getProducts(almacenId);
+    setProductos(data);
+    setLoading(false);
+  }
+
+  async function handleCrearOferta() {
+    const producto = productos.find((p) => p.id === form.productoId);
+    if (!producto) {
+      alert("Selecciona un producto");
+      return;
+    }
+    const precioOferta = Number(form.precioOferta);
+    if (isNaN(precioOferta) || precioOferta <= 0) {
+      alert("Ingresa un precio de oferta válido mayor a 0");
+      return;
+    }
+    if (precioOferta >= producto.precioVenta) {
+      alert("El precio de oferta debe ser menor al precio normal");
+      return;
+    }
+
+    try {
+      await productsService.updateProduct(producto.id, {
+        enOferta: true,
+        precioOferta,
+        razonOferta: form.razon || null,
+      });
+      await cargarProductos();
+      setMostrarForm(false);
+      setForm({ productoId: "", precioOferta: "", razon: "" });
+    } catch (err) {
+      alert("Error al crear oferta");
+    }
+  }
+
+  async function handleQuitarOferta(productoId) {
+    if (!confirm("¿Quitar esta oferta?")) return;
+    try {
+      await productsService.updateProduct(productoId, {
+        enOferta: false,
+        precioOferta: null,
+        razonOferta: null,
+      });
+      await cargarProductos();
+    } catch (err) {
+      alert("Error al quitar oferta");
+    }
+  }
+
+  const productosEnOferta = productos.filter((p) => p.enOferta);
+  const productosSinOferta = productos.filter((p) => !p.enOferta);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+          <Tag className="w-6 h-6 text-red-600" />
+          Ofertas Especiales
+        </h1>
+        <button
+          onClick={() => setMostrarForm(!mostrarForm)}
+          className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2"
+        >
+          <Plus size={18} /> Nueva Oferta
+        </button>
+      </div>
+
+      {mostrarForm && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+          <h2 className="text-lg font-bold text-gray-800 mb-4">Crear Oferta</h2>
+          <div className="grid md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Producto</label>
+              <select
+                value={form.productoId}
+                onChange={(e) => setForm({ ...form, productoId: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 outline-none"
+              >
+                <option value="">Seleccionar...</option>
+                {productosSinOferta.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.nombre} - {formatCurrency(p.precioVenta)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Precio de oferta</label>
+              <input
+                type="number"
+                value={form.precioOferta}
+                onChange={(e) => setForm({ ...form, precioOferta: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 outline-none"
+                placeholder="0"
+                min="0"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Razón (opcional)</label>
+              <input
+                type="text"
+                value={form.razon}
+                onChange={(e) => setForm({ ...form, razon: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 outline-none"
+                placeholder="Ej: Daño menor en embalaje"
+              />
+            </div>
+          </div>
+          <div className="flex gap-3 mt-4">
+            <button
+              onClick={() => setMostrarForm(false)}
+              className="px-4 py-2 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={handleCrearOferta}
+              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition"
+            >
+              Crear Oferta
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {productosEnOferta.map((p) => {
+          const ahorro = p.precioVenta - p.precioOferta;
+          const porcentaje = Math.round((ahorro / p.precioVenta) * 100);
+          return (
+            <div key={p.id} className="bg-white rounded-xl shadow-sm border border-red-200 p-4 relative overflow-hidden">
+              <div className="absolute top-0 right-0 bg-red-500 text-white text-xs font-bold px-3 py-1 rounded-bl-lg">
+                -{porcentaje}%
+              </div>
+              <h3 className="font-bold text-gray-800 pr-16">{p.nombre}</h3>
+              {p.razonOferta && (
+                <p className="text-sm text-gray-500 mt-1">{p.razonOferta}</p>
+              )}
+              <div className="flex items-end gap-2 mt-3">
+                <span className="text-2xl font-bold text-red-600">{formatCurrency(p.precioOferta)}</span>
+                <span className="text-sm text-gray-400 line-through">{formatCurrency(p.precioVenta)}</span>
+              </div>
+              <p className="text-sm text-green-600 mt-1">Ahorro: {formatCurrency(ahorro)}</p>
+              <button
+                onClick={() => handleQuitarOferta(p.id)}
+                className="mt-3 w-full py-2 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition"
+              >
+                Quitar oferta
+              </button>
+            </div>
+          );
+        })}
+      </div>
+
+      {productosEnOferta.length === 0 && (
+        <div className="text-center py-8 text-gray-400">
+          <Tag size={40} className="mx-auto mb-2" />
+          <p>No hay ofertas activas</p>
+        </div>
+      )}
+    </div>
+  );
+}
+````
+
+## File: src/components/PlanBadge.jsx
+````javascript
+import { useEffect, useState } from "react";
+import { useAuth } from "../hooks/useAuth";
+import { getPlan, contarProductos, contarVendedores, LIMITES } from "../services/planLimits";
+import { Crown, Package, Users } from "lucide-react";
+
+export default function PlanBadge() {
+  const { almacenId, isDueño } = useAuth();
+  const [plan, setPlan] = useState("basico");
+  const [stats, setStats] = useState({ productos: 0, vendedores: 0 });
+
+  useEffect(() => {
+    if (!almacenId || !isDueño) return;
+    let mounted = true;
+    async function cargar() {
+      const p = await getPlan(almacenId);
+      const prod = await contarProductos(almacenId);
+      const ven = await contarVendedores(almacenId);
+      if (mounted) {
+        setPlan(p);
+        setStats({ productos: prod, vendedores: ven });
+      }
+    }
+    cargar();
+    return () => { mounted = false; };
+  }, [almacenId, isDueño]);
+
+  if (!isDueño) return null;
+
+  const esPro = plan === "pro";
+  const limProd = LIMITES[plan]?.productos ?? 500;
+  const limVen = LIMITES[plan]?.vendedores ?? 1;
+
+  return (
+    <div className={`flex items-center gap-3 px-3 py-1.5 rounded-lg text-xs font-medium border ${
+      esPro ? "bg-purple-50 border-purple-200 text-purple-700" : "bg-gray-50 border-gray-200 text-gray-600"
+    }`}>
+      <Crown size={14} className={esPro ? "text-purple-600" : "text-gray-400"} />
+      <span className="uppercase tracking-wide">{plan}</span>
+      <span className="hidden sm:inline text-gray-300">|</span>
+      <span className="hidden sm:flex items-center gap-1">
+        <Package size={12} /> {stats.productos}/{limProd === Infinity ? "∞" : limProd}
+      </span>
+      <span className="hidden sm:flex items-center gap-1">
+        <Users size={12} /> {stats.vendedores}/{limVen === Infinity ? "∞" : limVen}
+      </span>
+    </div>
+  );
+}
+````
+
+## File: src/components/POS.jsx
+````javascript
+import { useState, useEffect, useRef } from "react";
+import { useAuth } from "../hooks/useAuth";
+import { productsService } from "../services/firestoreProducts";
+import { salesService } from "../services/firestoreSales";
+import { fiadosService } from "../services/firestoreFiados";
+import { METODOS_PAGO } from "../types/index";
+import { formatCurrency } from "../utils/format";
+import BarcodeScanner from "./BarcodeScanner";
+import InventoryAlert from "./InventoryAlert";
+import {
+  Search, ScanLine, Trash2, Plus, Minus, ShoppingCart,
+  Package, Clock, DollarSign, CreditCard, Smartphone, User,
+  X, Check, Printer, Scale, Loader2
+} from "lucide-react";
+
+const METODO_STYLES = {
+  efectivo: { bg: "bg-green-50", border: "border-green-300", text: "text-green-700" },
+  tarjeta: { bg: "bg-blue-50", border: "border-blue-300", text: "text-blue-700" },
+  transferencia: { bg: "bg-purple-50", border: "border-purple-300", text: "text-purple-700" },
+  fiado: { bg: "bg-orange-50", border: "border-orange-300", text: "text-orange-700" },
+};
+
+export default function POS() {
+  const { almacenId, user, userData } = useAuth();
+  const [productos, setProductos] = useState([]);
+  const [search, setSearch] = useState("");
+  const [carrito, setCarrito] = useState([]);
+  const [metodoPago, setMetodoPago] = useState("efectivo");
+  const [turno, setTurno] = useState(null);
+  const [mostrarScanner, setMostrarScanner] = useState(false);
+  const [mostrarFiado, setMostrarFiado] = useState(false);
+  const [fiadoData, setFiadoData] = useState({ nombre: "", telefono: "", direccion: "" });
+  const [loading, setLoading] = useState(false);
+  const [loadingProductos, setLoadingProductos] = useState(true);
+  const [mensaje, setMensaje] = useState("");
+  const [productoEditando, setProductoEditando] = useState(null);
+  const [cantidadEditando, setCantidadEditando] = useState("");
+  const searchRef = useRef(null);
+
+  const [mostrarAbrirTurno, setMostrarAbrirTurno] = useState(false);
+  const [montoInicial, setMontoInicial] = useState("");
+  const [mostrarCerrarTurno, setMostrarCerrarTurno] = useState(false);
+  const [resumenCierre, setResumenCierre] = useState(null);
+
+  useEffect(() => {
+    if (almacenId) {
+      cargarProductos();
+      cargarTurno();
+    }
+  }, [almacenId]);
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === "Enter" && document.activeElement === searchRef.current) {
+        e.preventDefault();
+        const filtrados = search.trim()
+          ? productos.filter(
+              (p) =>
+                p.nombre?.toLowerCase().includes(search.toLowerCase()) ||
+                p.codigoBarras?.includes(search)
+            )
+          : productos.slice(0, 20);
+        if (filtrados.length > 0) {
+          agregarAlCarrito(filtrados[0]);
+          setSearch("");
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [search, productos]);
+
+  async function cargarProductos() {
+    setLoadingProductos(true);
+    const data = await productsService.getProducts(almacenId);
+    setProductos(data);
+    setLoadingProductos(false);
+  }
+
+  async function cargarTurno() {
+    const t = await salesService.getTurnoActivo(almacenId);
+    setTurno(t);
+  }
+
+  const productosFiltrados = search.trim()
+    ? productos.filter(
+        (p) =>
+          p.nombre?.toLowerCase().includes(search.toLowerCase()) ||
+          p.codigoBarras?.includes(search)
+      )
+    : productos.slice(0, 20);
+
+  function agregarAlCarrito(producto) {
+    const existente = carrito.find((c) => c.id === producto.id);
+    if (existente) {
+      setCarrito(
+        carrito.map((c) =>
+          c.id === producto.id ? { ...c, cantidad: c.cantidad + 1 } : c
+        )
+      );
+    } else {
+      setCarrito([
+        ...carrito,
+        {
+          ...producto,
+          cantidad: producto.unidad === "kg" || producto.unidad === "g" ? 0.1 : 1,
+        },
+      ]);
+    }
+  }
+
+  function actualizarCantidad(id, delta) {
+    setCarrito(
+      carrito.map((c) => {
+        if (c.id !== id) return c;
+        const step = c.unidad === "kg" || c.unidad === "g" ? 0.1 : 1;
+        const nueva = Math.max(step, c.cantidad + delta);
+        return { ...c, cantidad: nueva };
+      })
+    );
+  }
+
+  function setCantidadManual(id, valor) {
+    const num = parseFloat(valor);
+    if (isNaN(num) || num <= 0) return;
+    setCarrito(carrito.map((c) => (c.id === id ? { ...c, cantidad: num } : c)));
+  }
+
+  function eliminarDelCarrito(id) {
+    setCarrito(carrito.filter((c) => c.id !== id));
+  }
+
+  const total = carrito.reduce((sum, c) => sum + c.precioVenta * c.cantidad, 0);
+
+  async function handleAbrirTurno() {
+    const monto = Number(montoInicial) || 0;
+    const nuevo = await salesService.createTurno(almacenId, {
+      estado: "abierto",
+      vendedorId: user.uid,
+      vendedorNombre: userData?.nombre || user.email,
+      montoInicial: monto,
+      ventas: { efectivo: 0, tarjeta: 0, transferencia: 0, fiado: 0 },
+    });
+    setTurno(nuevo);
+    setMostrarAbrirTurno(false);
+    setMontoInicial("");
+    mostrarMensaje("Turno abierto");
+  }
+
+  async function handleCerrarTurno() {
+    if (!turno) return;
+    const ventasHoy = await salesService.getTodaySales(almacenId);
+    const resumen = { efectivo: 0, tarjeta: 0, transferencia: 0, fiado: 0 };
+    ventasHoy.forEach((v) => {
+      if (resumen[v.metodoPago] !== undefined) resumen[v.metodoPago] += v.total;
+    });
+    const totalVentas = Object.values(resumen).reduce((a, b) => a + b, 0);
+    const efectivoEnCaja = (turno.montoInicial || 0) + (resumen.efectivo || 0);
+
+    setResumenCierre({
+      ...resumen,
+      totalVentas,
+      efectivoEnCaja,
+      montoInicial: turno.montoInicial || 0,
+    });
+    setMostrarCerrarTurno(true);
+  }
+
+  async function confirmarCerrarTurno() {
+    if (!turno || !resumenCierre) return;
+    await salesService.updateTurno(turno.id, {
+      estado: "cerrado",
+      cerradoEn: new Date().toISOString(),
+      ventas: {
+        efectivo: resumenCierre.efectivo,
+        tarjeta: resumenCierre.tarjeta,
+        transferencia: resumenCierre.transferencia,
+        fiado: resumenCierre.fiado,
+      },
+    });
+    setTurno(null);
+    setMostrarCerrarTurno(false);
+    setResumenCierre(null);
+    mostrarMensaje("Turno cerrado");
+  }
+
+  async function handleVender() {
+    if (carrito.length === 0) return;
+    if (!turno) {
+      alert("Debes abrir un turno primero");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      for (const item of carrito) {
+        const prod = await productsService.getProduct(item.id);
+        if (!prod || (prod.stock || 0) < item.cantidad) {
+          alert(`Stock insuficiente: ${item.nombre}`);
+          setLoading(false);
+          return;
+        }
+      }
+
+      for (const item of carrito) {
+        await productsService.discountStock(item.id, item.cantidad);
+      }
+
+      const venta = {
+        productos: carrito.map((c) => ({
+          id: c.id,
+          nombre: c.nombre,
+          cantidad: c.cantidad,
+          precioUnitario: c.precioVenta,
+          total: c.precioVenta * c.cantidad,
+        })),
+        total,
+        metodoPago,
+        vendedorId: user.uid,
+        vendedorNombre: userData?.nombre || user.email,
+        turnoId: turno.id,
+      };
+
+      if (metodoPago === "fiado") {
+        if (!fiadoData.nombre.trim()) {
+          alert("Ingresa el nombre del cliente para fiado");
+          setLoading(false);
+          return;
+        }
+        await fiadosService.createFiado(almacenId, {
+          ...venta,
+          clienteNombre: fiadoData.nombre,
+          clienteTelefono: fiadoData.telefono,
+          clienteDireccion: fiadoData.direccion,
+          estado: "pendiente",
+        });
+        setMostrarFiado(false);
+        setFiadoData({ nombre: "", telefono: "", direccion: "" });
+      } else {
+        await salesService.createSale(almacenId, venta);
+      }
+
+      setCarrito([]);
+      await cargarProductos();
+      mostrarMensaje("Venta registrada");
+    } catch (err) {
+      console.error(err);
+      alert("Error al registrar la venta");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function mostrarMensaje(texto) {
+    setMensaje(texto);
+    setTimeout(() => setMensaje(""), 3000);
+  }
+
+  async function handleScan(code) {
+    const producto = await productsService.getProductByBarcode(almacenId, code);
+    if (producto) {
+      agregarAlCarrito(producto);
+      mostrarMensaje(`Agregado: ${producto.nombre}`);
+    } else {
+      alert("Producto no encontrado");
+    }
+  }
+
+  const productosRapidos = productos
+    .filter((p) => !search.trim() || p.nombre?.toLowerCase().includes(search.toLowerCase()))
+    .slice(0, 12);
+
+  return (
+    <div>
+      <InventoryAlert />
+
+      {mensaje && (
+        <div className="fixed top-20 right-4 bg-green-500 text-white px-4 py-2 rounded-lg shadow-lg z-50 animate-bounce">
+          {mensaje}
+        </div>
+      )}
+
+      {mostrarScanner && (
+        <BarcodeScanner onScan={handleScan} onClose={() => setMostrarScanner(false)} />
+      )}
+
+      {mostrarAbrirTurno && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl p-6 w-full max-w-sm">
+            <h3 className="font-bold text-gray-800 mb-1">Abrir Turno</h3>
+            <p className="text-sm text-gray-500 mb-4">Ingresa el efectivo inicial en caja</p>
+            <div className="flex items-center gap-2 mb-4">
+              <DollarSign size={18} className="text-gray-400" />
+              <input
+                type="number"
+                value={montoInicial}
+                onChange={(e) => setMontoInicial(e.target.value)}
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-lg font-mono text-center outline-none focus:ring-2 focus:ring-green-500"
+                placeholder="0"
+                min="0"
+                autoFocus
+              />
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setMostrarAbrirTurno(false)} className="flex-1 py-2 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50">
+                Cancelar
+              </button>
+              <button onClick={handleAbrirTurno} className="flex-1 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center justify-center gap-2">
+                <Check size={16} /> Abrir Turno
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {mostrarCerrarTurno && resumenCierre && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl p-6 w-full max-w-sm">
+            <h3 className="font-bold text-gray-800 mb-1">Cerrar Turno</h3>
+            <p className="text-sm text-gray-500 mb-4">Resumen del turno para cuadrar caja</p>
+            <div className="space-y-2 text-sm mb-4">
+              <div className="flex justify-between"><span className="text-gray-500">Efectivo inicial:</span><span className="font-medium">{formatCurrency(resumenCierre.montoInicial)}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">Ventas efectivo:</span><span className="font-medium text-green-600">{formatCurrency(resumenCierre.efectivo)}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">Ventas tarjeta:</span><span className="font-medium text-blue-600">{formatCurrency(resumenCierre.tarjeta)}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">Transferencias:</span><span className="font-medium text-purple-600">{formatCurrency(resumenCierre.transferencia)}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">Fiados:</span><span className="font-medium text-orange-600">{formatCurrency(resumenCierre.fiado)}</span></div>
+              <div className="border-t pt-2 flex justify-between text-base font-bold"><span>Total ventas:</span><span>{formatCurrency(resumenCierre.totalVentas)}</span></div>
+              <div className="flex justify-between text-base font-bold text-green-700 bg-green-50 px-3 py-2 rounded-lg">
+                <span>Efectivo en caja:</span><span>{formatCurrency(resumenCierre.efectivoEnCaja)}</span>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setMostrarCerrarTurno(false)} className="flex-1 py-2 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50">
+                Cancelar
+              </button>
+              <button onClick={confirmarCerrarTurno} className="flex-1 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 flex items-center justify-center gap-2">
+                <Check size={16} /> Cerrar y Guardar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-4 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Clock className={`w-5 h-5 ${turno ? "text-green-600" : "text-gray-400"}`} />
+          <div>
+            <p className="font-medium text-gray-800">
+              {turno ? `Turno abierto - ${turno.vendedorNombre}` : "Sin turno activo"}
+            </p>
+            {turno && (
+              <p className="text-sm text-gray-500">
+                Abierto: {new Date(turno.createdAt).toLocaleTimeString("es-CL")}
+                {turno.montoInicial > 0 && ` • Efectivo inicial: ${formatCurrency(turno.montoInicial)}`}
+              </p>
+            )}
+          </div>
+        </div>
+        {turno ? (
+          <button
+            onClick={handleCerrarTurno}
+            className="bg-red-100 hover:bg-red-200 text-red-700 px-4 py-2 rounded-lg text-sm font-medium transition"
+          >
+            Cerrar Turno
+          </button>
+        ) : (
+          <button
+            onClick={() => setMostrarAbrirTurno(true)}
+            className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition"
+          >
+            Abrir Turno
+          </button>
+        )}
+      </div>
+
+      <div className="grid lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 space-y-4">
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                <input
+                  ref={searchRef}
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Buscar producto o escanear código..."
+                  className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+              </div>
+              <button
+                onClick={() => setMostrarScanner(true)}
+                className="bg-blue-100 hover:bg-blue-200 text-blue-700 px-4 py-2.5 rounded-lg transition"
+              >
+                <ScanLine size={20} />
+              </button>
+            </div>
+          </div>
+
+          {loadingProductos ? (
+            <div className="flex items-center justify-center h-40">
+              <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+              {productosRapidos.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => agregarAlCarrito(p)}
+                  className="bg-white rounded-xl shadow-sm border border-gray-200 p-3 text-left hover:shadow-md hover:border-blue-300 transition active:scale-95"
+                >
+                  <p className="font-medium text-gray-800 text-sm truncate">{p.nombre}</p>
+                  <p className="text-blue-600 font-bold text-sm mt-1">
+                    {formatCurrency(p.precioVenta)}
+                  </p>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    Stock: {p.stock} {p.unidad}
+                  </p>
+                  {p.enOferta && (
+                    <span className="inline-block mt-1 text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded">
+                      OFERTA
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 flex flex-col h-fit">
+          <div className="flex items-center gap-2 mb-4">
+            <ShoppingCart className="w-5 h-5 text-blue-600" />
+            <h2 className="font-bold text-gray-800">Carrito</h2>
+            <span className="ml-auto text-sm text-gray-500">{carrito.length} items</span>
+          </div>
+
+          {carrito.length === 0 ? (
+            <div className="text-center py-8 text-gray-400">
+              <Package size={40} className="mx-auto mb-2" />
+              <p>Agrega productos</p>
+            </div>
+          ) : (
+            <div className="space-y-3 mb-4 max-h-80 overflow-y-auto">
+              {carrito.map((item) => (
+                <div key={item.id} className="flex items-center gap-3 p-2 bg-gray-50 rounded-lg">
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-sm text-gray-800 truncate">{item.nombre}</p>
+                    <p className="text-xs text-gray-500">
+                      {formatCurrency(item.precioVenta)} / {item.unidad}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => actualizarCantidad(item.id, -(item.unidad === "kg" || item.unidad === "g" ? 0.1 : 1))}
+                      className="p-1 hover:bg-gray-200 rounded transition"
+                    >
+                      <Minus size={14} />
+                    </button>
+                    <button
+                      onClick={() => {
+                        setProductoEditando(item.id);
+                        setCantidadEditando(item.cantidad.toString());
+                      }}
+                      className="w-16 text-center text-sm font-medium bg-white border border-gray-300 rounded px-1 py-0.5"
+                    >
+                      {item.cantidad}
+                    </button>
+                    <button
+                      onClick={() => actualizarCantidad(item.id, item.unidad === "kg" || item.unidad === "g" ? 0.1 : 1)}
+                      className="p-1 hover:bg-gray-200 rounded transition"
+                    >
+                      <Plus size={14} />
+                    </button>
+                  </div>
+
+                  <p className="text-sm font-bold text-gray-800 w-20 text-right">
+                    {formatCurrency(item.precioVenta * item.cantidad)}
+                  </p>
+
+                  <button
+                    onClick={() => eliminarDelCarrito(item.id)}
+                    className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {carrito.length > 0 && (
+            <>
+              <div className="border-t border-gray-200 pt-4 mb-4">
+                <div className="flex justify-between items-center mb-3">
+                  <span className="text-lg font-bold text-gray-800">Total</span>
+                  <span className="text-2xl font-bold text-blue-600">{formatCurrency(total)}</span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 mb-4">
+                  {METODOS_PAGO.map((mp) => {
+                    const style = METODO_STYLES[mp.value];
+                    const active = metodoPago === mp.value;
+                    return (
+                      <button
+                        key={mp.value}
+                        onClick={() => setMetodoPago(mp.value)}
+                        className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition border ${
+                          active
+                            ? `${style.bg} ${style.border} ${style.text}`
+                            : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"
+                        }`}
+                      >
+                        {mp.value === "efectivo" && <DollarSign size={16} />}
+                        {mp.value === "tarjeta" && <CreditCard size={16} />}
+                        {mp.value === "transferencia" && <Smartphone size={16} />}
+                        {mp.value === "fiado" && <User size={16} />}
+                        {mp.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {metodoPago === "fiado" && (
+                  <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 mb-4 space-y-2">
+                    <p className="text-sm font-medium text-orange-800">Datos del cliente</p>
+                    <input
+                      type="text"
+                      placeholder="Nombre del cliente *"
+                      value={fiadoData.nombre}
+                      onChange={(e) => setFiadoData({ ...fiadoData, nombre: e.target.value })}
+                      className="w-full px-3 py-2 border border-orange-300 rounded text-sm outline-none focus:ring-2 focus:ring-orange-400"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Teléfono"
+                      value={fiadoData.telefono}
+                      onChange={(e) => setFiadoData({ ...fiadoData, telefono: e.target.value })}
+                      className="w-full px-3 py-2 border border-orange-300 rounded text-sm outline-none focus:ring-2 focus:ring-orange-400"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Dirección"
+                      value={fiadoData.direccion}
+                      onChange={(e) => setFiadoData({ ...fiadoData, direccion: e.target.value })}
+                      className="w-full px-3 py-2 border border-orange-300 rounded text-sm outline-none focus:ring-2 focus:ring-orange-400"
+                    />
+                  </div>
+                )}
+
+                <button
+                  onClick={handleVender}
+                  disabled={loading || !turno}
+                  className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white font-bold py-3 rounded-xl transition flex items-center justify-center gap-2"
+                >
+                  {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Check size={20} />}
+                  {loading ? "Procesando..." : "Confirmar Venta"}
+                </button>
+                {!turno && (
+                  <p className="text-xs text-red-500 text-center mt-2">Abre un turno para vender</p>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {productoEditando && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl p-6 w-full max-w-xs">
+            <h3 className="font-bold text-gray-800 mb-3">Ingresar cantidad</h3>
+            <div className="flex items-center gap-2 mb-4">
+              <Scale size={18} className="text-gray-400" />
+              <input
+                type="number"
+                step="0.01"
+                value={cantidadEditando}
+                onChange={(e) => setCantidadEditando(e.target.value)}
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-lg font-mono text-center outline-none focus:ring-2 focus:ring-blue-500"
+                autoFocus
+              />
+              <span className="text-gray-500 text-sm">
+                {carrito.find((c) => c.id === productoEditando)?.unidad}
+              </span>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setProductoEditando(null)}
+                className="flex-1 py-2 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => {
+                  setCantidadManual(productoEditando, cantidadEditando);
+                  setProductoEditando(null);
+                }}
+                className="flex-1 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              >
+                Aceptar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+````
+
+## File: src/components/ProductManager.jsx
+````javascript
+import { useState, useEffect } from "react";
+import { useAuth } from "../hooks/useAuth";
+import { productsService } from "../services/firestoreProducts";
+import { puedeCrearProducto, LIMITES } from "../services/planLimits";
+import { UNIDADES, CATEGORIAS, DIAS_ALERTA_VENCIMIENTO } from "../types/index";
+import { formatCurrency } from "../utils/format";
+import BarcodeScanner from "./BarcodeScanner";
+import InventoryAlert from "./InventoryAlert";
+import {
+  Search, Plus, Edit2, Trash2, Package, X, Check, ScanLine,
+  Loader2, Crown, AlertTriangle
+} from "lucide-react";
+
+function generateId() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+export default function ProductManager() {
+  const { almacenId, isDueño } = useAuth();
+  const [productos, setProductos] = useState([]);
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [mostrarForm, setMostrarForm] = useState(false);
+  const [editando, setEditando] = useState(null);
+  const [mostrarScanner, setMostrarScanner] = useState(false);
+  const [scannerMode, setScannerMode] = useState("");
+  const [productoStock, setProductoStock] = useState(null);
+  const [cantidadStock, setCantidadStock] = useState("");
+  const [loteVencimiento, setLoteVencimiento] = useState("");
+  const [planInfo, setPlanInfo] = useState({ plan: "basico", usados: 0, limite: 500, permitido: true });
+
+  const [form, setForm] = useState({
+    nombre: "", codigoBarras: "", precioVenta: "", precioCompra: "",
+    stock: "", stockCritico: "", unidad: "unidad", categoria: "Abarrotes",
+    perecedero: false, diasAlertaVencimiento: 3, enOferta: false, precioOferta: "", lotes: [],
+    fechaVencimiento: "",
+  });
+
+  useEffect(() => {
+    if (almacenId) {
+      cargarProductos();
+      cargarPlanInfo();
+    }
+  }, [almacenId]);
+
+  async function cargarProductos() {
+    setLoading(true);
+    const data = await productsService.getProducts(almacenId);
+    setProductos(data);
+    setLoading(false);
+  }
+
+  async function cargarPlanInfo() {
+    const r = await puedeCrearProducto(almacenId);
+    setPlanInfo({
+      plan: r.plan || "basico",
+      usados: r.usados ?? productos.length,
+      limite: r.limite ?? 500,
+      permitido: r.permitido,
+    });
+  }
+
+  const productosFiltrados = search.trim()
+    ? productos.filter(
+        (p) =>
+          p.nombre?.toLowerCase().includes(search.toLowerCase()) ||
+          p.codigoBarras?.includes(search) ||
+          p.categoria?.toLowerCase().includes(search.toLowerCase())
+      )
+    : productos;
+
+  function resetForm() {
+    setForm({
+      nombre: "", codigoBarras: "", precioVenta: "", precioCompra: "",
+      stock: "", stockCritico: "", unidad: "unidad", categoria: "Abarrotes",
+      perecedero: false, diasAlertaVencimiento: 3, enOferta: false, precioOferta: "", lotes: [],
+      fechaVencimiento: "",
+    });
+    setEditando(null);
+  }
+
+  function handleEditar(producto) {
+    if (!isDueño) return;
+    setForm({
+      nombre: producto.nombre || "", codigoBarras: producto.codigoBarras || "",
+      precioVenta: producto.precioVenta?.toString() || "",
+      precioCompra: producto.precioCompra?.toString() || "",
+      stock: producto.stock?.toString() || "",
+      stockCritico: producto.stockCritico?.toString() || "",
+      unidad: producto.unidad || "unidad", categoria: producto.categoria || "Abarrotes",
+      perecedero: producto.perecedero || false,
+      diasAlertaVencimiento: producto.diasAlertaVencimiento || 3,
+      enOferta: producto.enOferta || false,
+      precioOferta: producto.precioOferta?.toString() || "", lotes: producto.lotes || [],
+      fechaVencimiento: "",
+    });
+    setEditando(producto.id);
+    setMostrarForm(true);
+  }
+
+  async function handleGuardar() {
+    const data = {
+      nombre: form.nombre.trim(), codigoBarras: form.codigoBarras.trim() || null,
+      precioVenta: Number(form.precioVenta) || 0, precioCompra: Number(form.precioCompra) || 0,
+      stock: Number(form.stock) || 0, stockCritico: Number(form.stockCritico) || 0,
+      unidad: form.unidad, categoria: form.categoria,
+      perecedero: form.perecedero, diasAlertaVencimiento: Number(form.diasAlertaVencimiento) || 3,
+      enOferta: form.enOferta, precioOferta: form.enOferta ? Number(form.precioOferta) || 0 : null,
+      lotes: form.lotes || [],
+    };
+
+    if (form.perecedero && form.fechaVencimiento) {
+      data.lotes = [{
+        id: generateId(),
+        cantidad: data.stock,
+        fechaVencimiento: form.fechaVencimiento,
+        fechaIngreso: new Date().toISOString(),
+      }];
+    }
+
+    if (!data.nombre) { alert("El nombre es obligatorio"); return; }
+    try {
+      if (editando) {
+        if (!isDueño) { alert("Solo el dueño puede editar productos"); return; }
+        await productsService.updateProduct(editando, data);
+      } else {
+        await productsService.createProduct(almacenId, data);
+      }
+      await cargarProductos();
+      await cargarPlanInfo();
+      setMostrarForm(false); resetForm();
+    } catch (err) { alert("Error al guardar: " + err.message); }
+  }
+
+  async function handleEliminar(id) {
+    if (!isDueño) return;
+    if (!confirm("¿Eliminar este producto permanentemente?")) return;
+    await productsService.deleteProduct(id);
+    await cargarProductos();
+    await cargarPlanInfo();
+  }
+
+  async function handleAgregarStock(producto) {
+    setProductoStock(producto);
+    setCantidadStock(""); setLoteVencimiento("");
+  }
+
+  async function confirmarAgregarStock() {
+    if (!productoStock || !cantidadStock) return;
+    const cantidad = Number(cantidadStock);
+    if (isNaN(cantidad) || cantidad <= 0) { alert("Ingresa una cantidad valida"); return; }
+    const loteData = productoStock.perecedero && loteVencimiento ? { fechaVencimiento: loteVencimiento } : null;
+    try {
+      await productsService.addStock(productoStock.id, cantidad, loteData);
+      await cargarProductos();
+      setProductoStock(null); setCantidadStock(""); setLoteVencimiento("");
+    } catch (err) { alert("Error al agregar stock"); }
+  }
+
+  async function handleScan(code) {
+    if (scannerMode === "nuevo") setForm({ ...form, codigoBarras: code });
+    else if (scannerMode === "stock") {
+      const producto = await productsService.getProductByBarcode(almacenId, code);
+      if (producto) { setProductoStock(producto); setCantidadStock(""); setLoteVencimiento(""); }
+      else alert("Producto no encontrado");
+    }
+    setMostrarScanner(false); setScannerMode("");
+  }
+
+  function getStockStatus(producto) {
+    if (producto.stock === 0) return { label: "Sin stock", bg: "bg-red-50", text: "text-red-700" };
+    if (producto.stockCritico && producto.stock <= producto.stockCritico) return { label: "Critico", bg: "bg-orange-50", text: "text-orange-700" };
+    return { label: "OK", bg: "bg-green-50", text: "text-green-700" };
+  }
+
+  const alLimite = planInfo.usados >= planInfo.limite && planInfo.limite !== Infinity;
+
+  return (
+    <div>
+      <InventoryAlert />
+      {mostrarScanner && <BarcodeScanner onScan={handleScan} onClose={() => { setMostrarScanner(false); setScannerMode(""); }} />}
+
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+        <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+          <Package className="w-6 h-6 text-blue-600" /> Productos
+        </h1>
+        <div className="flex gap-2">
+          <button onClick={() => { resetForm(); setMostrarForm(true); }}
+            disabled={alLimite && !editando}
+            className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2">
+            <Plus size={18} /> Nuevo Producto
+          </button>
+          <button onClick={() => { setScannerMode("stock"); setMostrarScanner(true); }}
+            className="bg-green-100 hover:bg-green-200 text-green-700 px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2">
+            <ScanLine size={18} /> Escanear Stock
+          </button>
+        </div>
+      </div>
+
+      <div className={`flex items-center justify-between mb-4 p-3 rounded-lg border text-sm ${
+        planInfo.plan === "pro"
+          ? "bg-purple-50 border-purple-200 text-purple-700"
+          : "bg-gray-50 border-gray-200 text-gray-600"
+      }`}>
+        <div className="flex items-center gap-2">
+          <Crown size={16} />
+          <span className="font-medium">Plan {planInfo.plan.toUpperCase()}</span>
+          <span>• Productos: {planInfo.usados} / {planInfo.limite === Infinity ? "∞" : planInfo.limite}</span>
+        </div>
+        {planInfo.plan === "basico" && (
+          <span className="text-xs bg-white px-2 py-1 rounded border border-gray-200">
+            Upgrade a Pro para productos ilimitados
+          </span>
+        )}
+      </div>
+
+      {alLimite && (
+        <div className="bg-orange-50 border border-orange-200 text-orange-700 px-4 py-3 rounded-lg mb-4 text-sm flex items-center gap-2">
+          <AlertTriangle size={16} />
+          Has alcanzado el limite de productos de tu plan. Elimina productos o actualiza a Pro.
+        </div>
+      )}
+
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-4">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+          <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
+            placeholder="Buscar por nombre, codigo o categoria..."
+            className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+        </div>
+      </div>
+
+      {mostrarForm && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-bold text-gray-800">{editando ? "Editar Producto" : "Nuevo Producto"}</h2>
+            <button onClick={() => { setMostrarForm(false); resetForm(); }} className="p-2 hover:bg-gray-100 rounded-lg"><X size={20} /></button>
+          </div>
+          <div className="grid md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Nombre *</label>
+              <input type="text" value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Ej: Harina 1kg" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Codigo de barras</label>
+              <div className="flex gap-2">
+                <input type="text" value={form.codigoBarras} onChange={(e) => setForm({ ...form, codigoBarras: e.target.value })}
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Escanea o escribe" />
+                <button onClick={() => { setScannerMode("nuevo"); setMostrarScanner(true); }} className="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg"><ScanLine size={18} /></button>
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Precio de venta *</label>
+              <input type="number" value={form.precioVenta} onChange={(e) => setForm({ ...form, precioVenta: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="0" min="0" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Precio de compra (costo)</label>
+              <input type="number" value={form.precioCompra} onChange={(e) => setForm({ ...form, precioCompra: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="0" min="0" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Stock inicial</label>
+              <input type="number" value={form.stock} onChange={(e) => setForm({ ...form, stock: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="0" min="0" step="0.01" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Stock critico (alerta)</label>
+              <input type="number" value={form.stockCritico} onChange={(e) => setForm({ ...form, stockCritico: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="5" min="0" step="0.01" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Unidad</label>
+              <select value={form.unidad} onChange={(e) => setForm({ ...form, unidad: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                {UNIDADES.map((u) => <option key={u} value={u}>{u}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Categoria</label>
+              <select value={form.categoria} onChange={(e) => setForm({ ...form, categoria: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                {CATEGORIAS.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <div className="md:col-span-2">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={form.perecedero} onChange={(e) => setForm({ ...form, perecedero: e.target.checked })}
+                  className="w-4 h-4 text-blue-600 rounded" />
+                <span className="text-sm font-medium text-gray-700">Producto perecedero</span>
+              </label>
+            </div>
+            {form.perecedero && (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Dias de alerta antes de vencer</label>
+                  <select value={form.diasAlertaVencimiento} onChange={(e) => setForm({ ...form, diasAlertaVencimiento: Number(e.target.value) })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                    {DIAS_ALERTA_VENCIMIENTO.map((d) => <option key={d} value={d}>{d} dias</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de vencimiento del producto</label>
+                  <input type="date" value={form.fechaVencimiento} onChange={(e) => setForm({ ...form, fechaVencimiento: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+                </div>
+              </>
+            )}
+            <div className="md:col-span-2">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={form.enOferta} onChange={(e) => setForm({ ...form, enOferta: e.target.checked })}
+                  className="w-4 h-4 text-blue-600 rounded" />
+                <span className="text-sm font-medium text-gray-700">Producto en oferta</span>
+              </label>
+            </div>
+            {form.enOferta && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Precio de oferta</label>
+                <input type="number" value={form.precioOferta} onChange={(e) => setForm({ ...form, precioOferta: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="0" min="0" />
+              </div>
+            )}
+          </div>
+          <div className="flex gap-3 mt-6">
+            <button onClick={() => { setMostrarForm(false); resetForm(); }}
+              className="px-4 py-2 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50">Cancelar</button>
+            <button onClick={handleGuardar}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center gap-2"><Check size={18} /> {editando ? "Actualizar" : "Guardar"}</button>
+          </div>
+        </div>
+      )}
+
+      {productoStock && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl p-6 w-full max-w-sm">
+            <h3 className="font-bold text-gray-800 mb-1">Agregar stock</h3>
+            <p className="text-sm text-gray-500 mb-4">{productoStock.nombre}</p>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Cantidad a agregar</label>
+                <div className="flex items-center gap-2">
+                  <input type="number" value={cantidadStock} onChange={(e) => setCantidadStock(e.target.value)}
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-lg font-mono text-center outline-none focus:ring-2 focus:ring-green-500"
+                    placeholder="0" min="0" step="0.01" autoFocus />
+                  <span className="text-gray-500 text-sm">{productoStock.unidad}</span>
+                </div>
+              </div>
+              {productoStock.perecedero && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de vencimiento del lote</label>
+                  <input type="date" value={loteVencimiento} onChange={(e) => setLoteVencimiento(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-green-500" />
+                </div>
+              )}
+            </div>
+            <div className="flex gap-2 mt-4">
+              <button onClick={() => setProductoStock(null)}
+                className="flex-1 py-2 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50">Cancelar</button>
+              <button onClick={confirmarAgregarStock}
+                className="flex-1 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center justify-center gap-2"><Plus size={16} /> Agregar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="flex items-center justify-center h-40"><Loader2 className="w-8 h-8 animate-spin text-blue-600" /></div>
+      ) : (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">Producto</th>
+                  <th className="text-right px-4 py-3 font-medium text-gray-600">Precio</th>
+                  <th className="text-right px-4 py-3 font-medium text-gray-600">Stock</th>
+                  <th className="text-center px-4 py-3 font-medium text-gray-600">Estado</th>
+                  <th className="text-right px-4 py-3 font-medium text-gray-600">Acciones</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {productosFiltrados.map((p) => {
+                  const status = getStockStatus(p);
+                  return (
+                    <tr key={p.id} className="hover:bg-gray-50 transition">
+                      <td className="px-4 py-3">
+                        <div>
+                          <p className="font-medium text-gray-800">{p.nombre}</p>
+                          <p className="text-xs text-gray-400">{p.categoria} • {p.unidad}</p>
+                          {p.codigoBarras && <p className="text-xs text-gray-400 font-mono">{p.codigoBarras}</p>}
+                          {p.enOferta && <span className="inline-block mt-1 text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded">OFERTA: {formatCurrency(p.precioOferta)}</span>}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <p className="font-bold text-gray-800">{formatCurrency(p.precioVenta)}</p>
+                        <p className="text-xs text-gray-400">Costo: {formatCurrency(p.precioCompra)}</p>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <p className="font-medium text-gray-800">{p.stock} {p.unidad}</p>
+                        {p.stockCritico > 0 && <p className="text-xs text-gray-400">Min: {p.stockCritico}</p>}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${status.bg} ${status.text}`}>{status.label}</span>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <button onClick={() => handleAgregarStock(p)}
+                            className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg transition" title="Agregar stock"><Plus size={16} /></button>
+                          {isDueño && (
+                            <>
+                              <button onClick={() => handleEditar(p)}
+                                className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition" title="Editar"><Edit2 size={16} /></button>
+                              <button onClick={() => handleEliminar(p.id)}
+                                className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition" title="Eliminar"><Trash2 size={16} /></button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {productosFiltrados.length === 0 && (
+            <div className="text-center py-8 text-gray-400"><Package size={40} className="mx-auto mb-2" /><p>No hay productos</p></div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+````
+
+## File: src/components/Reports.jsx
+````javascript
+import { useState, useEffect } from "react";
+import { useAuth } from "../hooks/useAuth";
+import { salesService } from "../services/firestoreSales";
+import { fiadosService } from "../services/firestoreFiados";
+import { mermasService } from "../services/firestoreMermas";
+import { productsService } from "../services/firestoreProducts";
+import { getPlan } from "../services/planLimits";
+import { formatCurrency, formatDate, formatShortDate } from "../utils/format";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
+import {
+  BarChart3, Download, Calendar, TrendingUp, Package,
+  DollarSign, CreditCard, Smartphone, Users, AlertTriangle,
+  Loader2, Search, ArrowUpDown, Repeat, BookOpen, Crown, Lock
+} from "lucide-react";
+
+const COLORS = ["#3b82f6", "#10b981", "#8b5cf6", "#f59e0b", "#ef4444", "#6b7280"];
+
+export default function Reports() {
+  const { almacenId, userData } = useAuth();
+  const [activeTab, setActiveTab] = useState("ventas");
+  const [ventas, setVentas] = useState([]);
+  const [fiados, setFiados] = useState([]);
+  const [mermas, setMermas] = useState([]);
+  const [productos, setProductos] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filtroTiempo, setFiltroTiempo] = useState("hoy");
+  const [searchInv, setSearchInv] = useState("");
+  const [sortConfig, setSortConfig] = useState({ key: "nombre", direction: "asc" });
+  const [plan, setPlan] = useState("basico");
+  const [mesLibro, setMesLibro] = useState(() => {
+    const hoy = new Date();
+    return `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}`;
+  });
+
+  useEffect(() => {
+    if (almacenId) {
+      cargarDatos();
+      getPlan(almacenId).then(setPlan);
+    }
+  }, [almacenId]);
+
+  async function cargarDatos() {
+    setLoading(true);
+    const [v, f, m, p] = await Promise.all([
+      salesService.getSales(almacenId),
+      fiadosService.getFiados(almacenId),
+      mermasService.getMermas(almacenId),
+      productsService.getProducts(almacenId),
+    ]);
+    setVentas(v);
+    setFiados(f);
+    setMermas(m);
+    setProductos(p);
+    setLoading(false);
+  }
+
+  function getFechaFiltro() {
+    const hoy = new Date();
+    switch (filtroTiempo) {
+      case "hoy": return hoy.toISOString().split("T")[0];
+      case "semana": { const s = new Date(hoy); s.setDate(hoy.getDate() - 7); return s.toISOString().split("T")[0]; }
+      case "mes": { const m = new Date(hoy); m.setDate(hoy.getDate() - 30); return m.toISOString().split("T")[0]; }
+      default: return null;
+    }
+  }
+
+  const fechaFiltro = getFechaFiltro();
+  const ventasFiltradas = fechaFiltro ? ventas.filter((v) => v.createdAt >= fechaFiltro) : ventas;
+  const ventasNormales = ventasFiltradas.filter((v) => v.tipo !== "fiado-recuperado");
+  const recuperacionesFiado = ventasFiltradas.filter((v) => v.tipo === "fiado-recuperado");
+
+  const porMetodoVentas = { efectivo: 0, tarjeta: 0, transferencia: 0, fiado: 0 };
+  ventasNormales.forEach((v) => { if (porMetodoVentas[v.metodoPago] !== undefined) porMetodoVentas[v.metodoPago] += v.total || 0; });
+
+  const porMetodoRecuperacion = { efectivo: 0, tarjeta: 0, transferencia: 0 };
+  recuperacionesFiado.forEach((v) => { if (porMetodoRecuperacion[v.metodoPago] !== undefined) porMetodoRecuperacion[v.metodoPago] += v.total || 0; });
+
+  const totalVentasNormales = ventasNormales.reduce((s, v) => s + (v.total || 0), 0);
+  const totalRecuperaciones = recuperacionesFiado.reduce((s, v) => s + (v.total || 0), 0);
+  const totalVentasGlobal = totalVentasNormales + totalRecuperaciones;
+
+  const chartData = [
+    { name: "Efectivo", venta: porMetodoVentas.efectivo || 0, recuperacion: porMetodoRecuperacion.efectivo || 0 },
+    { name: "Tarjeta", venta: porMetodoVentas.tarjeta || 0, recuperacion: porMetodoRecuperacion.tarjeta || 0 },
+    { name: "Transferencia", venta: porMetodoVentas.transferencia || 0, recuperacion: porMetodoRecuperacion.transferencia || 0 },
+  ];
+
+  const fiadosPendientes = fiados.filter((f) => f.estado === "pendiente" || f.estado === "parcial");
+  const totalFiadoPendiente = fiadosPendientes.reduce((s, f) => s + ((f.total || 0) - (f.pagos?.reduce((p, pay) => p + (pay.monto || 0), 0) || 0)), 0);
+  const totalRecuperado = fiados.reduce((s, f) => s + (f.pagos?.reduce((p, pay) => p + (pay.monto || 0), 0) || 0), 0);
+  const fiadosAtrasadas = fiados.filter((f) => {
+    const dias = Math.floor((new Date() - new Date(f.createdAt)) / (1000 * 60 * 60 * 24));
+    return (f.estado === "pendiente" || f.estado === "parcial") && dias > 7;
+  });
+
+  const totalMermas = mermas.reduce((s, m) => s + (m.perdidaEstimada || 0), 0);
+  const porMotivo = {};
+  mermas.forEach((m) => { porMotivo[m.motivo] = (porMotivo[m.motivo] || 0) + (m.perdidaEstimada || 0); });
+  const mermaChartData = Object.entries(porMotivo).map(([name, value]) => ({ name, value }));
+
+  const totalProductos = productos.length;
+  const valorStockCosto = productos.reduce((s, p) => s + (p.precioCompra || 0) * (p.stock || 0), 0);
+  const valorStockVenta = productos.reduce((s, p) => s + (p.precioVenta || 0) * (p.stock || 0), 0);
+  const stockCritico = productos.filter((p) => p.stockCritico && p.stock <= p.stockCritico && p.stock > 0).length;
+
+  const productosFiltrados = searchInv.trim() ? productos.filter((p) =>
+    p.nombre?.toLowerCase().includes(searchInv.toLowerCase()) ||
+    p.codigoBarras?.includes(searchInv) ||
+    p.categoria?.toLowerCase().includes(searchInv.toLowerCase())
+  ) : productos;
+
+  const sortedProductos = [...productosFiltrados].sort((a, b) => {
+    const aVal = a[sortConfig.key] || 0;
+    const bVal = b[sortConfig.key] || 0;
+    if (sortConfig.direction === "asc") return aVal > bVal ? 1 : -1;
+    return aVal < bVal ? 1 : -1;
+  });
+
+  function toggleSort(key) {
+    setSortConfig((prev) => ({ key, direction: prev.key === key && prev.direction === "asc" ? "desc" : "asc" }));
+  }
+
+  function exportarPDF() {
+    const doc = new jsPDF();
+    doc.setFontSize(16);
+    doc.text("Inventario - POS Almacen de Barrio", 14, 20);
+    doc.setFontSize(10);
+    doc.text(`Generado: ${new Date().toLocaleDateString("es-CL")}`, 14, 30);
+    doc.text(`Total productos: ${totalProductos}`, 14, 38);
+    doc.text(`Valor stock (costo): ${formatCurrency(valorStockCosto)}`, 14, 46);
+    doc.text(`Valor stock (venta): ${formatCurrency(valorStockVenta)}`, 14, 54);
+
+    const body = sortedProductos.map((p) => [
+      p.nombre, p.categoria, p.stock + " " + p.unidad,
+      formatCurrency(p.precioVenta), formatCurrency(p.precioCompra),
+      p.stock <= (p.stockCritico || 0) ? "Critico" : "OK",
+    ]);
+
+    autoTable(doc, {
+      head: [["Producto", "Categoria", "Stock", "Precio Venta", "Precio Costo", "Estado"]],
+      body, startY: 62, styles: { fontSize: 9 },
+      headStyles: { fillColor: [59, 130, 246] },
+    });
+    doc.save("inventario.pdf");
+  }
+
+  // ===== LIBRO DE VENTAS =====
+  function getVentasMes(anioMes) {
+    return ventas.filter((v) => v.createdAt?.startsWith(anioMes));
+  }
+
+  function generarLibroVentasPDF() {
+    const ventasMes = getVentasMes(mesLibro);
+    const normales = ventasMes.filter((v) => v.tipo !== "fiado-recuperado");
+    const recups = ventasMes.filter((v) => v.tipo === "fiado-recuperado");
+
+    const totNorm = normales.reduce((s, v) => s + (v.total || 0), 0);
+    const totRec = recups.reduce((s, v) => s + (v.total || 0), 0);
+
+    const porMet = { efectivo: 0, tarjeta: 0, transferencia: 0, fiado: 0 };
+    normales.forEach((v) => { if (porMet[v.metodoPago] !== undefined) porMet[v.metodoPago] += v.total || 0; });
+
+    const fiadosMes = fiados.filter((f) => f.createdAt?.startsWith(mesLibro));
+    const fiadosEmitidos = fiadosMes.reduce((s, f) => s + (f.total || 0), 0);
+    const fiadosRecuperados = fiadosMes.reduce((s, f) => s + (f.pagos?.reduce((p, pay) => p + (pay.monto || 0), 0) || 0), 0);
+
+    const mermasMes = mermas.filter((m) => m.createdAt?.startsWith(mesLibro));
+    const totalMermasMes = mermasMes.reduce((s, m) => s + (m.perdidaEstimada || 0), 0);
+
+    const doc = new jsPDF();
+    doc.setFontSize(18);
+    doc.text("LIBRO DE VENTAS", 105, 20, { align: "center" });
+    doc.setFontSize(12);
+    doc.text(userData?.nombreAlmacen || "Almacen de Barrio", 105, 28, { align: "center" });
+    doc.setFontSize(10);
+    doc.text(`Periodo: ${mesLibro}`, 105, 34, { align: "center" });
+    doc.text(`Generado: ${new Date().toLocaleDateString("es-CL")}`, 105, 39, { align: "center" });
+
+    let y = 50;
+    doc.setFontSize(12);
+    doc.text("1. RESUMEN DE VENTAS", 14, y);
+    y += 8;
+    doc.setFontSize(10);
+    doc.text(`Ventas normales: ${formatCurrency(totNorm)}`, 14, y); y += 6;
+    doc.text(`Recuperacion fiados: ${formatCurrency(totRec)}`, 14, y); y += 6;
+    doc.text(`TOTAL VENTAS: ${formatCurrency(totNorm + totRec)}`, 14, y); y += 10;
+
+    doc.setFontSize(12);
+    doc.text("2. DESGLOSE POR METODO DE PAGO", 14, y);
+    y += 8;
+    doc.setFontSize(10);
+    doc.text(`Efectivo: ${formatCurrency(porMet.efectivo)}`, 14, y); y += 6;
+    doc.text(`Tarjeta: ${formatCurrency(porMet.tarjeta)}`, 14, y); y += 6;
+    doc.text(`Transferencia: ${formatCurrency(porMet.transferencia)}`, 14, y); y += 6;
+    doc.text(`Fiado (credito): ${formatCurrency(porMet.fiado)}`, 14, y); y += 10;
+
+    doc.setFontSize(12);
+    doc.text("3. FIADOS", 14, y);
+    y += 8;
+    doc.setFontSize(10);
+    doc.text(`Fiados emitidos: ${formatCurrency(fiadosEmitidos)}`, 14, y); y += 6;
+    doc.text(`Fiados recuperados: ${formatCurrency(fiadosRecuperados)}`, 14, y); y += 6;
+    doc.text(`Saldo pendiente: ${formatCurrency(fiadosEmitidos - fiadosRecuperados)}`, 14, y); y += 10;
+
+    doc.setFontSize(12);
+    doc.text("4. MERMAS", 14, y);
+    y += 8;
+    doc.setFontSize(10);
+    doc.text(`Perdida estimada: ${formatCurrency(totalMermasMes)}`, 14, y); y += 6;
+    doc.text(`Cantidad de mermas: ${mermasMes.length}`, 14, y); y += 10;
+
+    doc.setFontSize(12);
+    doc.text("5. VENTAS NETAS", 14, y);
+    y += 8;
+    doc.setFontSize(10);
+    const ventasNetas = (totNorm + totRec) - totalMermasMes;
+    doc.text(`Ventas netas (ventas - mermas): ${formatCurrency(ventasNetas)}`, 14, y);
+
+    doc.save(`libro-ventas-${mesLibro}.pdf`);
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <h1 className="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+        <BarChart3 className="w-6 h-6 text-blue-600" />
+        Informes
+      </h1>
+
+      <div className="flex gap-1 bg-gray-100 p-1 rounded-xl mb-6 overflow-x-auto">
+        {[
+          { id: "ventas", label: "Ventas", icon: TrendingUp },
+          { id: "fiados", label: "Fiados", icon: Users },
+          { id: "mermas", label: "Mermas", icon: AlertTriangle },
+          { id: "inventario", label: "Inventario", icon: Package },
+          { id: "libro", label: "Libro Ventas", icon: BookOpen, pro: true },
+        ].map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition whitespace-nowrap ${
+              activeTab === tab.id
+                ? "bg-white text-blue-700 shadow-sm"
+                : "text-gray-600 hover:text-gray-800"
+            }`}
+          >
+            <tab.icon size={16} />
+            {tab.label}
+            {tab.pro && (
+              <span className="ml-1">
+                {plan === "pro" ? <Crown size={12} className="text-purple-600" /> : <Lock size={12} className="text-gray-400" />}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === "ventas" && (
+        <div className="space-y-6">
+          <div className="flex gap-2">
+            {[
+              { value: "hoy", label: "Hoy" },
+              { value: "semana", label: "Ultima semana" },
+              { value: "mes", label: "Ultimo mes" },
+              { value: "todo", label: "Todo" },
+            ].map((f) => (
+              <button key={f.value} onClick={() => setFiltroTiempo(f.value)}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${
+                  filtroTiempo === f.value ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                }`}>{f.label}</button>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+              <p className="text-sm text-gray-500">Total Ventas</p>
+              <p className="text-2xl font-bold text-gray-800">{formatCurrency(totalVentasGlobal)}</p>
+            </div>
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+              <p className="text-sm text-gray-500">Ventas Normales</p>
+              <p className="text-2xl font-bold text-blue-600">{formatCurrency(totalVentasNormales)}</p>
+            </div>
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+              <p className="text-sm text-gray-500">Recuperacion Fiados</p>
+              <p className="text-2xl font-bold text-green-600">{formatCurrency(totalRecuperaciones)}</p>
+            </div>
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+              <p className="text-sm text-gray-500">Fiados (credito)</p>
+              <p className="text-2xl font-bold text-orange-600">{formatCurrency(porMetodoVentas.fiado || 0)}</p>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <h3 className="font-semibold text-gray-800 mb-4">Desglose por metodo de pago</h3>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
+              <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                <p className="text-xs text-green-700 font-medium">Efectivo — Ventas</p>
+                <p className="text-xl font-bold text-green-800">{formatCurrency(porMetodoVentas.efectivo)}</p>
+              </div>
+              <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                <p className="text-xs text-green-700 font-medium">Efectivo — Recuperacion</p>
+                <p className="text-xl font-bold text-green-800">{formatCurrency(porMetodoRecuperacion.efectivo)}</p>
+              </div>
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                <p className="text-xs text-blue-700 font-medium">Tarjeta — Ventas</p>
+                <p className="text-xl font-bold text-blue-800">{formatCurrency(porMetodoVentas.tarjeta)}</p>
+              </div>
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                <p className="text-xs text-blue-700 font-medium">Tarjeta — Recuperacion</p>
+                <p className="text-xl font-bold text-blue-800">{formatCurrency(porMetodoRecuperacion.tarjeta)}</p>
+              </div>
+              <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
+                <p className="text-xs text-purple-700 font-medium">Transferencia — Ventas</p>
+                <p className="text-xl font-bold text-purple-800">{formatCurrency(porMetodoVentas.transferencia)}</p>
+              </div>
+              <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
+                <p className="text-xs text-purple-700 font-medium">Transferencia — Recuperacion</p>
+                <p className="text-xl font-bold text-purple-800">{formatCurrency(porMetodoRecuperacion.transferencia)}</p>
+              </div>
+            </div>
+          </div>
+
+          {chartData.some((d) => d.venta > 0 || d.recuperacion > 0) && (
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+              <h3 className="font-semibold text-gray-800 mb-4">Ventas vs Recuperacion por metodo</h3>
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="name" />
+                  <YAxis tickFormatter={(v) => `$${v.toLocaleString("es-CL")}`} />
+                  <Tooltip formatter={(v) => formatCurrency(v)} />
+                  <Bar dataKey="venta" name="Ventas" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="recuperacion" name="Recuperacion fiado" fill="#10b981" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="text-left px-4 py-3">Fecha</th>
+                  <th className="text-left px-4 py-3">Vendedor</th>
+                  <th className="text-left px-4 py-3">Metodo</th>
+                  <th className="text-left px-4 py-3">Tipo</th>
+                  <th className="text-right px-4 py-3">Total</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {ventasFiltradas.slice(0, 50).map((v) => (
+                  <tr key={v.id} className="hover:bg-gray-50">
+                    <td className="px-4 py-2 text-gray-600">{formatDate(v.createdAt)}</td>
+                    <td className="px-4 py-2">{v.vendedorNombre}</td>
+                    <td className="px-4 py-2">
+                      <span className="capitalize px-2 py-0.5 rounded-full text-xs bg-gray-100">{v.metodoPago}</span>
+                    </td>
+                    <td className="px-4 py-2">
+                      {v.tipo === "fiado-recuperado" ? (
+                        <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full flex items-center gap-1 w-fit">
+                          <Repeat size={12} /> Recuperacion fiado
+                        </span>
+                      ) : v.metodoPago === "fiado" ? (
+                        <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">Venta fiado</span>
+                      ) : (
+                        <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">Venta normal</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2 text-right font-medium">{formatCurrency(v.total)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {activeTab === "fiados" && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+              <p className="text-sm text-gray-500">Total Pendiente</p>
+              <p className="text-2xl font-bold text-orange-600">{formatCurrency(totalFiadoPendiente)}</p>
+            </div>
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+              <p className="text-sm text-gray-500">Total Recuperado</p>
+              <p className="text-2xl font-bold text-green-600">{formatCurrency(totalRecuperado)}</p>
+            </div>
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+              <p className="text-sm text-gray-500">Deudas Atrasadas</p>
+              <p className="text-2xl font-bold text-red-600">{fiadosAtrasadas.length}</p>
+            </div>
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+              <p className="text-sm text-gray-500">Clientes Deudores</p>
+              <p className="text-2xl font-bold text-gray-800">{fiadosPendientes.length}</p>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="text-left px-4 py-3">Cliente</th>
+                  <th className="text-right px-4 py-3">Total</th>
+                  <th className="text-right px-4 py-3">Pagado</th>
+                  <th className="text-center px-4 py-3">Estado</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {fiados.map((f) => {
+                  const pagado = f.pagos?.reduce((s, p) => s + (p.monto || 0), 0) || 0;
+                  return (
+                    <tr key={f.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-2">{f.clienteNombre}</td>
+                      <td className="px-4 py-2 text-right">{formatCurrency(f.total)}</td>
+                      <td className="px-4 py-2 text-right">{formatCurrency(pagado)}</td>
+                      <td className="px-4 py-2 text-center">
+                        <span className={`px-2 py-0.5 rounded-full text-xs ${
+                          f.estado === "pagada" ? "bg-green-100 text-green-700" :
+                          f.estado === "parcial" ? "bg-yellow-100 text-yellow-700" :
+                          "bg-red-100 text-red-700"
+                        }`}>{f.estado}</span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {activeTab === "mermas" && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+              <p className="text-sm text-gray-500">Total Mermas</p>
+              <p className="text-2xl font-bold text-red-600">{mermas.length}</p>
+            </div>
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+              <p className="text-sm text-gray-500">Perdida Estimada</p>
+              <p className="text-2xl font-bold text-red-600">{formatCurrency(totalMermas)}</p>
+            </div>
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+              <p className="text-sm text-gray-500">Productos Afectados</p>
+              <p className="text-2xl font-bold text-gray-800">{new Set(mermas.map((m) => m.productoId)).size}</p>
+            </div>
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+              <p className="text-sm text-gray-500">Promedio</p>
+              <p className="text-2xl font-bold text-gray-800">{formatCurrency(mermas.length ? totalMermas / mermas.length : 0)}</p>
+            </div>
+          </div>
+
+          {mermaChartData.length > 0 && (
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+              <h3 className="font-semibold text-gray-800 mb-4">Mermas por motivo</h3>
+              <ResponsiveContainer width="100%" height={250}>
+                <PieChart>
+                  <Pie data={mermaChartData} cx="50%" cy="50%" outerRadius={80} dataKey="value" nameKey="name"
+                    label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}>
+                    {mermaChartData.map((_, i) => (
+                      <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(v) => formatCurrency(v)} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="text-left px-4 py-3">Fecha</th>
+                  <th className="text-left px-4 py-3">Producto</th>
+                  <th className="text-left px-4 py-3">Motivo</th>
+                  <th className="text-right px-4 py-3">Cantidad</th>
+                  <th className="text-right px-4 py-3">Perdida</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {mermas.slice(0, 50).map((m) => (
+                  <tr key={m.id} className="hover:bg-gray-50">
+                    <td className="px-4 py-2 text-gray-600">{formatDate(m.createdAt)}</td>
+                    <td className="px-4 py-2">{m.productoNombre}</td>
+                    <td className="px-4 py-2">{m.motivo}</td>
+                    <td className="px-4 py-2 text-right">{m.cantidad}</td>
+                    <td className="px-4 py-2 text-right font-medium text-red-600">{formatCurrency(m.perdidaEstimada)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {activeTab === "inventario" && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+              <p className="text-sm text-gray-500">Total Productos</p>
+              <p className="text-2xl font-bold text-gray-800">{totalProductos}</p>
+            </div>
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+              <p className="text-sm text-gray-500">Valor Stock (Costo)</p>
+              <p className="text-2xl font-bold text-gray-800">{formatCurrency(valorStockCosto)}</p>
+            </div>
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+              <p className="text-sm text-gray-500">Valor Stock (Venta)</p>
+              <p className="text-2xl font-bold text-green-600">{formatCurrency(valorStockVenta)}</p>
+            </div>
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+              <p className="text-sm text-gray-500">Stock Critico</p>
+              <p className="text-2xl font-bold text-orange-600">{stockCritico}</p>
+            </div>
+          </div>
+
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+              <input type="text" value={searchInv} onChange={(e) => setSearchInv(e.target.value)}
+                placeholder="Buscar producto..."
+                className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+            </div>
+            <button onClick={exportarPDF}
+              className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium transition">
+              <Download size={16} /> Exportar PDF
+            </button>
+          </div>
+
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="text-left px-4 py-3 cursor-pointer hover:bg-gray-100" onClick={() => toggleSort("nombre")}>
+                    Producto <ArrowUpDown size={12} className="inline" />
+                  </th>
+                  <th className="text-left px-4 py-3 cursor-pointer hover:bg-gray-100" onClick={() => toggleSort("categoria")}>
+                    Categoria <ArrowUpDown size={12} className="inline" />
+                  </th>
+                  <th className="text-right px-4 py-3 cursor-pointer hover:bg-gray-100" onClick={() => toggleSort("stock")}>
+                    Stock <ArrowUpDown size={12} className="inline" />
+                  </th>
+                  <th className="text-right px-4 py-3 cursor-pointer hover:bg-gray-100" onClick={() => toggleSort("precioVenta")}>
+                    Precio <ArrowUpDown size={12} className="inline" />
+                  </th>
+                  <th className="text-center px-4 py-3">Estado</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {sortedProductos.map((p) => {
+                  const status = p.stock === 0
+                    ? { label: "Sin stock", class: "bg-red-100 text-red-700" }
+                    : p.stockCritico && p.stock <= p.stockCritico
+                    ? { label: "Critico", class: "bg-orange-100 text-orange-700" }
+                    : { label: "OK", class: "bg-green-100 text-green-700" };
+                  return (
+                    <tr key={p.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-2 font-medium">{p.nombre}</td>
+                      <td className="px-4 py-2 text-gray-500">{p.categoria}</td>
+                      <td className="px-4 py-2 text-right">{p.stock} {p.unidad}</td>
+                      <td className="px-4 py-2 text-right">{formatCurrency(p.precioVenta)}</td>
+                      <td className="px-4 py-2 text-center">
+                        <span className={`px-2 py-0.5 rounded-full text-xs ${status.class}`}>{status.label}</span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {activeTab === "libro" && (
+        <div>
+          {plan !== "pro" ? (
+            <div className="flex flex-col items-center justify-center py-16 text-center">
+              <Lock size={48} className="text-gray-300 mb-4" />
+              <h3 className="text-lg font-bold text-gray-700 mb-2">Libro de Ventas — Plan Pro</h3>
+              <p className="text-gray-500 max-w-md mb-6">
+                El Libro de Ventas para tu contador esta disponible exclusivamente en el Plan Pro.
+                Genera informes mensuales en PDF listos para entregar.
+              </p>
+              <div className="bg-purple-50 border border-purple-200 rounded-xl p-6 max-w-sm w-full">
+                <div className="flex items-center gap-2 mb-3">
+                  <Crown size={20} className="text-purple-600" />
+                  <span className="font-bold text-purple-800">Plan Pro</span>
+                </div>
+                <ul className="text-sm text-purple-700 space-y-1 mb-4 text-left">
+                  <li>• Libro de ventas mensual en PDF</li>
+                  <li>• Productos ilimitados</li>
+                  <li>• Vendedores ilimitados</li>
+                  <li>• Exportacion CSV/Excel</li>
+                </ul>
+                <button className="w-full bg-purple-600 hover:bg-purple-700 text-white py-2 rounded-lg font-medium transition">
+                  Actualizar a Pro
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <Calendar size={18} className="text-gray-400" />
+                  <input
+                    type="month"
+                    value={mesLibro}
+                    onChange={(e) => setMesLibro(e.target.value)}
+                    className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                  />
+                </div>
+                <button
+                  onClick={generarLibroVentasPDF}
+                  className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-medium transition"
+                >
+                  <Download size={16} /> Descargar PDF para Contador
+                </button>
+              </div>
+
+              <LibroVentasResumen mes={mesLibro} ventas={ventas} fiados={fiados} mermas={mermas} />
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LibroVentasResumen({ mes, ventas, fiados, mermas }) {
+  const ventasMes = ventas.filter((v) => v.createdAt?.startsWith(mes));
+  const normales = ventasMes.filter((v) => v.tipo !== "fiado-recuperado");
+  const recups = ventasMes.filter((v) => v.tipo === "fiado-recuperado");
+  const totNorm = normales.reduce((s, v) => s + (v.total || 0), 0);
+  const totRec = recups.reduce((s, v) => s + (v.total || 0), 0);
+
+  const porMet = { efectivo: 0, tarjeta: 0, transferencia: 0, fiado: 0 };
+  normales.forEach((v) => { if (porMet[v.metodoPago] !== undefined) porMet[v.metodoPago] += v.total || 0; });
+
+  const fiadosMes = fiados.filter((f) => f.createdAt?.startsWith(mes));
+  const fiadosEmitidos = fiadosMes.reduce((s, f) => s + (f.total || 0), 0);
+  const fiadosRecuperados = fiadosMes.reduce((s, f) => s + (f.pagos?.reduce((p, pay) => p + (pay.monto || 0), 0) || 0), 0);
+
+  const mermasMes = mermas.filter((m) => m.createdAt?.startsWith(mes));
+  const totalMermasMes = mermasMes.reduce((s, m) => s + (m.perdidaEstimada || 0), 0);
+  const ventasNetas = (totNorm + totRec) - totalMermasMes;
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+          <p className="text-sm text-gray-500">Ventas Normales</p>
+          <p className="text-2xl font-bold text-blue-600">{formatCurrency(totNorm)}</p>
+        </div>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+          <p className="text-sm text-gray-500">Recuperacion Fiados</p>
+          <p className="text-2xl font-bold text-green-600">{formatCurrency(totRec)}</p>
+        </div>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+          <p className="text-sm text-gray-500">Mermas del Mes</p>
+          <p className="text-2xl font-bold text-red-600">{formatCurrency(totalMermasMes)}</p>
+        </div>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+          <p className="text-sm text-gray-500">Ventas Netas</p>
+          <p className="text-2xl font-bold text-purple-600">{formatCurrency(ventasNetas)}</p>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <h3 className="font-semibold text-gray-800 mb-4">Desglose por Metodo de Pago</h3>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+            <p className="text-xs text-green-700 font-medium">Efectivo</p>
+            <p className="text-xl font-bold text-green-800">{formatCurrency(porMet.efectivo)}</p>
+          </div>
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+            <p className="text-xs text-blue-700 font-medium">Tarjeta</p>
+            <p className="text-xl font-bold text-blue-800">{formatCurrency(porMet.tarjeta)}</p>
+          </div>
+          <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
+            <p className="text-xs text-purple-700 font-medium">Transferencia</p>
+            <p className="text-xl font-bold text-purple-800">{formatCurrency(porMet.transferencia)}</p>
+          </div>
+          <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
+            <p className="text-xs text-orange-700 font-medium">Fiado</p>
+            <p className="text-xl font-bold text-orange-800">{formatCurrency(porMet.fiado)}</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <h3 className="font-semibold text-gray-800 mb-4">Fiados del Mes</h3>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+          <div className="rounded-lg p-3 bg-gray-50 border border-gray-200">
+            <p className="text-xs text-gray-600 font-medium">Fiados Emitidos</p>
+            <p className="text-xl font-bold text-gray-800">{formatCurrency(fiadosEmitidos)}</p>
+          </div>
+          <div className="rounded-lg p-3 bg-green-50 border border-green-200">
+            <p className="text-xs text-green-700 font-medium">Fiados Recuperados</p>
+            <p className="text-xl font-bold text-green-800">{formatCurrency(fiadosRecuperados)}</p>
+          </div>
+          <div className="rounded-lg p-3 bg-orange-50 border border-orange-200">
+            <p className="text-xs text-orange-700 font-medium">Saldo Pendiente</p>
+            <p className="text-xl font-bold text-orange-800">{formatCurrency(fiadosEmitidos - fiadosRecuperados)}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+````
+
+## File: src/firebase/config.js
+````javascript
+// Configuración de Firebase - usa firebase.js para inicialización
+export const firebaseConfig = {
+  apiKey: "AIzaSyAQUD8KyWSPYNz73RTrdSy-jZ3Lf2QiF3c",
+  authDomain: "almacen-de-barrio-a947a.firebaseapp.com",
+  projectId: "almacen-de-barrio-a947a",
+  storageBucket: "almacen-de-barrio-a947a.firebasestorage.app",
+  messagingSenderId: "1014856587704",
+  appId: "1:1014856587704:web:a4dbcdfaea21e88388974d"
+};
+````
+
+## File: src/firebase/firebase.js
+````javascript
+import { initializeApp } from "firebase/app";
+import { getAuth } from "firebase/auth";
+import { getFirestore } from "firebase/firestore";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAQUD8KyWSPYNz73RTrdSy-jZ3Lf2QiF3c",
+  authDomain: "almacen-de-barrio-a947a.firebaseapp.com",
+  projectId: "almacen-de-barrio-a947a",
+  storageBucket: "almacen-de-barrio-a947a.firebasestorage.app",
+  messagingSenderId: "1014856587704",
+  appId: "1:1014856587704:web:a4dbcdfaea21e88388974d"
+};
+
+const app = initializeApp(firebaseConfig);
+export const auth = getAuth(app);
+export const db = getFirestore(app);
+export default app;
+````
+
+## File: src/hooks/useAuth.jsx
+````javascript
+import { createContext, useContext, useState, useEffect } from "react";
+import { auth, db } from "../firebase/firebase";
+import {
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signOut,
+  updateProfile,
+} from "firebase/auth";
+import {
+  doc,
+  getDoc,
+  setDoc,
+  updateDoc,
+  collection,
+  query,
+  where,
+  getDocs,
+} from "firebase/firestore";
+
+const AuthContext = createContext(null);
+
+export const ROLES = {
+  DUEÑO: "dueño",
+  VENDEDOR: "vendedor",
+};
+
+export const PLANES = {
+  BASICO: "basico",
+  PRO: "pro",
+};
+
+const FIREBASE_API_KEY = "AIzaSyAQUD8KyWSPYNz73RTrdSy-jZ3Lf2QiF3c";
+
+export function AuthProvider({ children }) {
+  const [user, setUser] = useState(null);
+  const [userData, setUserData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        setUser(firebaseUser);
+        const userDoc = await getDoc(doc(db, "users", firebaseUser.uid));
+        if (userDoc.exists()) {
+          setUserData(userDoc.data());
+        } else {
+          setUserData(null);
+        }
+      } else {
+        setUser(null);
+        setUserData(null);
+      }
+      setLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  async function findEmailByUsername(username) {
+    const snap = await getDoc(doc(db, "publicUsernames", username.trim().toLowerCase()));
+    if (snap.exists()) return snap.data().email;
+    return null;
+  }
+
+  const login = async (identifier, password) => {
+    let email = identifier.trim();
+    if (!email.includes("@")) {
+      const foundEmail = await findEmailByUsername(email);
+      if (!foundEmail) {
+        throw new Error("Usuario no encontrado");
+      }
+      email = foundEmail;
+    }
+    const result = await signInWithEmailAndPassword(auth, email, password);
+    const userDoc = await getDoc(doc(db, "users", result.user.uid));
+    if (userDoc.exists()) {
+      const data = userDoc.data();
+      if (data.activo === false) {
+        await signOut(auth);
+        throw new Error("Usuario desactivado. Contacta al dueño.");
+      }
+      setUserData(data);
+    }
+    return result;
+  };
+
+  const registerDueño = async (email, password, nombre, nombreAlmacen) => {
+    const result = await createUserWithEmailAndPassword(auth, email, password);
+    await updateProfile(result.user, { displayName: nombre });
+    const almacenRef = doc(collection(db, "almacenes"));
+    await setDoc(almacenRef, {
+      nombre: nombreAlmacen,
+      dueñoId: result.user.uid,
+      plan: PLANES.BASICO,
+      createdAt: new Date().toISOString(),
+    });
+    await setDoc(doc(db, "users", result.user.uid), {
+      email, nombre, role: ROLES.DUEÑO,
+      almacenId: almacenRef.id, plan: PLANES.BASICO,
+      createdAt: new Date().toISOString(),
+    });
+    setUserData({
+      email, nombre, role: ROLES.DUEÑO,
+      almacenId: almacenRef.id, plan: PLANES.BASICO,
+    });
+    return result;
+  };
+
+  const logout = async () => {
+    await signOut(auth);
+    setUser(null);
+    setUserData(null);
+  };
+
+  const isDueño = userData?.role === ROLES.DUEÑO;
+  const isVendedor = userData?.role === ROLES.VENDEDOR;
+  const almacenId = userData?.almacenId || null;
+
+  return (
+    <AuthContext.Provider
+      value={{ user, userData, loading, login, registerDueño, logout,
+        isDueño, isVendedor, almacenId, isAuthenticated: !!user }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+export function useAuth() {
+  const context = useContext(AuthContext);
+  if (!context) throw new Error("useAuth debe usarse dentro de AuthProvider");
+  return context;
+}
+
+export async function crearVendedorDirecto(almacenId, nombre, username, password) {
+  const cleanUser = username.toLowerCase().trim();
+  const email = `vendedor.${cleanUser}.${almacenId.slice(0, 8)}@pos-almacen.local`;
+  const snapCheck = await getDoc(doc(db, "publicUsernames", cleanUser));
+  if (snapCheck.exists()) throw new Error("El nombre de usuario ya existe");
+
+  const response = await fetch(
+    `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${FIREBASE_API_KEY}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password, returnSecureToken: true }),
+    }
+  );
+  const data = await response.json();
+  if (data.error) {
+    if (data.error.message === "EMAIL_EXISTS") throw new Error("El usuario ya existe");
+    if (data.error.message === "WEAK_PASSWORD") throw new Error("Contraseña muy débil (mínimo 6 caracteres)");
+    throw new Error(data.error.message);
+  }
+  const uid = data.localId;
+  await setDoc(doc(db, "users", uid), {
+    email, nombre, username: cleanUser, role: ROLES.VENDEDOR,
+    almacenId, activo: true, createdAt: new Date().toISOString(),
+  });
+  await setDoc(doc(db, "publicUsernames", cleanUser), {
+    email, almacenId, uid,
+  });
+  return { uid, email, username: cleanUser };
+}
+
+export async function toggleVendedorEstado(vendedorId, activo) {
+  await updateDoc(doc(db, "users", vendedorId), {
+    activo, updatedAt: new Date().toISOString(),
+  });
+}
+
+export async function getVendedores(almacenId) {
+  const q = query(collection(db, "users"), where("almacenId", "==", almacenId));
+  const snap = await getDocs(q);
+  return snap.docs
+    .map((d) => ({ id: d.id, ...d.data() }))
+    .filter((u) => u.role === "vendedor");
+}
+````
+
+## File: src/hooks/useTurno.js
+````javascript
+import { useState, useEffect, useCallback } from "react";
+import {
+  getActiveTurno,
+  closeTurno as closeTurnoService,
+  openTurno as openTurnoService,
+} from "../services/firestoreSales";
+
+export function useTurno(almacenId, vendedorId) {
+  const [turno, setTurno] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const refresh = useCallback(async () => {
+    if (!almacenId || !vendedorId) {
+      setTurno(null);
+      return;
+    }
+    setLoading(true);
+    setError("");
+    try {
+      const t = await getActiveTurno(almacenId, vendedorId);
+      setTurno(t);
+    } catch (e) {
+      console.error(e);
+      setError("No se pudo verificar el turno");
+    } finally {
+      setLoading(false);
+    }
+  }, [almacenId, vendedorId]);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  const abrir = useCallback(
+    async (efectivoInicial, vendedorNombre) => {
+      if (!almacenId || !vendedorId) {
+        throw new Error("Falta almacenId o vendedorId");
+      }
+      setLoading(true);
+      setError("");
+      try {
+        const res = await openTurnoService(
+          almacenId,
+          vendedorId,
+          vendedorNombre,
+          efectivoInicial
+        );
+        await refresh();
+        return res;
+      } catch (e) {
+        console.error(e);
+        setError(e.message || "Error al abrir turno");
+        throw e;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [almacenId, vendedorId, refresh]
+  );
+
+  const cerrar = useCallback(async () => {
+    if (!almacenId || !vendedorId) {
+      throw new Error("Falta almacenId o vendedorId");
+    }
+    setLoading(true);
+    setError("");
+    try {
+      const resumen = await closeTurnoService(almacenId, vendedorId);
+      setTurno(null);
+      return resumen;
+    } catch (e) {
+      console.error(e);
+      setError(e.message || "Error al cerrar turno");
+      throw e;
+    } finally {
+      setLoading(false);
+    }
+  }, [almacenId, vendedorId]);
+
+  return { turno, loading, error, refresh, abrir, cerrar };
+}
+````
+
+## File: src/pages/AdminVendedores.jsx
+````javascript
+import { useState, useEffect } from "react";
+import { useAuth } from "../hooks/useAuth";
+import { usersService } from "../services/firestoreUsers";
+import { puedeCrearVendedor, LIMITES } from "../services/planLimits";
+import { UserPlus, Trash2, UserCheck, UserX, Loader2, Crown, AlertTriangle } from "lucide-react";
+
+export default function AdminVendedores() {
+  const { userData } = useAuth();
+  const [vendedores, setVendedores] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [mostrarForm, setMostrarForm] = useState(false);
+  const [form, setForm] = useState({ username: "", password: "", nombre: "" });
+  const [error, setError] = useState("");
+  const [planInfo, setPlanInfo] = useState({ plan: "basico", usados: 0, limite: 1, permitido: true });
+
+  useEffect(() => {
+    if (userData?.almacenId) {
+      cargarTodo();
+    }
+  }, [userData]);
+
+  async function cargarTodo() {
+    setLoading(true);
+    const data = await usersService.getVendedores(userData.almacenId);
+    setVendedores(data);
+    await cargarPlanInfo(data.length);
+    setLoading(false);
+  }
+
+  async function cargarPlanInfo(cantidadActual = null) {
+    const r = await puedeCrearVendedor(userData.almacenId);
+    setPlanInfo({
+      plan: r.plan || "basico",
+      usados: r.usados ?? cantidadActual ?? vendedores.length,
+      limite: r.limite ?? 1,
+      permitido: r.permitido,
+    });
+  }
+
+  async function handleCrear(e) {
+    e.preventDefault();
+    setError("");
+    try {
+      await usersService.createVendedor({
+        username: form.username.trim(),
+        password: form.password,
+        nombre: form.nombre.trim(),
+        almacenId: userData.almacenId,
+      });
+      setForm({ username: "", password: "", nombre: "" });
+      setMostrarForm(false);
+      await cargarTodo();
+    } catch (err) {
+      setError(err.message || "Error al crear vendedor");
+    }
+  }
+
+  async function toggleActivo(vendedor) {
+    await usersService.updateVendedor(vendedor.id, { activo: !vendedor.activo });
+    await cargarTodo();
+  }
+
+  async function handleEliminar(vendedor) {
+    if (!confirm(`¿Eliminar permanentemente a ${vendedor.nombre}?\n\nEsta acción no se puede deshacer.`)) return;
+    try {
+      // Usar vendedor.id (doc ID = uid) y vendedor.username
+      await usersService.deleteVendedor(vendedor.id, vendedor.username);
+      await cargarTodo();
+    } catch (err) {
+      alert("Error al eliminar: " + (err.message || "Verifica las reglas de Firestore"));
+      console.error(err);
+    }
+  }
+
+  const alLimite = planInfo.usados >= planInfo.limite && planInfo.limite !== Infinity;
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+          <UserPlus className="w-6 h-6 text-blue-600" /> Vendedores
+        </h1>
+        <button
+          onClick={() => setMostrarForm(!mostrarForm)}
+          disabled={alLimite}
+          className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2"
+        >
+          <UserPlus size={18} /> Nuevo Vendedor
+        </button>
+      </div>
+
+      <div className={`flex items-center justify-between mb-4 p-3 rounded-lg border text-sm ${
+        planInfo.plan === "pro"
+          ? "bg-purple-50 border-purple-200 text-purple-700"
+          : "bg-gray-50 border-gray-200 text-gray-600"
+      }`}>
+        <div className="flex items-center gap-2">
+          <Crown size={16} />
+          <span className="font-medium">Plan {planInfo.plan.toUpperCase()}</span>
+          <span>• Vendedores: {planInfo.usados} / {planInfo.limite === Infinity ? "∞" : planInfo.limite}</span>
+        </div>
+        {planInfo.plan === "basico" && (
+          <span className="text-xs bg-white px-2 py-1 rounded border border-gray-200">
+            Upgrade a Pro para vendedores ilimitados
+          </span>
+        )}
+      </div>
+
+      {alLimite && (
+        <div className="bg-orange-50 border border-orange-200 text-orange-700 px-4 py-3 rounded-lg mb-4 text-sm flex items-center gap-2">
+          <AlertTriangle size={16} />
+          Has alcanzado el límite de vendedores de tu plan. Elimina uno o actualiza a Pro.
+        </div>
+      )}
+
+      {mostrarForm && (
+        <form onSubmit={handleCrear} className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+          <h2 className="text-lg font-bold text-gray-800 mb-4">Crear Vendedor</h2>
+          {error && <div className="bg-red-50 text-red-700 px-4 py-2 rounded-lg mb-4 text-sm">{error}</div>}
+          <div className="grid md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Nombre</label>
+              <input type="text" value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" required />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Usuario (login)</label>
+              <input type="text" value={form.username}
+                onChange={(e) => setForm({ ...form, username: e.target.value.toLowerCase().replace(/\s/g, "") })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" required />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Contraseña</label>
+              <input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" required minLength={6} />
+            </div>
+          </div>
+          <div className="flex gap-3 mt-4">
+            <button type="button" onClick={() => setMostrarForm(false)} className="px-4 py-2 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50">
+              Cancelar
+            </button>
+            <button type="submit" className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition">
+              Crear Vendedor
+            </button>
+          </div>
+        </form>
+      )}
+
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-gray-50 border-b border-gray-200">
+            <tr>
+              <th className="text-left px-4 py-3">Nombre</th>
+              <th className="text-left px-4 py-3">Usuario</th>
+              <th className="text-left px-4 py-3">Estado</th>
+              <th className="text-right px-4 py-3">Acciones</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {vendedores.map((v) => (
+              <tr key={v.id} className="hover:bg-gray-50">
+                <td className="px-4 py-3 font-medium text-gray-800">{v.nombre}</td>
+                <td className="px-4 py-3 text-gray-600">{v.username}</td>
+                <td className="px-4 py-3">
+                  <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${v.activo ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-600"}`}>
+                    {v.activo ? <UserCheck size={12} /> : <UserX size={12} />}
+                    {v.activo ? "Activo" : "Inactivo"}
+                  </span>
+                </td>
+                <td className="px-4 py-3 text-right">
+                  <div className="flex items-center justify-end gap-2">
+                    <button onClick={() => toggleActivo(v)}
+                      className={`p-1.5 rounded-lg transition ${v.activo ? "text-amber-600 hover:bg-amber-50" : "text-green-600 hover:bg-green-50"}`}
+                      title={v.activo ? "Desactivar" : "Activar"}>
+                      {v.activo ? <UserX size={16} /> : <UserCheck size={16} />}
+                    </button>
+                    <button onClick={() => handleEliminar(v)}
+                      className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition" title="Eliminar">
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {vendedores.length === 0 && (
+          <div className="text-center py-8 text-gray-400">
+            <UserPlus size={40} className="mx-auto mb-2" />
+            <p>No hay vendedores registrados</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+````
+
+## File: src/pages/Dashboard.jsx
+````javascript
+import { Routes, Route, Navigate } from "react-router-dom";
+import { useAuth } from "../hooks/useAuth";
+import Navbar from "../components/Navbar";
+import POS from "../components/POS";
+import ProductManager from "../components/ProductManager";
+import Reports from "../components/Reports";
+import Mermas from "../components/Mermas";
+import Fiados from "../components/Fiados";
+import Offers from "../components/Offers";
+import AdminVendedores from "./AdminVendedores";
+
+export default function Dashboard() {
+  const { isDueño, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <Navbar />
+      <main className="container mx-auto px-4 py-6 max-w-7xl">
+        <Routes>
+          <Route path="/" element={<POS />} />
+          <Route path="/vender" element={<POS />} />
+          <Route path="/productos" element={<ProductManager />} />
+          <Route path="/fiados" element={<Fiados />} />  {/* Vendedor también accede */}
+          {isDueño && (
+            <>
+              <Route path="/ofertas" element={<Offers />} />
+              <Route path="/mermas" element={<Mermas />} />
+              <Route path="/informes" element={<Reports />} />
+              <Route path="/vendedores" element={<AdminVendedores />} />
+            </>
+          )}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </main>
+    </div>
+  );
+}
+````
+
+## File: src/pages/Login.jsx
+````javascript
+import { useState } from "react";
+import { useNavigate, Link } from "react-router-dom";
+import { useAuth } from "../hooks/useAuth";
+import { Store, Eye, EyeOff, Loader2 } from "lucide-react";
+
+const MAX_EMAIL_LEN = 100;
+const MAX_PASSWORD_LEN = 50;
+const MAX_USERNAME_LEN = 30;
+
+export default function Login() {
+  const [identifier, setIdentifier] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const { login } = useAuth();
+  const navigate = useNavigate();
+
+  function sanitizeInput(value, maxLen) {
+    return value.slice(0, maxLen).replace(/[<>"'&]/g, "");
+  }
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError("");
+
+    const cleanIdentifier = sanitizeInput(identifier, identifier.includes("@") ? MAX_EMAIL_LEN : MAX_USERNAME_LEN);
+    const cleanPassword = sanitizeInput(password, MAX_PASSWORD_LEN);
+
+    if (!cleanIdentifier.trim()) {
+      setError("Ingresa tu usuario o correo");
+      return;
+    }
+    if (cleanPassword.length < 6) {
+      setError("La contraseña debe tener al menos 6 caracteres");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await login(cleanIdentifier, cleanPassword);
+      navigate("/");
+    } catch (err) {
+      let msg = "Error al iniciar sesión";
+      if (err.message === "Usuario no encontrado") msg = "Usuario no encontrado";
+      else if (err.code === "auth/user-not-found") msg = "Usuario no encontrado";
+      else if (err.code === "auth/wrong-password") msg = "Contraseña incorrecta";
+      else if (err.code === "auth/invalid-credential") msg = "Usuario o contraseña incorrectos";
+      else if (err.code === "auth/invalid-email") msg = "Formato de usuario/correo inválido";
+      else if (err.code === "auth/too-many-requests") msg = "Demasiados intentos. Intenta más tarde.";
+      setError(msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-600 to-blue-800 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-8">
+        <div className="text-center mb-8">
+          <div className="bg-blue-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Store className="w-8 h-8 text-blue-600" />
+          </div>
+          <h1 className="text-2xl font-bold text-gray-800">POS Almacén de Barrio</h1>
+          <p className="text-gray-500 mt-1">Inicia sesión en tu cuenta</p>
+        </div>
+
+        {error && (
+          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">
+            {error}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Usuario o Correo electrónico
+            </label>
+            <input
+              type="text"
+              value={identifier}
+              onChange={(e) => setIdentifier(sanitizeInput(e.target.value, MAX_EMAIL_LEN))}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+              placeholder="juan o juan@email.com"
+              maxLength={MAX_EMAIL_LEN}
+              autoComplete="username"
+              required
+            />
+            <p className="text-xs text-gray-400 mt-1">
+              Vendedores: usa tu nombre de usuario. Dueños: usa tu correo.
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Contraseña
+            </label>
+            <div className="relative">
+              <input
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(sanitizeInput(e.target.value, MAX_PASSWORD_LEN))}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition pr-10"
+                placeholder="••••••••"
+                maxLength={MAX_PASSWORD_LEN}
+                minLength={6}
+                autoComplete="current-password"
+                required
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          >
+            {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : "Iniciar Sesión"}
+          </button>
+        </form>
+
+        <div className="mt-6 text-center">
+          <p className="text-sm text-gray-600">
+            ¿No tienes cuenta de dueño?{" "}
+            <Link to="/registro" className="text-blue-600 hover:text-blue-700 font-medium">
+              Regístrate aquí
+            </Link>
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+````
+
+## File: src/pages/Register.jsx
+````javascript
+import { useState } from "react";
+import { useNavigate, Link } from "react-router-dom";
+import { useAuth } from "../hooks/useAuth";
+import { Store, Eye, EyeOff, Loader2, ArrowLeft } from "lucide-react";
+
+const MAX_LEN = 100;
+const MAX_PASS = 50;
+
+export default function Register() {
+  const [nombre, setNombre] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [nombreAlmacen, setNombreAlmacen] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const { registerDueño } = useAuth();
+  const navigate = useNavigate();
+
+  function sanitize(value, max) {
+    return value.slice(0, max).replace(/[<>"'&]/g, "");
+  }
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError("");
+
+    const cleanNombre = sanitize(nombre, MAX_LEN);
+    const cleanEmail = sanitize(email, MAX_LEN);
+    const cleanPass = sanitize(password, MAX_PASS);
+    const cleanAlmacen = sanitize(nombreAlmacen, MAX_LEN);
+
+    if (cleanPass.length < 6) {
+      setError("La contraseña debe tener al menos 6 caracteres");
+      return;
+    }
+    if (cleanPass !== sanitize(confirmPassword, MAX_PASS)) {
+      setError("Las contraseñas no coinciden");
+      return;
+    }
+    if (!cleanEmail.includes("@") || !cleanEmail.includes(".")) {
+      setError("Ingresa un correo válido");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await registerDueño(cleanEmail, cleanPass, cleanNombre, cleanAlmacen);
+      navigate("/");
+    } catch (err) {
+      let msg = "Error al registrar";
+      if (err.code === "auth/email-already-in-use") msg = "Este email ya está registrado";
+      else if (err.code === "auth/invalid-email") msg = "Email inválido";
+      else if (err.code === "auth/weak-password") msg = "Contraseña muy débil";
+      setError(msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-green-600 to-green-800 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-8">
+        <div className="mb-6">
+          <Link to="/login" className="inline-flex items-center text-gray-500 hover:text-gray-700 text-sm">
+            <ArrowLeft size={16} className="mr-1" /> Volver al login
+          </Link>
+        </div>
+
+        <div className="text-center mb-8">
+          <div className="bg-green-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Store className="w-8 h-8 text-green-600" />
+          </div>
+          <h1 className="text-2xl font-bold text-gray-800">Crear Cuenta de Dueño</h1>
+          <p className="text-gray-500 mt-1">Registra tu almacén y comienza a vender</p>
+        </div>
+
+        {error && (
+          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">
+            {error}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Tu nombre</label>
+            <input
+              type="text"
+              value={nombre}
+              onChange={(e) => setNombre(sanitize(e.target.value, MAX_LEN))}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none"
+              placeholder="Juan Pérez"
+              maxLength={MAX_LEN}
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Nombre del almacén</label>
+            <input
+              type="text"
+              value={nombreAlmacen}
+              onChange={(e) => setNombreAlmacen(sanitize(e.target.value, MAX_LEN))}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none"
+              placeholder="Almacén La Esquina"
+              maxLength={MAX_LEN}
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Correo electrónico</label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(sanitize(e.target.value, MAX_LEN))}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none"
+              placeholder="tu@email.com"
+              maxLength={MAX_LEN}
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Contraseña</label>
+            <div className="relative">
+              <input
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(sanitize(e.target.value, MAX_PASS))}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none pr-10"
+                placeholder="Mínimo 6 caracteres"
+                maxLength={MAX_PASS}
+                minLength={6}
+                required
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Confirmar contraseña</label>
+            <input
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(sanitize(e.target.value, MAX_PASS))}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none"
+              placeholder="Repite tu contraseña"
+              maxLength={MAX_PASS}
+              required
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-2.5 rounded-lg transition disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : "Crear Cuenta"}
+          </button>
+        </form>
+
+        <p className="mt-6 text-center text-sm text-gray-600">
+          ¿Ya tienes cuenta?{" "}
+          <Link to="/login" className="text-green-600 hover:text-green-700 font-medium">
+            Inicia sesión
+          </Link>
+        </p>
+      </div>
+    </div>
+  );
+}
+````
+
+## File: src/pages/RegisterVendedor.jsx
+````javascript
+import { useState } from "react";
+import { useNavigate, Link } from "react-router-dom";
+import { useAuth } from "../hooks/useAuth";
+import { UserPlus, Eye, EyeOff, Loader2, ArrowLeft } from "lucide-react";
+
+export default function RegisterVendedor() {
+  const [nombre, setNombre] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [codigo, setCodigo] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const { registerVendedor } = useAuth();
+  const navigate = useNavigate();
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError("");
+
+    if (password.length < 6) {
+      setError("La contraseña debe tener al menos 6 caracteres");
+      return;
+    }
+    if (password !== confirmPassword) {
+      setError("Las contraseñas no coinciden");
+      return;
+    }
+    if (codigo.length < 4) {
+      setError("Ingresa un código de invitación válido");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await registerVendedor(email, password, nombre, codigo.toUpperCase());
+      navigate("/");
+    } catch (err) {
+      let msg = err.message || "Error al registrar";
+      if (err.code === "auth/email-already-in-use") msg = "Este email ya está registrado";
+      else if (err.code === "auth/invalid-email") msg = "Email inválido";
+      else if (err.code === "auth/weak-password") msg = "Contraseña muy débil";
+      setError(msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-purple-600 to-purple-800 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-8">
+        <div className="mb-6">
+          <Link to="/login" className="inline-flex items-center text-gray-500 hover:text-gray-700 text-sm">
+            <ArrowLeft size={16} className="mr-1" /> Volver al login
+          </Link>
+        </div>
+
+        <div className="text-center mb-8">
+          <div className="bg-purple-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+            <UserPlus className="w-8 h-8 text-purple-600" />
+          </div>
+          <h1 className="text-2xl font-bold text-gray-800">Unirse como Vendedor</h1>
+          <p className="text-gray-500 mt-1">Ingresa el código que te dio el dueño</p>
+        </div>
+
+        {error && (
+          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">
+            {error}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Código de invitación
+            </label>
+            <input
+              type="text"
+              value={codigo}
+              onChange={(e) => setCodigo(e.target.value.toUpperCase())}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none transition uppercase tracking-widest font-mono text-center text-lg"
+              placeholder="ABC123"
+              maxLength={10}
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Tu nombre
+            </label>
+            <input
+              type="text"
+              value={nombre}
+              onChange={(e) => setNombre(e.target.value)}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none transition"
+              placeholder="Pedro Gómez"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Correo electrónico
+            </label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none transition"
+              placeholder="tu@email.com"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Contraseña
+            </label>
+            <div className="relative">
+              <input
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none transition pr-10"
+                placeholder="Mínimo 6 caracteres"
+                required
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Confirmar contraseña
+            </label>
+            <input
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none transition"
+              placeholder="Repite tu contraseña"
+              required
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold py-2.5 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          >
+            {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : "Unirse al Almacén"}
+          </button>
+        </form>
+
+        <p className="mt-6 text-center text-sm text-gray-600">
+          ¿Eres dueño?{" "}
+          <Link to="/registro" className="text-purple-600 hover:text-purple-700 font-medium">
+            Registra tu almacén
+          </Link>
+        </p>
+      </div>
+    </div>
+  );
+}
+````
+
+## File: src/services/firestoreConfig.js
+````javascript
+import { db } from "../firebase/firebase";
+import { doc, getDoc, updateDoc } from "firebase/firestore";
+
+export async function getConfig(almacenId) {
+  if (!almacenId) return {};
+  const snap = await getDoc(doc(db, "almacenes", almacenId));
+  if (snap.exists()) return snap.data().config || {};
+  return {};
+}
+
+export async function updateConfig(almacenId, config) {
+  if (!almacenId) throw new Error("Falta almacenId");
+  await updateDoc(doc(db, "almacenes", almacenId), { config });
+}
+
+export const configService = { getConfig, updateConfig };
+````
+
+## File: src/services/firestoreFiados.js
+````javascript
+import { db } from "../firebase/firebase";
+import {
+  doc, getDoc, setDoc, updateDoc, deleteDoc,
+  collection, query, where, getDocs, addDoc,
+} from "firebase/firestore";
+
+const COLLECTION = "fiados";
+
+export async function createFiado(almacenId, fiadoData) {
+  const data = {
+    ...fiadoData, almacenId, estado: "pendiente", pagos: [],
+    createdAt: new Date().toISOString(),
+  };
+  const ref = await addDoc(collection(db, COLLECTION), data);
+  return { id: ref.id, ...data };
+}
+
+export async function getFiados(almacenId, filters = {}) {
+  if (!almacenId) return [];
+  const q = query(collection(db, COLLECTION), where("almacenId", "==", almacenId));
+  const snap = await getDocs(q);
+  let fiados = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  fiados.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+  if (filters.estado) fiados = fiados.filter((f) => f.estado === filters.estado);
+  if (filters.search) {
+    const term = filters.search.toLowerCase();
+    fiados = fiados.filter((f) =>
+      f.clienteNombre?.toLowerCase().includes(term) || f.clienteTelefono?.includes(term)
+    );
+  }
+  return fiados;
+}
+
+export async function getFiado(fiadoId) {
+  const snap = await getDoc(doc(db, COLLECTION, fiadoId));
+  if (snap.exists()) return { id: snap.id, ...snap.data() };
+  return null;
+}
+
+export async function addPago(fiadoId, pagoData) {
+  const fiado = await getFiado(fiadoId);
+  if (!fiado) throw new Error("Fiado no encontrado");
+  const pagos = [...(fiado.pagos || []), pagoData];
+  const totalPagado = pagos.reduce((sum, p) => sum + (p.monto || 0), 0);
+  const estado = totalPagado >= fiado.total ? "pagada" : totalPagado > 0 ? "parcial" : "pendiente";
+  await updateDoc(doc(db, COLLECTION, fiadoId), {
+    pagos, estado, updatedAt: new Date().toISOString(),
+  });
+  return { ...fiado, pagos, estado };
+}
+
+export async function deleteFiado(fiadoId) {
+  await deleteDoc(doc(db, COLLECTION, fiadoId));
+}
+
+export const fiadosService = {
+  createFiado, getFiados, getFiado, addPago, deleteFiado,
+};
+````
+
+## File: src/services/firestoreMermas.js
+````javascript
+import { db } from "../firebase/firebase";
+import {
+  doc, getDoc, setDoc, updateDoc, deleteDoc,
+  collection, query, where, getDocs, addDoc,
+} from "firebase/firestore";
+
+const COLLECTION = "mermas";
+
+export async function createMerma(almacenId, mermaData) {
+  const data = { ...mermaData, almacenId, createdAt: new Date().toISOString() };
+  const ref = await addDoc(collection(db, COLLECTION), data);
+  return { id: ref.id, ...data };
+}
+
+export async function getMermas(almacenId, filters = {}) {
+  if (!almacenId) return [];
+  const q = query(collection(db, COLLECTION), where("almacenId", "==", almacenId));
+  const snap = await getDocs(q);
+  let mermas = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  mermas.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+  if (filters.desde) mermas = mermas.filter((m) => new Date(m.createdAt) >= new Date(filters.desde));
+  if (filters.hasta) mermas = mermas.filter((m) => new Date(m.createdAt) <= new Date(filters.hasta));
+  if (filters.motivo) mermas = mermas.filter((m) => m.motivo === filters.motivo);
+  return mermas;
+}
+
+export async function deleteMerma(mermaId) {
+  await deleteDoc(doc(db, COLLECTION, mermaId));
+}
+
+export const mermasService = {
+  createMerma, getMermas, deleteMerma,
+};
+````
+
+## File: src/services/firestoreProducts.js
+````javascript
+import { db } from "../firebase/firebase";
+import {
+  doc, getDoc, setDoc, updateDoc, deleteDoc,
+  collection, query, where, getDocs, addDoc,
+  runTransaction,
+} from "firebase/firestore";
+import { puedeCrearProducto } from "./planLimits";
+
+const COLLECTION = "productos";
+
+function generateId() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+export async function getProducts(almacenId) {
+  if (!almacenId) return [];
+  const q = query(
+    collection(db, COLLECTION),
+    where("almacenId", "==", almacenId)
+  );
+  const snap = await getDocs(q);
+  const products = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  return products.sort((a, b) => (a.nombre || "").localeCompare(b.nombre || ""));
+}
+
+export async function getProduct(productId) {
+  const snap = await getDoc(doc(db, COLLECTION, productId));
+  if (snap.exists()) return { id: snap.id, ...snap.data() };
+  return null;
+}
+
+export async function createProduct(almacenId, productData) {
+  const check = await puedeCrearProducto(almacenId);
+  if (!check.permitido) throw new Error(check.mensaje);
+
+  const data = {
+    ...productData,
+    almacenId,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  const ref = await addDoc(collection(db, COLLECTION), data);
+  return { id: ref.id, ...data };
+}
+
+export async function updateProduct(productId, updates) {
+  const data = { ...updates, updatedAt: new Date().toISOString() };
+  await updateDoc(doc(db, COLLECTION, productId), data);
+  return { id: productId, ...updates };
+}
+
+export async function deleteProduct(productId) {
+  await deleteDoc(doc(db, COLLECTION, productId));
+}
+
+export async function addStock(productId, cantidad, loteData = null) {
+  const productRef = doc(db, COLLECTION, productId);
+
+  return await runTransaction(db, async (transaction) => {
+    const productSnap = await transaction.get(productRef);
+    if (!productSnap.exists()) throw new Error("Producto no encontrado");
+
+    const product = productSnap.data();
+    const nuevoStock = (product.stock || 0) + cantidad;
+    const updates = { stock: nuevoStock, updatedAt: new Date().toISOString() };
+
+    if (product.perecedero && loteData) {
+      const lotes = product.lotes ? [...product.lotes] : [];
+      lotes.push({
+        id: generateId(),
+        cantidad,
+        fechaVencimiento: loteData.fechaVencimiento,
+        fechaIngreso: new Date().toISOString(),
+      });
+      updates.lotes = lotes;
+    }
+
+    transaction.update(productRef, updates);
+    return { id: productId, ...product, ...updates };
+  });
+}
+
+export async function discountStock(productId, cantidad) {
+  const productRef = doc(db, COLLECTION, productId);
+
+  return await runTransaction(db, async (transaction) => {
+    const productSnap = await transaction.get(productRef);
+    if (!productSnap.exists()) throw new Error("Producto no encontrado");
+
+    const product = productSnap.data();
+
+    if ((product.stock || 0) < cantidad) {
+      throw new Error(`Stock insuficiente: ${product.nombre || productId}`);
+    }
+
+    const nuevoStock = (product.stock || 0) - cantidad;
+    const updates = {
+      stock: nuevoStock,
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (product.perecedero && product.lotes) {
+      let restante = cantidad;
+      const lotes = [...product.lotes].sort(
+        (a, b) => new Date(a.fechaIngreso) - new Date(b.fechaIngreso)
+      );
+      for (let i = 0; i < lotes.length && restante > 0; i++) {
+        if (lotes[i].cantidad <= restante) {
+          restante -= lotes[i].cantidad;
+          lotes[i].cantidad = 0;
+        } else {
+          lotes[i].cantidad -= restante;
+          restante = 0;
+        }
+      }
+      updates.lotes = lotes.filter((l) => l.cantidad > 0);
+    }
+
+    transaction.update(productRef, updates);
+    return { id: productId, ...product, ...updates };
+  });
+}
+
+export async function getProductByBarcode(almacenId, barcode) {
+  if (!almacenId || !barcode) return null;
+  const q = query(
+    collection(db, COLLECTION),
+    where("almacenId", "==", almacenId),
+    where("codigoBarras", "==", barcode)
+  );
+  const snap = await getDocs(q);
+  if (!snap.empty) return { id: snap.docs[0].id, ...snap.docs[0].data() };
+  return null;
+}
+
+export async function searchProducts(almacenId, searchTerm) {
+  if (!almacenId) return [];
+  const products = await getProducts(almacenId);
+  if (!searchTerm) return products;
+  const term = searchTerm.toLowerCase();
+  return products.filter(
+    (p) =>
+      p.nombre?.toLowerCase().includes(term) ||
+      p.codigoBarras?.includes(term) ||
+      p.categoria?.toLowerCase().includes(term)
+  );
+}
+
+export const productsService = {
+  getProducts, getProduct, createProduct, updateProduct, deleteProduct,
+  addStock, discountStock, getProductByBarcode, searchProducts,
+};
+````
+
+## File: src/services/firestoreSales.js
+````javascript
+import { db } from "../firebase/firebase";
+import {
+  doc, getDoc, setDoc, updateDoc,
+  collection, query, where, getDocs, addDoc,
+} from "firebase/firestore";
+
+const COLLECTION_VENTAS = "ventas";
+const COLLECTION_TURNOS = "turnos";
+
+export async function createSale(almacenId, saleData) {
+  const data = { ...saleData, almacenId, createdAt: new Date().toISOString() };
+  const ref = await addDoc(collection(db, COLLECTION_VENTAS), data);
+  return { id: ref.id, ...data };
+}
+
+export async function getSales(almacenId, filters = {}) {
+  if (!almacenId) return [];
+  const q = query(
+    collection(db, COLLECTION_VENTAS),
+    where("almacenId", "==", almacenId)
+  );
+  const snap = await getDocs(q);
+  let sales = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  sales.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+  if (filters.desde) sales = sales.filter((s) => new Date(s.createdAt) >= new Date(filters.desde));
+  if (filters.hasta) sales = sales.filter((s) => new Date(s.createdAt) <= new Date(filters.hasta));
+  if (filters.metodoPago) sales = sales.filter((s) => s.metodoPago === filters.metodoPago);
+  if (filters.tipo) sales = sales.filter((s) => s.tipo === filters.tipo);
+  return sales;
+}
+
+export async function getTodaySales(almacenId) {
+  const hoy = new Date().toISOString().split("T")[0];
+  const sales = await getSales(almacenId);
+  return sales.filter((s) => s.createdAt?.startsWith(hoy));
+}
+
+export async function createTurno(almacenId, turnoData) {
+  const data = { ...turnoData, almacenId, createdAt: new Date().toISOString() };
+  const ref = await addDoc(collection(db, COLLECTION_TURNOS), data);
+  return { id: ref.id, ...data };
+}
+
+export async function updateTurno(turnoId, updates) {
+  await updateDoc(doc(db, COLLECTION_TURNOS, turnoId), {
+    ...updates, updatedAt: new Date().toISOString(),
+  });
+}
+
+export async function getTurnoActivo(almacenId) {
+  if (!almacenId) return null;
+  const q = query(
+    collection(db, COLLECTION_TURNOS),
+    where("almacenId", "==", almacenId),
+    where("estado", "==", "abierto")
+  );
+  const snap = await getDocs(q);
+  if (!snap.empty) return { id: snap.docs[0].id, ...snap.docs[0].data() };
+  return null;
+}
+
+export async function getTurnos(almacenId) {
+  if (!almacenId) return [];
+  const q = query(collection(db, COLLECTION_TURNOS), where("almacenId", "==", almacenId));
+  const snap = await getDocs(q);
+  const turnos = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  return turnos.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+}
+
+export const salesService = {
+  createSale, getSales, getTodaySales, createTurno, updateTurno, getTurnoActivo, getTurnos,
+};
+````
+
+## File: src/services/firestoreUsers.js
+````javascript
+import { db } from "../firebase/firebase";
+import {
+  doc, getDoc, setDoc, updateDoc, deleteDoc,
+  collection, query, where, getDocs,
+} from "firebase/firestore";
+import { puedeCrearVendedor } from "./planLimits";
+
+const API_KEY = import.meta.env.VITE_FIREBASE_API_KEY;
+
+export const usersService = {
+  async getUserData(uid) {
+    const ref = doc(db, "users", uid);
+    const snap = await getDoc(ref);
+    return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+  },
+
+  async createVendedor({ username, password, nombre, almacenId }) {
+    const check = await puedeCrearVendedor(almacenId);
+    if (!check.permitido) throw new Error(check.mensaje);
+
+    const email = `vendedor.${username}.${almacenId}@pos-almacen.local`;
+
+    const res = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${API_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password, returnSecureToken: true }),
+      }
+    );
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error?.message || "Error al crear vendedor");
+
+    const uid = data.localId;
+
+    await setDoc(doc(db, "users", uid), {
+      uid,
+      nombre,
+      username,
+      email,
+      role: "vendedor",
+      almacenId,
+      activo: true,
+      createdAt: new Date().toISOString(),
+    });
+
+    await setDoc(doc(db, "publicUsernames", username), {
+      uid,
+      almacenId,
+      createdAt: new Date().toISOString(),
+    });
+
+    return { uid, email };
+  },
+
+  async getVendedores(almacenId) {
+    const q = query(
+      collection(db, "users"),
+      where("almacenId", "==", almacenId),
+      where("role", "==", "vendedor")
+    );
+    const snap = await getDocs(q);
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  },
+
+  async updateVendedor(uid, data) {
+    const ref = doc(db, "users", uid);
+    await updateDoc(ref, { ...data, updatedAt: new Date().toISOString() });
+  },
+
+  async deleteVendedor(uid, username) {
+    if (username) {
+      await deleteDoc(doc(db, "publicUsernames", username));
+    }
+    await deleteDoc(doc(db, "users", uid));
+  },
+};
+````
+
+## File: src/services/planLimits.js
+````javascript
+import { db } from "../firebase/firebase";
+import { doc, getDoc, collection, query, where, getDocs } from "firebase/firestore";
+
+export const LIMITES = {
+  basico: { productos: 500, vendedores: 1 },
+  pro:    { productos: Infinity, vendedores: Infinity },
+};
+
+export async function getPlan(almacenId) {
+  if (!almacenId) return "basico";
+  const snap = await getDoc(doc(db, "almacenes", almacenId));
+  if (snap.exists()) return snap.data().plan || "basico";
+  return "basico";
+}
+
+export async function contarProductos(almacenId) {
+  if (!almacenId) return 0;
+  const q = query(collection(db, "productos"), where("almacenId", "==", almacenId));
+  const snap = await getDocs(q);
+  return snap.size;
+}
+
+export async function contarVendedores(almacenId) {
+  if (!almacenId) return 0;
+  const q = query(collection(db, "users"), where("almacenId", "==", almacenId), where("role", "==", "vendedor"));
+  const snap = await getDocs(q);
+  return snap.size;
+}
+
+export async function puedeCrearProducto(almacenId) {
+  const plan = await getPlan(almacenId);
+  const limite = LIMITES[plan]?.productos ?? LIMITES.basico.productos;
+  if (limite === Infinity) return { permitido: true, plan };
+  const actuales = await contarProductos(almacenId);
+  if (actuales >= limite) {
+    return {
+      permitido: false,
+      plan,
+      mensaje: `Limite alcanzado: Plan ${plan.toUpperCase()} permite maximo ${limite} productos. Actual: ${actuales}.`,
+    };
+  }
+  return { permitido: true, plan, usados: actuales, limite };
+}
+
+export async function puedeCrearVendedor(almacenId) {
+  const plan = await getPlan(almacenId);
+  const limite = LIMITES[plan]?.vendedores ?? LIMITES.basico.vendedores;
+  if (limite === Infinity) return { permitido: true, plan };
+  const actuales = await contarVendedores(almacenId);
+  if (actuales >= limite) {
+    return {
+      permitido: false,
+      plan,
+      mensaje: `Limite alcanzado: Plan ${plan.toUpperCase()} permite maximo ${limite} vendedor(es). Actual: ${actuales}.`,
+    };
+  }
+  return { permitido: true, plan, usados: actuales, limite };
+}
+````
+
+## File: src/types/index.js
+````javascript
+export const UNIDADES = ["unidad", "kg", "g", "l", "ml", "m", "cm"];
+
+export const CATEGORIAS = [
+  "Abarrotes",
+  "Bebidas",
+  "Lácteos",
+  "Carnes",
+  "Frutas",
+  "Verduras",
+  "Panadería",
+  "Limpieza",
+  "Higiene",
+  "Otros",
+];
+
+export const METODOS_PAGO = [
+  { value: "efectivo", label: "Efectivo", color: "green" },
+  { value: "tarjeta", label: "Tarjeta", color: "blue" },
+  { value: "transferencia", label: "Transferencia", color: "purple" },
+  { value: "fiado", label: "Fiado", color: "orange" },
+];
+
+export const MOTIVOS_MERMA = [
+  "Vencido",
+  "Dañado",
+  "Roto",
+  "Robado",
+  "Descomposición",
+  "Embalaje defectuoso",
+  "Otro",
+];
+
+export const ESTADOS_DEUDA = {
+  PENDIENTE: "pendiente",
+  PARCIAL: "parcial",
+  PAGADA: "pagada",
+  ATRASADA: "atrasada",
+};
+
+export const ROLES = {
+  DUEÑO: "dueño",
+  VENDEDOR: "vendedor",
+};
+
+export const PLANES = {
+  BASICO: "basico",
+  PRO: "pro",
+};
+
+export const DIAS_ALERTA_VENCIMIENTO = [1, 3, 5, 7, 10, 14, 30];
+````
+
+## File: src/utils/format.js
+````javascript
+export function formatCurrency(value) {
+  if (value === undefined || value === null) return "$0";
+  return new Intl.NumberFormat("es-CL", {
+    style: "currency",
+    currency: "CLP",
+    minimumFractionDigits: 0,
+  }).format(value);
+}
+
+export function formatDate(dateString) {
+  if (!dateString) return "";
+  const date = new Date(dateString);
+  return date.toLocaleDateString("es-CL", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+export function formatShortDate(dateString) {
+  if (!dateString) return "";
+  const date = new Date(dateString);
+  return date.toLocaleDateString("es-CL", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}
+
+export function diasHastaVencimiento(fechaVencimiento) {
+  if (!fechaVencimiento) return null;
+  const hoy = new Date();
+  hoy.setHours(0, 0, 0, 0);
+  const venc = new Date(fechaVencimiento);
+  venc.setHours(0, 0, 0, 0);
+  const diff = Math.ceil((venc - hoy) / (1000 * 60 * 60 * 24));
+  return diff;
+}
+
+export function estadoVencimiento(fechaVencimiento, diasAlerta = 3) {
+  const dias = diasHastaVencimiento(fechaVencimiento);
+  if (dias === null) return null;
+  if (dias < 0) return { estado: "vencido", label: "Vencido", color: "red" };
+  if (dias <= diasAlerta) return { estado: "proximo", label: `Vence en ${dias} días`, color: "orange" };
+  return { estado: "ok", label: `Vence en ${dias} días`, color: "green" };
+}
+````
+
+## File: src/App.jsx
+````javascript
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { AuthProvider, useAuth } from "./hooks/useAuth";
+import Login from "./pages/Login";
+import Register from "./pages/Register";
+import Dashboard from "./pages/Dashboard";
+
+function PrivateRoute({ children, requireDueño = false }) {
+  const { isAuthenticated, isDueño, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  if (requireDueño && !isDueño) return <Navigate to="/" replace />;
+
+  return children;
+}
+
+function AppRoutes() {
+  return (
+    <Routes>
+      <Route path="/login" element={<Login />} />
+      <Route path="/registro" element={<Register />} />
+      <Route path="/*" element={
+        <PrivateRoute>
+          <Dashboard />
+        </PrivateRoute>
+      } />
+    </Routes>
+  );
+}
+
+export default function App() {
+  return (
+    <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <AuthProvider>
+        <AppRoutes />
+      </AuthProvider>
+    </BrowserRouter>
+  );
+}
+````
+
+## File: src/index.css
+````css
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+````
+
+## File: src/main.jsx
+````javascript
+import React from "react";
+import ReactDOM from "react-dom/client";
+import App from "./App";
+import "./index.css";
+
+ReactDOM.createRoot(document.getElementById("root")).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);
+````
+
+## File: .gitattributes
+````
+* text=auto
+````
+
+## File: .gitignore
+````
+# Dependencias
+node_modules
+dist
+dist-ssr
+*.local
+
+# Firebase
+.firebase/
+.firebaserc
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Variables de entorno
+.env
+.env.local
+.env.*.local
+
+# OneDrive residuos
+*.tmp
+````
+
+## File: COMPILAR_Y_VER.bat
+````batch
+@echo off
+chcp 1252 >nul
+title POS Almacen - Compilar
+color 0E
+cls
+
+echo ==========================================
+echo    COMPILANDO POS ALMACEN BARRIO
+echo ==========================================
+echo.
+
+cd /d "%~dp0"
+
+echo Instalando dependencias (si faltan)...
+call npm install
+echo.
+
+echo Compilando para produccion...
+call npm run build
+echo.
+
+echo Compilacion lista. Abriendo en navegador...
+start http://localhost:4173/
+echo.
+echo Servidor de prueba iniciado.
+call npx serve dist -l 4173
+pause
+````
+
+## File: DIAGNOSTICO.bat
+````batch
+@echo off
+chcp 1252 >nul
+title Diagnostico POS Almacen
+color 0E
+cls
+
+echo ==========================================
+echo    DIAGNOSTICO POS ALMACEN BARRIO
+echo ==========================================
+echo.
+
+cd /d "%~dp0"
+echo Carpeta actual: %cd%
+echo.
+
+echo --- Verificando archivos ---
+if exist "package.json" (
+    echo [OK] package.json     : ENCONTRADO
+) else (
+    echo [ERROR] package.json  : NO ENCONTRADO
+)
+
+if exist "node_modules" (
+    echo [OK] node_modules     : ENCONTRADO
+) else (
+    echo [ERROR] node_modules  : NO ENCONTRADO (ejecuta: npm install)
+)
+
+if exist "vite.config.js" (
+    echo [OK] vite.config.js   : ENCONTRADO
+) else (
+    echo [ERROR] vite.config.js: NO ENCONTRADO
+)
+
+echo.
+echo --- Verificando Node.js ---
+node --version >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] node           : NO INSTALADO
+) else (
+    for /f "tokens=*" %%a in ('node --version') do echo [OK] node           : %%a
+)
+
+npm --version >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] npm            : NO INSTALADO
+) else (
+    for /f "tokens=*" %%a in ('npm --version') do echo [OK] npm            : v%%a
+)
+
+echo.
+echo ==========================================
+echo Si ves algun [ERROR] arriba, ese es el problema.
+echo.
+pause
+````
+
+## File: firestore.indexes.json
+````json
+{
+  "indexes": [],
+  "fieldOverrides": []
+}
+````
+
+## File: firestore.rules
+````
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    function userAlmacenId() {
+      return getUserData().almacenId;
+    }
+    function userRole() {
+      return getUserData().role;
+    }
+
+    match /users/{userId} {
+      allow read, write: if isAuthenticated() && request.auth.uid == userId;
+      allow read: if isAuthenticated() && userRole() == "dueño" && resource.data.almacenId == userAlmacenId();
+      allow update: if isAuthenticated() && userRole() == "dueño" && resource.data.almacenId == userAlmacenId() && resource.data.role == "vendedor";
+    }
+
+    match /almacenes/{almacenId} {
+      allow read: if isAuthenticated() && userAlmacenId() == almacenId;
+      allow write: if isAuthenticated() && userRole() == "dueño" && userAlmacenId() == almacenId;
+    }
+
+    match /productos/{productId} {
+      allow read: if isAuthenticated() && resource.data.almacenId == userAlmacenId();
+      allow create: if isAuthenticated() && userRole() == "dueño" && request.resource.data.almacenId == userAlmacenId();
+      allow update: if isAuthenticated() && resource.data.almacenId == userAlmacenId() && 
+        (userRole() == "dueño" || 
+          (userRole() == "vendedor" && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stock','updatedAt','lotes'])));
+      allow delete: if isAuthenticated() && userRole() == "dueño" && resource.data.almacenId == userAlmacenId();
+    }
+
+    match /ventas/{saleId} {
+      allow read: if isAuthenticated() && resource.data.almacenId == userAlmacenId();
+      allow create: if isAuthenticated() && request.resource.data.almacenId == userAlmacenId();
+      allow update, delete: if isAuthenticated() && userRole() == "dueño" && resource.data.almacenId == userAlmacenId();
+    }
+
+    match /turnos/{turnoId} {
+      allow read, create, update: if isAuthenticated() && resource.data.almacenId == userAlmacenId();
+      allow delete: if isAuthenticated() && userRole() == "dueño" && resource.data.almacenId == userAlmacenId();
+    }
+
+    match /fiados/{fiadoId} {
+      allow read, create, update: if isAuthenticated() && resource.data.almacenId == userAlmacenId();
+      allow delete: if isAuthenticated() && userRole() == "dueño" && resource.data.almacenId == userAlmacenId();
+    }
+
+    match /mermas/{mermaId} {
+      allow read, write: if isAuthenticated() && userRole() == "dueño" && resource.data.almacenId == userAlmacenId();
+      allow create: if isAuthenticated() && userRole() == "dueño" && request.resource.data.almacenId == userAlmacenId();
+    }
+
+    match /publicUsernames/{username} {
+      allow read: if true;
+      allow write: if isAuthenticated();
+    }
+  }
+}
+````
+
+## File: fix-stock.cjs
+````javascript
+const fs = require('fs');
+const path = require('path');
+
+const ROOT_DIR = __dirname;
+const SRC_DIR = path.join(ROOT_DIR, 'src');
+
+let cambiosTotales = 0;
+
+function processFile(filePath) {
+  let content = fs.readFileSync(filePath, 'utf8');
+  const original = content;
+  let cambios = 0;
+
+  // 1. Reemplazar accesos tipo objeto.stock (p.stock, prod.stock, product.stock, item.stock, c.stock, etc.)
+  // Excluye stockCritico porque no tiene punto antes
+  const regexAcceso = /\b([a-zA-Z_$][a-zA-Z0-9_$]*)\.stock\b(?!\w)/g;
+  content = content.replace(regexAcceso, (match, objName) => {
+    cambios++;
+    return `${objName}.stockActual`;
+  });
+
+  // 2. Reemplazar propiedad stock: en objetos (solo en archivos de services/ y utils/seedData.js)
+  // Esto es seguro porque son los únicos lugares donde se crean/actualizan productos
+  const relPath = path.relative(ROOT_DIR, filePath).replace(/\\/g, '/');
+  if (relPath.startsWith('src/services/') || relPath.includes('seedData')) {
+    // Reemplazar stock: → stockActual:  (evita stockCritico: por el word boundary)
+    const regexProp = /\bstock\b(\s*:\s*)/g;
+    content = content.replace(regexProp, (match, colon) => {
+      // Doble check: no reemplazar si la línea contiene stockCritico justo antes
+      cambios++;
+      return `stockActual${colon}`;
+    });
+  }
+
+  // 3. Reemplazar stock en template strings y condiciones que quedaron sueltos
+  // Casos como ${p.stock} → ${p.stockActual} (ya cubierto por regex 1, pero por si acaso)
+  // Casos como p.stock) en condiciones
+  const regexExtra = /\b([a-zA-Z_$][a-zA-Z0-9_$]*)\.stock\b/g;
+  const matches = content.match(regexExtra);
+  if (matches) {
+    content = content.replace(regexExtra, (match, objName) => {
+      cambios++;
+      return `${objName}.stockActual`;
+    });
+  }
+
+  if (content !== original) {
+    fs.writeFileSync(filePath, content, 'utf8');
+    cambiosTotales += cambios;
+    console.log(`✅ ${relPath} — ${cambios} cambios`);
+  }
+}
+
+function walk(dir) {
+  if (!fs.existsSync(dir)) {
+    console.log('❌ No se encontró la carpeta src/. Asegúrate de correr este script desde la raíz del proyecto.');
+    process.exit(1);
+  }
+  for (const file of fs.readdirSync(dir)) {
+    const fullPath = path.join(dir, file);
+    const stat = fs.statSync(fullPath);
+    if (stat.isDirectory()) {
+      walk(fullPath);
+    } else if (/\.(js|jsx)$/.test(file)) {
+      processFile(fullPath);
+    }
+  }
+}
+
+console.log('🔧 Corrigiendo stock → stockActual en todo el proyecto...\n');
+walk(SRC_DIR);
+console.log(`\n🎉 Listo! Total de cambios: ${cambiosTotales}`);
+console.log('Ahora solo falta: Guardar en VS Code (Ctrl+K, Ctrl+S) y probar.');
+````
+
+## File: index.html
+````html
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#2563eb" />
+    <meta name="description" content="POS Almacen de Barrio - Sistema de punto de venta" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="apple-touch-icon" href="/icon-192x192.png" />
+    <title>POS Almacén de Barrio</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
+````
+
+## File: INICIAR_SIMPLE.cmd
+````batch
+@echo off
+setlocal
+cd /d "%~dp0"
+if not exist "node_modules" (
+    echo Instalando dependencias...
+    call npm install
+)
+echo Iniciando servidor...
+npm run dev
+pause
+````
+
+## File: INICIAR.bat
+````batch
+@echo off
+setlocal EnableDelayedExpansion
+chcp 1252 >nul
+title POS Almacen Barrio - Iniciando...
+color 0A
+cls
+
+echo ==========================================
+echo    POS ALMACEN BARRIO
+echo ==========================================
+echo.
+
+cd /d "%~dp0"
+echo [1/4] Carpeta: %cd%
+echo.
+
+if not exist "package.json" (
+    echo [ERROR] No se encontro package.json
+    echo.
+    pause
+    exit /b 1
+)
+
+echo [2/4] package.json OK
+echo.
+
+if not exist "node_modules" (
+    echo [3/4] node_modules NO encontrado. Instalando...
+    echo Esto puede tardar 1-3 minutos...
+    echo.
+    call npm install
+    if errorlevel 1 (
+        echo [ERROR] Fallo npm install
+        echo.
+        pause
+        exit /b 1
+    )
+    echo [3/4] node_modules instalado OK
+) else (
+    echo [3/4] node_modules OK
+)
+echo.
+
+echo [4/4] Iniciando servidor Vite...
+echo.
+echo ------------------------------------------
+echo Si todo va bien, veras "ready in X ms"
+echo y la app se abrira en el navegador.
+echo ------------------------------------------
+echo.
+echo Si hay un error, aparecera abajo:
+echo.
+
+npm run dev
+
+set EXITCODE=%errorlevel%
+echo.
+echo ==========================================
+if %EXITCODE% equ 0 (
+    echo Servidor detenido normalmente.
+) else (
+    echo [ERROR] El servidor termino con codigo %EXITCODE%
+    echo.
+    echo Posibles causas:
+    echo - Error en algun archivo .jsx o .js
+    echo - Falta algun archivo del proyecto
+    echo - Puerto 5173 ocupado por otra app
+)
+echo ==========================================
+echo.
+echo NO CIERRES esta ventana si necesitas ayuda.
+echo Tomale una foto al error de arriba.
+echo.
+pause
+````
+
+## File: INSTRUCCIONES_v5.md
+````markdown
+# INSTRUCCIONES DE INSTALACION - POS Almacen de Barrio v5.0
+
+## Archivos incluidos
+
+| Archivo | Donde va | Reemplaza a |
+|---------|----------|-------------|
+| firestoreConfig.js | src/services/ | Archivo nuevo |
+| types_index.js | src/types/index.js | El types/index.js anterior |
+| Mermas.jsx | src/components/ | El Mermas.jsx anterior |
+| Offers.jsx | src/components/ | El Offers.jsx anterior |
+| Dashboard.jsx | src/pages/ | El Dashboard.jsx anterior |
+
+## Pasos para instalar
+
+### 1. Copiar archivos
+- `firestoreConfig.js` → `src/services/firestoreConfig.js` (nuevo archivo)
+- `types_index.js` → `src/types/index.js` (reemplazar)
+- `Mermas.jsx` → `src/components/Mermas.jsx` (reemplazar)
+- `Offers.jsx` → `src/components/Offers.jsx` (reemplazar)
+- `Dashboard.jsx` → `src/pages/Dashboard.jsx` (reemplazar)
+
+### 2. Eliminar archivos de datos de prueba (tienda limpia)
+Si existen estos archivos, eliminarlos:
+- `src/components/DevSeedButton.jsx`
+- `src/utils/seedData.js`
+
+### 3. Borrar datos de prueba de Firebase (opcional pero recomendado)
+Para empezar limpio:
+1. Ve a Firebase Console → Firestore Database
+2. Borra las colecciones: productos, ventas, fiados, mermas, turnos
+3. Deja solo: users, almacenes, publicUsernames
+
+### 4. Guardar y probar
+1. En VS Code: Ctrl + K, luego Ctrl + S (guardar todo)
+2. npm run dev
+3. Probar cada pestaña
+
+### 5. Commit en GitHub
+1. Abrir GitHub Desktop
+2. Summary: "v5.0: Criterios configurables Mermas/Ofertas + tienda limpia"
+3. Commit to main → Push origin
+
+## Nuevas funcionalidades
+
+### Mermas - Criterios configurables
+- Boton "Criterios" arriba a la derecha
+- El dueño marca con checkboxes que criterios quiere usar
+- Al registrar merma, solo aparecen productos que califiquen:
+  - "Vencido" → productos perecederos con lotes ya vencidos
+  - Los demas criterios → todos los productos (el dueño elige)
+- Los criterios se guardan en Firestore
+
+### Ofertas - Criterios configurables
+- Boton "Criterios" arriba a la derecha
+- El dueño marca con checkboxes que criterios quiere usar
+- "Por vencer" tiene campo para configurar los dias (default 7)
+- Al crear oferta, solo aparecen productos que califiquen:
+  - "Por vencer" → productos perecederos con lotes que vencen en los proximos X dias
+  - Los demas criterios → todos los productos
+
+### Diferenciacion automatica
+- Producto YA vencido → va a Merma
+- Producto POR vencer (proximos X dias) → va a Oferta
+- Producto danado/roto → Merma
+- Producto embalaje danado → Oferta
+````
+
+## File: INSTRUCCIONES.txt
+````
+POS ALMACEN BARRIO - Instrucciones de uso
+==========================================
+
+OPCION 1: Modo Desarrollo (recomendado para probar)
+----------------------------------------------------
+Haz doble clic en: INICIAR.bat
+
+Esto abre automaticamente el servidor y la app en:
+http://localhost:5173/
+
+Ventaja: Los cambios que hagas en el codigo se ven al instante
+Desventaja: Necesitas tener la ventana abierta
+
+
+OPCION 2: Modo Produccion (mas rapido)
+---------------------------------------
+Haz doble clic en: COMPILAR_Y_VER.bat
+
+Esto:
+1. Compila la app en archivos estaticos optimizados
+2. Abre un servidor ligero
+3. Abre automaticamente tu navegador
+
+Ventaja: Mas rapido
+Desventaja: Si modificas el codigo, debes volver a compilar
+
+
+DIAGNOSTICO
+-----------
+Si algo no funciona, haz doble clic en: DIAGNOSTICO.bat
+Te dira exactamente que falta (Node.js, archivos, etc.)
+
+
+DATOS DE ACCESO (modo demo)
+---------------------------
+Usuario: admin@demo.cl
+Contrasena: 123456
+Rol: Administrador
+
+
+NOTA
+----
+Si Windows muestra "Windows protegio tu PC":
+Haz clic en "Mas informacion" y luego "Ejecutar de todos modos"
+
+IMPORTANTE: Firebase
+--------------------
+1. Sube el archivo firestore.rules a tu consola de Firebase
+   (Firestore Database -> Reglas)
+2. Sube el archivo firestore.indexes.json si es necesario
+3. Los iconos PNG para PWA ya estan incluidos en public/
+````
+
+## File: package.json
+````json
+{
+  "name": "pos-almacen-barrio",
+  "private": true,
+  "version": "3.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "firebase": "^10.12.0",
+    "html5-qrcode": "^2.3.8",
+    "date-fns": "^3.6.0",
+    "jspdf": "^2.5.1",
+    "jspdf-autotable": "^3.8.2",
+    "lucide-react": "^0.400.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.24.0",
+    "recharts": "^2.12.7"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "autoprefixer": "^10.4.19",
+    "postcss": "^8.4.39",
+    "tailwindcss": "^3.4.4",
+    "vite": "^5.3.1",
+    "vite-plugin-pwa": "^0.20.0"
+  }
+}
+````
+
+## File: postcss.config.js
+````javascript
+export default {
+  plugins: {
+    tailwindcss: {},
+    autoprefixer: {},
+  },
+};
+````
+
+## File: README.md
+````markdown
+# POS Almacen de Barrio - Proyecto Completo
+
+## Cambios incluidos en esta version
+
+### 1. Fiado como metodo de pago en el POS
+- Nuevo boton "Fiado" (naranja) junto a Efectivo, Tarjeta y Transferencia
+- Modal para ingresar datos del cliente (nombre obligatorio)
+- Se descuenta stock automaticamente
+- La deuda aparece inmediatamente en Fiados
+- Tambien se registra como venta con metodo "fiado" en los informes
+
+### 2. Informe de Mermas
+- Nueva pestana "Mermas" en Informes
+- Filtros: Hoy, Ultima semana, Ultimo mes, Todo
+- Grafico circular por motivo de merma
+- Tabla detallada con fecha, producto, motivo, cantidad, perdida
+
+### 3. Informe de Inventario (con exportacion a PDF)
+- Nueva pestana "Inventario" en Informes
+- Busqueda por nombre, codigo o categoria
+- Tabla ordenable (clic en columnas)
+- Estados: OK (verde), Critico (naranja), Sin stock (rojo)
+- Boton "Exportar PDF" genera un PDF profesional listo para imprimir
+- Totales: inversion, potencial de venta, margen estimado
+
+---
+
+## Como instalar
+
+### Paso 1: Instalar libreria para PDF
+```
+npm install jspdf jspdf-autotable
+```
+
+### Paso 2: Descomprimir y reemplazar
+1. Descomprime el ZIP
+2. Copia la carpeta `pos-almacen-barrio` y pegala en tu carpeta de proyectos
+3. Reemplaza todos los archivos existentes
+
+### Paso 3: Correr
+```
+npm run dev
+```
+Abre http://localhost:5173/
+
+---
+
+## Datos demo precargados
+- 15 productos (Harina, Azucar, Arroz, Queso, Jamon, Frutas, Bebidas, etc.)
+- 2 deudas de ejemplo (Juan Perez y Maria Gonzalez)
+- Usuario admin precargado (cualquier email/contraseña funciona)
+
+---
+
+## Estructura del proyecto
+```
+pos-almacen-barrio/
+  index.html
+  src/
+    App.jsx
+    main.jsx
+    index.css
+    components/
+      POS.jsx           - Punto de venta con fiado
+      ProductManager.jsx - CRUD productos
+      Reports.jsx        - Informes (ventas, mermas, inventario + PDF)
+      Mermas.jsx         - Control de mermas
+      Fiados.jsx         - Ventas a credito
+      Navbar.jsx         - Navegacion
+      InventoryAlert.jsx - Alertas de stock critico
+    pages/
+      Login.jsx          - Pantalla de login
+      Dashboard.jsx      - Layout principal
+    services/
+      demoData.js        - Datos en memoria / localStorage
+      products.js        - Servicio de productos
+      sales.js           - Servicio de ventas y turnos
+      mermas.js          - Servicio de mermas
+      fiados.js          - Servicio de fiados
+    hooks/
+      useAuth.jsx        - Autenticacion demo
+      useOffline.js      - Detector de conexion
+    utils/
+      format.js          - Formato de moneda y fechas
+    types/
+      index.js           - Constantes y enums
+    firebase/
+      config.js          - Configuracion Firebase (lista pero no activada)
+```
+````
+
+## File: tailwind.config.js
+````javascript
+/** @type {import('tailwindcss').Config} */
+export default {
+  content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
+  theme: {
+    extend: {},
+  },
+  plugins: [],
+};
+````
+
+## File: vite.config.js
+````javascript
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import { VitePWA } from "vite-plugin-pwa";
+
+export default defineConfig({
+  plugins: [
+    react(),
+    VitePWA({
+      registerType: "autoUpdate",
+      manifest: {
+        name: "POS Almacen de Barrio",
+        short_name: "POS Almacen",
+        description: "Sistema de punto de venta para almacenes de barrio",
+        theme_color: "#2563eb",
+        background_color: "#ffffff",
+        display: "standalone",
+        start_url: "/",
+        icons: [
+          { src: "/icon-192x192.png", sizes: "192x192", type: "image/png" },
+          { src: "/icon-512x512.png", sizes: "512x512", type: "image/png" },
+        ],
+      },
+    }),
+  ],
+  server: {
+    host: true,
+    allowedHosts: true,
+  },
+});
+````

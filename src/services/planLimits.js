@@ -30,12 +30,16 @@ export async function contarVendedores(almacenId) {
 export async function puedeCrearProducto(almacenId) {
   const plan = await getPlan(almacenId);
   const limite = LIMITES[plan]?.productos ?? LIMITES.basico.productos;
-  if (limite === Infinity) return { permitido: true, plan };
   const actuales = await contarProductos(almacenId);
+  if (limite === Infinity) {
+    return { permitido: true, plan, usados: actuales, limite: Infinity };
+  }
   if (actuales >= limite) {
     return {
       permitido: false,
       plan,
+      usados: actuales,
+      limite,
       mensaje: `Limite alcanzado: Plan ${plan.toUpperCase()} permite maximo ${limite} productos. Actual: ${actuales}.`,
     };
   }
@@ -45,12 +49,16 @@ export async function puedeCrearProducto(almacenId) {
 export async function puedeCrearVendedor(almacenId) {
   const plan = await getPlan(almacenId);
   const limite = LIMITES[plan]?.vendedores ?? LIMITES.basico.vendedores;
-  if (limite === Infinity) return { permitido: true, plan };
   const actuales = await contarVendedores(almacenId);
+  if (limite === Infinity) {
+    return { permitido: true, plan, usados: actuales, limite: Infinity };
+  }
   if (actuales >= limite) {
     return {
       permitido: false,
       plan,
+      usados: actuales,
+      limite,
       mensaje: `Limite alcanzado: Plan ${plan.toUpperCase()} permite maximo ${limite} vendedor(es). Actual: ${actuales}.`,
     };
   }

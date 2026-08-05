@@ -5,7 +5,7 @@ import {
 } from "firebase/firestore";
 import { puedeCrearVendedor } from "./planLimits";
 
-const API_KEY = import.meta.env.VITE_FIREBASE_API_KEY;
+const API_KEY = "AIzaSyAQUD8KyWSPYNz73RTrdSy-jZ3Lf2QiF3c";
 
 export const usersService = {
   async getUserData(uid) {
@@ -20,7 +20,8 @@ export const usersService = {
 
     const email = `vendedor.${username}.${almacenId}@pos-almacen.local`;
 
-    const res = await fetch(
+    // 1. Intentar crear usuario en Firebase Auth
+    let res = await fetch(
       `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${API_KEY}`,
       {
         method: "POST",
@@ -28,11 +29,43 @@ export const usersService = {
         body: JSON.stringify({ email, password, returnSecureToken: true }),
       }
     );
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error?.message || "Error al crear vendedor");
+    let data = await res.json();
+
+    // 2. Si EMAIL_EXISTS, intentar recuperar el UID haciendo login
+    if (!res.ok && data.error?.message === "EMAIL_EXISTS") {
+      const loginRes = await fetch(
+        `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${API_KEY}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password, returnSecureToken: true }),
+        }
+      );
+      const loginData = await loginRes.json();
+
+      if (!loginRes.ok) {
+        if (loginData.error?.message === "INVALID_PASSWORD") {
+          throw new Error(
+            `El usuario "${username}" ya existe con otra contraseña.\n\n` +
+            "Si fue creado antes y no aparece en la lista, elimínalo desde " +
+            "Firebase Console → Authentication → Users, y vuelve a intentar."
+          );
+        }
+        throw new Error(loginData.error?.message || "Error al verificar usuario existente");
+      }
+
+      // Login exitoso = reutilizar UID existente
+      data = loginData;
+    } else if (!res.ok) {
+      if (data.error?.message === "WEAK_PASSWORD") {
+        throw new Error("Contraseña muy débil (mínimo 6 caracteres)");
+      }
+      throw new Error(data.error?.message || "Error al crear vendedor");
+    }
 
     const uid = data.localId;
 
+    // 3. Crear documento en Firestore
     await setDoc(doc(db, "users", uid), {
       uid,
       nombre,
@@ -44,6 +77,7 @@ export const usersService = {
       createdAt: new Date().toISOString(),
     });
 
+    // 4. Registrar username público
     await setDoc(doc(db, "publicUsernames", username), {
       uid,
       almacenId,

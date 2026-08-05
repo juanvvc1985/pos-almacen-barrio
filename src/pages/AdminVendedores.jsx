@@ -32,7 +32,7 @@ export default function AdminVendedores() {
     setPlanInfo({
       plan: r.plan || "basico",
       usados: r.usados ?? cantidadActual ?? vendedores.length,
-      limite: r.limite ?? 1,
+      limite: r.limite ?? LIMITES.basico.vendedores,
       permitido: r.permitido,
     });
   }
@@ -63,7 +63,6 @@ export default function AdminVendedores() {
   async function handleEliminar(vendedor) {
     if (!confirm(`¿Eliminar permanentemente a ${vendedor.nombre}?\n\nEsta acción no se puede deshacer.`)) return;
     try {
-      // Usar vendedor.id (doc ID = uid) y vendedor.username
       await usersService.deleteVendedor(vendedor.id, vendedor.username);
       await cargarTodo();
     } catch (err) {
