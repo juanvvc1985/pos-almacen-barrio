@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth, sendPasswordReset } from "../hooks/useAuth";
-import { Store, Eye, EyeOff, Loader2, Mail } from "lucide-react";
+import { Store, Eye, EyeOff, Loader2, Mail, WifiOff } from "lucide-react";
 
 const MAX_EMAIL_LEN = 100;
 const MAX_PASSWORD_LEN = 50;
@@ -52,12 +52,29 @@ export default function Login() {
       navigate("/");
     } catch (err) {
       let msg = "Error al iniciar sesión";
-      if (err.message === "Usuario no encontrado") msg = "Usuario no encontrado";
-      else if (err.code === "auth/user-not-found") msg = "Usuario no encontrado";
-      else if (err.code === "auth/wrong-password") msg = "Contraseña incorrecta";
-      else if (err.code === "auth/invalid-credential") msg = "Usuario o contraseña incorrectos";
-      else if (err.code === "auth/invalid-email") msg = "Formato de usuario/correo inválido";
-      else if (err.code === "auth/too-many-requests") msg = "Demasiados intentos. Intenta más tarde.";
+
+      // Errores offline específicos
+      if (err.message?.includes("Sin conexión")) {
+        msg = err.message;
+      } else if (err.message === "Usuario no encontrado") {
+        msg = "Usuario no encontrado";
+      } else if (err.code === "auth/user-not-found") {
+        msg = "Usuario no encontrado";
+      } else if (err.code === "auth/wrong-password") {
+        msg = "Contraseña incorrecta";
+      } else if (err.code === "auth/invalid-credential") {
+        msg = "Usuario o contraseña incorrectos";
+      } else if (err.code === "auth/invalid-email") {
+        msg = "Formato de usuario/correo inválido";
+      } else if (err.code === "auth/too-many-requests") {
+        msg = "Demasiados intentos. Intenta más tarde.";
+      } else if (err.code === "auth/network-request-failed") {
+        msg = "Sin conexión a internet. Si ya iniciaste sesión antes en este dispositivo, inténtalo de nuevo. Si es la primera vez, necesitas internet.";
+      } else if (err.message) {
+        // Mostrar mensaje original si no coincide con los anteriores
+        msg = err.message;
+      }
+
       setError(msg);
     } finally {
       setLoading(false);
@@ -96,6 +113,13 @@ export default function Login() {
           <h1 className="text-2xl font-bold text-gray-800">{nombreNegocio}</h1>
           <p className="text-gray-500 mt-1">Inicia sesión en tu cuenta</p>
         </div>
+
+        {!navigator.onLine && (
+          <div className="bg-amber-50 border border-amber-200 text-amber-700 px-4 py-3 rounded-lg mb-4 text-sm flex items-center gap-2">
+            <WifiOff size={16} />
+            <span>Sin internet. Si es la primera vez en este dispositivo, necesitas conectarte una vez para guardar la sesión.</span>
+          </div>
+        )}
 
         {error && (
           <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">
