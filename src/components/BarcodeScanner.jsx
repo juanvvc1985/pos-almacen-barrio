@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Html5Qrcode, Html5QrcodeScannerState } from "html5-qrcode";
-import { X, Camera, Smartphone, Image } from "lucide-react";
+import { Html5Qrcode, Html5QrcodeScannerState, Html5QrcodeSupportedFormats } from "html5-qrcode";
+import { X, Camera, Smartphone } from "lucide-react";
 
 function isIOS() {
   return (
@@ -9,31 +9,42 @@ function isIOS() {
   );
 }
 
-function isSafari() {
-  const ua = navigator.userAgent;
-  return /^((?!chrome|android).)*safari/i.test(ua);
-}
+// Formatos que soportamos: códigos de barras lineales + QR
+const FORMATOS_SOPORTADOS = [
+  Html5QrcodeSupportedFormats.EAN_13,
+  Html5QrcodeSupportedFormats.EAN_8,
+  Html5QrcodeSupportedFormats.UPC_A,
+  Html5QrcodeSupportedFormats.UPC_E,
+  Html5QrcodeSupportedFormats.CODE_128,
+  Html5QrcodeSupportedFormats.CODE_39,
+  Html5QrcodeSupportedFormats.CODE_93,
+  Html5QrcodeSupportedFormats.ITF,
+  Html5QrcodeSupportedFormats.QR_CODE,
+];
 
 export default function BarcodeScanner({ onScan, onClose }) {
   const [error, setError] = useState("");
-  const [modoFoto, setModoFoto] = useState(isIOS() || isSafari());
+  const [modoFoto, setModoFoto] = useState(isIOS());
+  const [procesando, setProcesando] = useState(false);
   const scannerRef = useRef(null);
   const activeRef = useRef(true);
   const fileInputRef = useRef(null);
+  const hiddenReaderRef = useRef(null);
 
-  // Modo cámara en vivo (Android / Chrome desktop)
+  // Modo cámara en vivo
   useEffect(() => {
-    if (modoFoto) return; // iPhone usa modo foto
-    if (!document.getElementById("scanner-container")) return;
+    if (modoFoto) return;
+    const container = document.getElementById("scanner-container");
+    if (!container) return;
     activeRef.current = true;
 
-    const scanner = new Html5Qrcode("scanner-container");
+    const scanner = new Html5Qrcode("scanner-container", false);
     scannerRef.current = scanner;
 
     scanner
       .start(
         { facingMode: "environment" },
-        { fps: 10, qrbox: { width: 250, height: 250 } },
+        { fps: 10, qrbox: { width: 250, height: 250 }, formatsToSupport: FORMATOS_SOPORTADOS },
         (decodedText) => {
           onScan(decodedText);
           onClose();
@@ -42,10 +53,7 @@ export default function BarcodeScanner({ onScan, onClose }) {
       )
       .then(() => {
         if (!activeRef.current) {
-          scanner
-            .stop()
-            .then(() => scanner.clear())
-            .catch(() => {});
+          scanner.stop().then(() => scanner.clear()).catch(() => {});
         }
       })
       .catch((err) => {
@@ -60,32 +68,54 @@ export default function BarcodeScanner({ onScan, onClose }) {
       const s = scannerRef.current;
       if (!s) return;
       if (s.getState() === Html5QrcodeScannerState.SCANNING) {
-        s.stop()
-          .then(() => s.clear())
-          .catch(() => {});
+        s.stop().then(() => s.clear()).catch(() => {});
       }
     };
   }, [onScan, onClose, modoFoto]);
 
-  // Modo foto (iPhone / Safari / HTTP)
+  // Modo foto - procesar imagen seleccionada con TODOS los formatos habilitados
   const handleFileChange = useCallback(async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setError("");
-    const scanner = new Html5Qrcode("dummy-reader");
+    setProcesando(true);
+
+    let scanner = null;
     try {
-      const result = await scanner.scanFile(file, false);
-      onScan(result);
+      // Crear instancia con elemento oculto y formatos configurados
+      scanner = new Html5Qrcode("hidden-reader", false);
+
+      const config = {
+        formatsToSupport: FORMATOS_SOPORTADOS,
+      };
+
+      const decodedText = await scanner.scanFile(file, false, config);
+      onScan(decodedText);
       onClose();
     } catch (err) {
-      console.error(err);
-      setError("No se detectó código en la foto. Intenta de nuevo con mejor iluminación.");
+      console.error("Error escaneando foto:", err);
+      setError("No se detectó código en la foto. Intenta con mejor iluminación, más cerca y sin reflejos.");
+    } finally {
+      setProcesando(false);
+      // Limpiar scanner oculto
+      if (scanner) {
+        try {
+          await scanner.clear();
+        } catch (e) { /* ignorar */ }
+      }
+      // Resetear input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
     }
   }, [onScan, onClose]);
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-90 z-50 flex flex-col items-center justify-center p-4">
+      {/* Elemento oculto para html5-qrcode en modo foto */}
+      <div id="hidden-reader" ref={hiddenReaderRef} style={{ display: "none", width: 0, height: 0 }} />
+
       <div className="w-full max-w-md">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2 text-white">
@@ -127,13 +157,16 @@ export default function BarcodeScanner({ onScan, onClose }) {
         </div>
 
         {modoFoto ? (
-          /* Modo foto - funciona en iPhone/Safari/HTTP */
+          /* Modo foto */
           <div className="bg-white rounded-xl p-6 text-center">
-            <Image size={48} className="mx-auto mb-3 text-gray-400" />
+            <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
+              <Camera size={32} className="text-gray-400" />
+            </div>
             <p className="text-gray-700 font-medium mb-2">Toma una foto del código de barras</p>
             <p className="text-gray-500 text-sm mb-4">
-              Apunta bien, asegúrate de que el código sea legible y haya buena luz.
+              Asegúrate de que el código sea legible y haya buena luz.
             </p>
+
             <input
               ref={fileInputRef}
               type="file"
@@ -142,14 +175,26 @@ export default function BarcodeScanner({ onScan, onClose }) {
               onChange={handleFileChange}
               className="hidden"
             />
+
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-xl transition flex items-center justify-center gap-2"
+              disabled={procesando}
+              className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-semibold py-3 rounded-xl transition flex items-center justify-center gap-2"
             >
-              <Camera size={20} /> Abrir cámara
+              {procesando ? (
+                <>
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Procesando...
+                </>
+              ) : (
+                <>
+                  <Camera size={20} /> Abrir cámara
+                </>
+              )}
             </button>
+
             <p className="text-xs text-gray-400 mt-3">
-              En iPhone/Safari usa este modo. La cámara en vivo requiere HTTPS.
+              En iPhone usa este modo. La cámara en vivo requiere HTTPS.
             </p>
           </div>
         ) : (
