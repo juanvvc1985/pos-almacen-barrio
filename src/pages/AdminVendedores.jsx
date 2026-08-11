@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { usersService } from "../services/firestoreUsers";
 import { puedeCrearVendedor, LIMITES } from "../services/planLimits";
-import { UserPlus, Trash2, UserCheck, UserX, Loader2, Crown, AlertTriangle } from "lucide-react";
+import { UserPlus, Trash2, UserCheck, UserX, Loader2, Crown, AlertTriangle, KeyRound } from "lucide-react";
 
 export default function AdminVendedores() {
   const { userData } = useAuth();
@@ -12,6 +12,8 @@ export default function AdminVendedores() {
   const [form, setForm] = useState({ username: "", password: "", nombre: "" });
   const [error, setError] = useState("");
   const [planInfo, setPlanInfo] = useState({ plan: "basico", usados: 0, limite: 1, permitido: true });
+  const [cambiandoPwd, setCambiandoPwd] = useState(null);
+  const [nuevaPwd, setNuevaPwd] = useState("");
 
   useEffect(() => {
     if (userData?.almacenId) {
@@ -68,6 +70,22 @@ export default function AdminVendedores() {
     } catch (err) {
       alert("Error al eliminar: " + (err.message || "Verifica las reglas de Firestore"));
       console.error(err);
+    }
+  }
+
+  async function handleCambiarPassword(vendedor) {
+    if (!nuevaPwd || nuevaPwd.length < 6) {
+      alert("La contraseña debe tener al menos 6 caracteres");
+      return;
+    }
+    try {
+      await usersService.cambiarPasswordVendedor(vendedor.id, nuevaPwd);
+      setCambiandoPwd(null);
+      setNuevaPwd("");
+      alert(`Contraseña de ${vendedor.nombre} actualizada. El cambio se aplicará la próxima vez que inicie sesión.`);
+      await cargarTodo();
+    } catch (err) {
+      alert("Error al cambiar contraseña: " + err.message);
     }
   }
 
@@ -181,6 +199,11 @@ export default function AdminVendedores() {
                       title={v.activo ? "Desactivar" : "Activar"}>
                       {v.activo ? <UserX size={16} /> : <UserCheck size={16} />}
                     </button>
+                    <button onClick={() => setCambiandoPwd(v)}
+                      className="p-1.5 text-blue-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition"
+                      title="Cambiar contraseña">
+                      <KeyRound size={16} />
+                    </button>
                     <button onClick={() => handleEliminar(v)}
                       className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition" title="Eliminar">
                       <Trash2 size={16} />
@@ -198,6 +221,37 @@ export default function AdminVendedores() {
           </div>
         )}
       </div>
+
+      {cambiandoPwd && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl p-6 w-full max-w-sm">
+            <h3 className="font-bold text-gray-800 mb-1">Cambiar contraseña</h3>
+            <p className="text-sm text-gray-500 mb-4">{cambiandoPwd.nombre}</p>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Nueva contraseña</label>
+                <input
+                  type="password"
+                  value={nuevaPwd}
+                  onChange={(e) => setNuevaPwd(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                  placeholder="Mínimo 6 caracteres"
+                  minLength={6}
+                  autoFocus
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 mt-4">
+              <button onClick={() => { setCambiandoPwd(null); setNuevaPwd(""); }}
+                className="flex-1 py-2 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50">Cancelar</button>
+              <button onClick={() => handleCambiarPassword(cambiandoPwd)}
+                className="flex-1 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2">
+                <KeyRound size={16} /> Actualizar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

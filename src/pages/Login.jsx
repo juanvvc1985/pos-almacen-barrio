@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { useAuth } from "../hooks/useAuth";
-import { Store, Eye, EyeOff, Loader2 } from "lucide-react";
+import { useAuth, sendPasswordReset } from "../hooks/useAuth";
+import { Store, Eye, EyeOff, Loader2, Mail } from "lucide-react";
 
 const MAX_EMAIL_LEN = 100;
 const MAX_PASSWORD_LEN = 50;
@@ -13,11 +13,15 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [mostrarRecuperar, setMostrarRecuperar] = useState(false);
+  const [emailRecuperar, setEmailRecuperar] = useState("");
+  const [recuperando, setRecuperando] = useState(false);
+  const [mensajeRecuperar, setMensajeRecuperar] = useState("");
   const { login } = useAuth();
   const navigate = useNavigate();
 
   function sanitizeInput(value, maxLen) {
-    return value.slice(0, maxLen).replace(/[<>"'&]/g, "");
+    return value.slice(0, maxLen).replace(/[<>'"&]/g, "");
   }
 
   const handleSubmit = async (e) => {
@@ -54,6 +58,28 @@ export default function Login() {
     }
   };
 
+  async function handleRecuperar(e) {
+    e.preventDefault();
+    setMensajeRecuperar("");
+    const email = sanitizeInput(emailRecuperar, MAX_EMAIL_LEN);
+    if (!email.includes("@")) {
+      setMensajeRecuperar("Ingresa un correo válido");
+      return;
+    }
+    setRecuperando(true);
+    try {
+      await sendPasswordReset(email);
+      setMensajeRecuperar("Te enviamos un correo para recuperar tu contraseña. Revisa tu bandeja de entrada.");
+      setEmailRecuperar("");
+    } catch (err) {
+      let msg = "Error al enviar correo";
+      if (err.code === "auth/user-not-found") msg = "No existe una cuenta con ese correo";
+      setMensajeRecuperar(msg);
+    } finally {
+      setRecuperando(false);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-600 to-blue-800 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-8">
@@ -71,60 +97,116 @@ export default function Login() {
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Usuario o Correo electrónico
-            </label>
-            <input
-              type="text"
-              value={identifier}
-              onChange={(e) => setIdentifier(sanitizeInput(e.target.value, MAX_EMAIL_LEN))}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
-              placeholder="juan o juan@email.com"
-              maxLength={MAX_EMAIL_LEN}
-              autoComplete="username"
-              required
-            />
-            <p className="text-xs text-gray-400 mt-1">
-              Vendedores: usa tu nombre de usuario. Dueños: usa tu correo.
-            </p>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Contraseña
-            </label>
-            <div className="relative">
+        {!mostrarRecuperar ? (
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Usuario o Correo electrónico
+              </label>
               <input
-                type={showPassword ? "text" : "password"}
-                value={password}
-                onChange={(e) => setPassword(sanitizeInput(e.target.value, MAX_PASSWORD_LEN))}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition pr-10"
-                placeholder="••••••••"
-                maxLength={MAX_PASSWORD_LEN}
-                minLength={6}
-                autoComplete="current-password"
+                type="text"
+                value={identifier}
+                onChange={(e) => setIdentifier(sanitizeInput(e.target.value, MAX_EMAIL_LEN))}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+                placeholder="juan o juan@email.com"
+                maxLength={MAX_EMAIL_LEN}
+                autoComplete="username"
                 required
               />
+              <p className="text-xs text-gray-400 mt-1">
+                Vendedores: usa tu nombre de usuario. Dueños: usa tu correo.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Contraseña
+              </label>
+              <div className="relative">
+                <input
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(sanitizeInput(e.target.value, MAX_PASSWORD_LEN))}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition pr-10"
+                  placeholder="••••••••"
+                  maxLength={MAX_PASSWORD_LEN}
+                  minLength={6}
+                  autoComplete="current-password"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : "Iniciar Sesión"}
+            </button>
+
+            <div className="text-center">
               <button
                 type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                onClick={() => setMostrarRecuperar(true)}
+                className="text-sm text-blue-600 hover:text-blue-700 font-medium"
               >
-                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                ¿Olvidaste tu contraseña?
               </button>
             </div>
-          </div>
+          </form>
+        ) : (
+          <form onSubmit={handleRecuperar} className="space-y-4">
+            <div className="text-center mb-4">
+              <Mail className="w-10 h-10 text-blue-600 mx-auto mb-2" />
+              <h2 className="text-lg font-bold text-gray-800">Recuperar contraseña</h2>
+              <p className="text-sm text-gray-500">Ingresa tu correo de dueño y te enviaremos un enlace</p>
+            </div>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-          >
-            {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : "Iniciar Sesión"}
-          </button>
-        </form>
+            {mensajeRecuperar && (
+              <div className={`border px-4 py-3 rounded-lg text-sm ${mensajeRecuperar.includes("enviamos") ? "bg-green-50 border-green-200 text-green-700" : "bg-red-50 border-red-200 text-red-700"}`}>
+                {mensajeRecuperar}
+              </div>
+            )}
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Correo electrónico</label>
+              <input
+                type="email"
+                value={emailRecuperar}
+                onChange={(e) => setEmailRecuperar(sanitizeInput(e.target.value, MAX_EMAIL_LEN))}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                placeholder="tu@email.com"
+                required
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={recuperando}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-lg transition disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {recuperando ? <Loader2 className="w-5 h-5 animate-spin" /> : "Enviar correo de recuperación"}
+            </button>
+
+            <div className="text-center">
+              <button
+                type="button"
+                onClick={() => { setMostrarRecuperar(false); setMensajeRecuperar(""); }}
+                className="text-sm text-gray-500 hover:text-gray-700"
+              >
+                Volver al login
+              </button>
+            </div>
+          </form>
+        )}
 
         <div className="mt-6 text-center">
           <p className="text-sm text-gray-600">

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useAuth } from "../hooks/useAuth";
+import { useOffline } from "../hooks/useOffline";
 import { productsService } from "../services/firestoreProducts";
 import { salesService } from "../services/firestoreSales";
 import { fiadosService } from "../services/firestoreFiados";
@@ -10,7 +11,7 @@ import InventoryAlert from "./InventoryAlert";
 import {
   Search, ScanLine, Trash2, Plus, Minus, ShoppingCart,
   Package, Clock, DollarSign, CreditCard, Smartphone, User,
-  X, Check, Printer, Scale, Loader2
+  X, Check, Printer, Scale, Loader2, WifiOff
 } from "lucide-react";
 
 const METODO_STYLES = {
@@ -22,6 +23,7 @@ const METODO_STYLES = {
 
 export default function POS() {
   const { almacenId, user, userData } = useAuth();
+  const { isOnline, addToQueue } = useOffline();
   const [productos, setProductos] = useState([]);
   const [search, setSearch] = useState("");
   const [carrito, setCarrito] = useState([]);
@@ -227,22 +229,34 @@ export default function POS() {
           setLoading(false);
           return;
         }
-        await fiadosService.createFiado(almacenId, {
+        const fiadoPayload = {
           ...venta,
           clienteNombre: fiadoData.nombre,
           clienteTelefono: fiadoData.telefono,
           clienteDireccion: fiadoData.direccion,
           estado: "pendiente",
-        });
+        };
+        if (!isOnline) {
+          addToQueue({ type: "fiado", almacenId, data: fiadoPayload });
+          mostrarMensaje("Fiado guardado localmente (offline)");
+        } else {
+          await fiadosService.createFiado(almacenId, fiadoPayload);
+          mostrarMensaje("Fiado registrado");
+        }
         setMostrarFiado(false);
         setFiadoData({ nombre: "", telefono: "", direccion: "" });
       } else {
-        await salesService.createSale(almacenId, venta);
+        if (!isOnline) {
+          addToQueue({ type: "venta", almacenId, data: venta });
+          mostrarMensaje("Venta guardada localmente (offline)");
+        } else {
+          await salesService.createSale(almacenId, venta);
+          mostrarMensaje("Venta registrada");
+        }
       }
 
       setCarrito([]);
       await cargarProductos();
-      mostrarMensaje("Venta registrada");
     } catch (err) {
       console.error(err);
       alert("Error al registrar la venta");
@@ -277,6 +291,13 @@ export default function POS() {
       {mensaje && (
         <div className="fixed top-20 right-4 bg-green-500 text-white px-4 py-2 rounded-lg shadow-lg z-50 animate-bounce">
           {mensaje}
+        </div>
+      )}
+
+      {!isOnline && (
+        <div className="mb-4 bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 rounded-lg text-sm flex items-center gap-2">
+          <WifiOff size={16} />
+          <span>Estás offline. Las ventas se guardarán localmente y se sincronizarán al reconectar.</span>
         </div>
       )}
 
@@ -554,7 +575,7 @@ export default function POS() {
                   className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white font-bold py-3 rounded-xl transition flex items-center justify-center gap-2"
                 >
                   {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Check size={20} />}
-                  {loading ? "Procesando..." : "Confirmar Venta"}
+                  {loading ? "Procesando..." : isOnline ? "Confirmar Venta" : "Guardar Venta (Offline)"}
                 </button>
                 {!turno && (
                   <p className="text-xs text-red-500 text-center mt-2">Abre un turno para vender</p>

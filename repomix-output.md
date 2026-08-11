@@ -1831,7 +1831,7 @@ export default function ProductManager() {
     setPlanInfo({
       plan: r.plan || "basico",
       usados: r.usados ?? productos.length,
-      limite: r.limite ?? 500,
+      limite: r.limite ?? LIMITES.basico.productos,
       permitido: r.permitido,
     });
   }
@@ -2434,6 +2434,88 @@ export default function Reports() {
     doc.save(`libro-ventas-${mesLibro}.pdf`);
   }
 
+  // ===== INFORME DE VENTAS PDF (Plan Básico y Pro) =====
+  function getMesActual() {
+    return new Date().toISOString().slice(0, 7);
+  }
+
+  function puedeDescargarInformeVentas() {
+    if (plan === "pro") return true;
+    const mes = getMesActual();
+    return !localStorage.getItem(`informe_ventas_${mes}`);
+  }
+
+  function marcarInformeVentasDescargado() {
+    const mes = getMesActual();
+    localStorage.setItem(`informe_ventas_${mes}`, "1");
+  }
+
+  function exportarVentasPDF() {
+    if (!puedeDescargarInformeVentas()) {
+      alert("Ya usaste tu informe gratuito de este mes. Upgrade a Pro para informes ilimitados.");
+      return;
+    }
+
+    const doc = new jsPDF();
+    const periodoLabel = {
+      hoy: "Hoy",
+      semana: "Última semana",
+      mes: "Último mes",
+      todo: "Todo el historial",
+    }[filtroTiempo];
+
+    doc.setFontSize(18);
+    doc.text("Informe de Ventas", 14, 20);
+    doc.setFontSize(11);
+    doc.text(`Período: ${periodoLabel}`, 14, 28);
+    doc.text(`Generado: ${new Date().toLocaleDateString("es-CL")}`, 14, 34);
+    doc.text(`Almacén: ${userData?.nombreAlmacen || "Almacén de Barrio"}`, 14, 40);
+
+    let y = 50;
+    doc.setFontSize(12);
+    doc.text("1. RESUMEN", 14, y);
+    y += 7;
+    doc.setFontSize(10);
+    doc.text(`Total Ventas: ${formatCurrency(totalVentasGlobal)}`, 14, y); y += 6;
+    doc.text(`Ventas Normales: ${formatCurrency(totalVentasNormales)}`, 14, y); y += 6;
+    doc.text(`Recuperación Fiados: ${formatCurrency(totalRecuperaciones)}`, 14, y); y += 6;
+    doc.text(`Fiados (crédito): ${formatCurrency(porMetodoVentas.fiado || 0)}`, 14, y); y += 10;
+
+    doc.setFontSize(12);
+    doc.text("2. DESGLOSE POR MÉTODO DE PAGO", 14, y);
+    y += 7;
+    doc.setFontSize(10);
+    doc.text(`Efectivo (ventas): ${formatCurrency(porMetodoVentas.efectivo)}`, 14, y); y += 6;
+    doc.text(`Tarjeta (ventas): ${formatCurrency(porMetodoVentas.tarjeta)}`, 14, y); y += 6;
+    doc.text(`Transferencia (ventas): ${formatCurrency(porMetodoVentas.transferencia)}`, 14, y); y += 6;
+    doc.text(`Efectivo (recuperación): ${formatCurrency(porMetodoRecuperacion.efectivo)}`, 14, y); y += 6;
+    doc.text(`Tarjeta (recuperación): ${formatCurrency(porMetodoRecuperacion.tarjeta)}`, 14, y); y += 6;
+    doc.text(`Transferencia (recuperación): ${formatCurrency(porMetodoRecuperacion.transferencia)}`, 14, y); y += 10;
+
+    if (ventasFiltradas.length > 0) {
+      doc.setFontSize(12);
+      doc.text("3. DETALLE DE VENTAS", 14, y);
+      y += 7;
+      const body = ventasFiltradas.slice(0, 100).map((v) => [
+        formatDate(v.createdAt),
+        v.vendedorNombre || "-",
+        v.metodoPago,
+        v.tipo === "fiado-recuperado" ? "Recuperación" : v.metodoPago === "fiado" ? "Venta fiado" : "Venta normal",
+        formatCurrency(v.total),
+      ]);
+      autoTable(doc, {
+        head: [["Fecha", "Vendedor", "Método", "Tipo", "Total"]],
+        body,
+        startY: y,
+        styles: { fontSize: 9 },
+        headStyles: { fillColor: [59, 130, 246] },
+      });
+    }
+
+    doc.save(`informe-ventas-${filtroTiempo}-${new Date().toISOString().split("T")[0]}.pdf`);
+    marcarInformeVentasDescargado();
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -2479,18 +2561,37 @@ export default function Reports() {
 
       {activeTab === "ventas" && (
         <div className="space-y-6">
-          <div className="flex gap-2">
-            {[
-              { value: "hoy", label: "Hoy" },
-              { value: "semana", label: "Ultima semana" },
-              { value: "mes", label: "Ultimo mes" },
-              { value: "todo", label: "Todo" },
-            ].map((f) => (
-              <button key={f.value} onClick={() => setFiltroTiempo(f.value)}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${
-                  filtroTiempo === f.value ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                }`}>{f.label}</button>
-            ))}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex gap-2 flex-wrap">
+              {[
+                { value: "hoy", label: "Hoy" },
+                { value: "semana", label: "Ultima semana" },
+                { value: "mes", label: "Ultimo mes" },
+                { value: "todo", label: "Todo" },
+              ].map((f) => (
+                <button key={f.value} onClick={() => setFiltroTiempo(f.value)}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${
+                    filtroTiempo === f.value ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  }`}>{f.label}</button>
+              ))}
+            </div>
+            <div className="flex items-center gap-3">
+              {plan === "basico" && (
+                <span className={`text-xs px-2 py-1 rounded border ${
+                  puedeDescargarInformeVentas()
+                    ? "bg-green-50 border-green-200 text-green-700"
+                    : "bg-gray-50 border-gray-200 text-gray-500"
+                }`}>
+                  {puedeDescargarInformeVentas() ? "1 informe gratis este mes" : "Informe gratuito usado"}
+                </span>
+              )}
+              <button
+                onClick={exportarVentasPDF}
+                className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium transition"
+              >
+                <Download size={16} /> Descargar PDF
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -3271,7 +3372,7 @@ export default function AdminVendedores() {
     setPlanInfo({
       plan: r.plan || "basico",
       usados: r.usados ?? cantidadActual ?? vendedores.length,
-      limite: r.limite ?? 1,
+      limite: r.limite ?? LIMITES.basico.vendedores,
       permitido: r.permitido,
     });
   }
@@ -3302,7 +3403,6 @@ export default function AdminVendedores() {
   async function handleEliminar(vendedor) {
     if (!confirm(`¿Eliminar permanentemente a ${vendedor.nombre}?\n\nEsta acción no se puede deshacer.`)) return;
     try {
-      // Usar vendedor.id (doc ID = uid) y vendedor.username
       await usersService.deleteVendedor(vendedor.id, vendedor.username);
       await cargarTodo();
     } catch (err) {
@@ -4362,7 +4462,7 @@ import {
 } from "firebase/firestore";
 import { puedeCrearVendedor } from "./planLimits";
 
-const API_KEY = import.meta.env.VITE_FIREBASE_API_KEY;
+const API_KEY = "AIzaSyAQUD8KyWSPYNz73RTrdSy-jZ3Lf2QiF3c";
 
 export const usersService = {
   async getUserData(uid) {
@@ -4377,7 +4477,8 @@ export const usersService = {
 
     const email = `vendedor.${username}.${almacenId}@pos-almacen.local`;
 
-    const res = await fetch(
+    // 1. Intentar crear usuario en Firebase Auth
+    let res = await fetch(
       `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${API_KEY}`,
       {
         method: "POST",
@@ -4385,11 +4486,43 @@ export const usersService = {
         body: JSON.stringify({ email, password, returnSecureToken: true }),
       }
     );
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error?.message || "Error al crear vendedor");
+    let data = await res.json();
+
+    // 2. Si EMAIL_EXISTS, intentar recuperar el UID haciendo login
+    if (!res.ok && data.error?.message === "EMAIL_EXISTS") {
+      const loginRes = await fetch(
+        `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${API_KEY}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password, returnSecureToken: true }),
+        }
+      );
+      const loginData = await loginRes.json();
+
+      if (!loginRes.ok) {
+        if (loginData.error?.message === "INVALID_PASSWORD") {
+          throw new Error(
+            `El usuario "${username}" ya existe con otra contraseña.\n\n` +
+            "Si fue creado antes y no aparece en la lista, elimínalo desde " +
+            "Firebase Console → Authentication → Users, y vuelve a intentar."
+          );
+        }
+        throw new Error(loginData.error?.message || "Error al verificar usuario existente");
+      }
+
+      // Login exitoso = reutilizar UID existente
+      data = loginData;
+    } else if (!res.ok) {
+      if (data.error?.message === "WEAK_PASSWORD") {
+        throw new Error("Contraseña muy débil (mínimo 6 caracteres)");
+      }
+      throw new Error(data.error?.message || "Error al crear vendedor");
+    }
 
     const uid = data.localId;
 
+    // 3. Crear documento en Firestore
     await setDoc(doc(db, "users", uid), {
       uid,
       nombre,
@@ -4401,6 +4534,7 @@ export const usersService = {
       createdAt: new Date().toISOString(),
     });
 
+    // 4. Registrar username público
     await setDoc(doc(db, "publicUsernames", username), {
       uid,
       almacenId,
@@ -4468,12 +4602,16 @@ export async function contarVendedores(almacenId) {
 export async function puedeCrearProducto(almacenId) {
   const plan = await getPlan(almacenId);
   const limite = LIMITES[plan]?.productos ?? LIMITES.basico.productos;
-  if (limite === Infinity) return { permitido: true, plan };
   const actuales = await contarProductos(almacenId);
+  if (limite === Infinity) {
+    return { permitido: true, plan, usados: actuales, limite: Infinity };
+  }
   if (actuales >= limite) {
     return {
       permitido: false,
       plan,
+      usados: actuales,
+      limite,
       mensaje: `Limite alcanzado: Plan ${plan.toUpperCase()} permite maximo ${limite} productos. Actual: ${actuales}.`,
     };
   }
@@ -4483,12 +4621,16 @@ export async function puedeCrearProducto(almacenId) {
 export async function puedeCrearVendedor(almacenId) {
   const plan = await getPlan(almacenId);
   const limite = LIMITES[plan]?.vendedores ?? LIMITES.basico.vendedores;
-  if (limite === Infinity) return { permitido: true, plan };
   const actuales = await contarVendedores(almacenId);
+  if (limite === Infinity) {
+    return { permitido: true, plan, usados: actuales, limite: Infinity };
+  }
   if (actuales >= limite) {
     return {
       permitido: false,
       plan,
+      usados: actuales,
+      limite,
       mensaje: `Limite alcanzado: Plan ${plan.toUpperCase()} permite maximo ${limite} vendedor(es). Actual: ${actuales}.`,
     };
   }

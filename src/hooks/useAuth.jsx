@@ -6,6 +6,8 @@ import {
   createUserWithEmailAndPassword,
   signOut,
   updateProfile,
+  updatePassword,
+  sendPasswordResetEmail,
 } from "firebase/auth";
 import {
   doc,
@@ -43,7 +45,23 @@ export function AuthProvider({ children }) {
         setUser(firebaseUser);
         const userDoc = await getDoc(doc(db, "users", firebaseUser.uid));
         if (userDoc.exists()) {
-          setUserData(userDoc.data());
+          const data = userDoc.data();
+
+          // Si hay contraseña pendiente (cambiada por el dueño), aplicarla
+          if (data.passwordPending && data.role === "vendedor") {
+            try {
+              await updatePassword(firebaseUser, data.passwordPending);
+              await updateDoc(doc(db, "users", firebaseUser.uid), {
+                passwordPending: null,
+                passwordUpdatedAt: new Date().toISOString(),
+              });
+              console.log("Contraseña actualizada desde panel del dueño");
+            } catch (err) {
+              console.error("No se pudo actualizar contraseña pendiente:", err);
+            }
+          }
+
+          setUserData(data);
         } else {
           setUserData(null);
         }
@@ -134,7 +152,7 @@ export function useAuth() {
 
 export async function crearVendedorDirecto(almacenId, nombre, username, password) {
   const cleanUser = username.toLowerCase().trim();
-  const email = `vendedor.${cleanUser}.${almacenId.slice(0, 8)}@pos-almacen.local`;
+  const email = `vendedor.${cleanUser}.${almacenId}@pos-almacen.local`;
   const snapCheck = await getDoc(doc(db, "publicUsernames", cleanUser));
   if (snapCheck.exists()) throw new Error("El nombre de usuario ya existe");
 
@@ -175,4 +193,8 @@ export async function getVendedores(almacenId) {
   return snap.docs
     .map((d) => ({ id: d.id, ...d.data() }))
     .filter((u) => u.role === "vendedor");
+}
+
+export async function sendPasswordReset(email) {
+  await sendPasswordResetEmail(auth, email);
 }

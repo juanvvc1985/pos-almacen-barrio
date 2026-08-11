@@ -8,6 +8,7 @@ import Mermas from "../components/Mermas";
 import Fiados from "../components/Fiados";
 import Offers from "../components/Offers";
 import AdminVendedores from "./AdminVendedores";
+import ConfiguracionAlmacen from "./ConfiguracionAlmacen";
 
 export default function Dashboard() {
   const { isDueño, loading } = useAuth();
@@ -28,13 +29,14 @@ export default function Dashboard() {
           <Route path="/" element={<POS />} />
           <Route path="/vender" element={<POS />} />
           <Route path="/productos" element={<ProductManager />} />
-          <Route path="/fiados" element={<Fiados />} />  {/* Vendedor también accede */}
+          <Route path="/fiados" element={<Fiados />} />
           {isDueño && (
             <>
               <Route path="/ofertas" element={<Offers />} />
               <Route path="/mermas" element={<Mermas />} />
               <Route path="/informes" element={<Reports />} />
               <Route path="/vendedores" element={<AdminVendedores />} />
+              <Route path="/configuracion" element={<ConfiguracionAlmacen />} />
             </>
           )}
           <Route path="*" element={<Navigate to="/" replace />} />

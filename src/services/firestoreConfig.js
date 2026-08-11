@@ -13,4 +13,11 @@ export async function updateConfig(almacenId, config) {
   await updateDoc(doc(db, "almacenes", almacenId), { config });
 }
 
-export const configService = { getConfig, updateConfig };
+export async function getAlmacenData(almacenId) {
+  if (!almacenId) return null;
+  const snap = await getDoc(doc(db, "almacenes", almacenId));
+  if (snap.exists()) return { id: snap.id, ...snap.data() };
+  return null;
+}
+
+export const configService = { getConfig, updateConfig, getAlmacenData };

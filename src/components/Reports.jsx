@@ -5,6 +5,7 @@ import { fiadosService } from "../services/firestoreFiados";
 import { mermasService } from "../services/firestoreMermas";
 import { productsService } from "../services/firestoreProducts";
 import { getPlan } from "../services/planLimits";
+import { configService } from "../services/firestoreConfig";
 import { formatCurrency, formatDate, formatShortDate } from "../utils/format";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import jsPDF from "jspdf";
@@ -54,6 +55,26 @@ export default function Reports() {
     setMermas(m);
     setProductos(p);
     setLoading(false);
+  }
+
+  // ===== OBTENER DATOS DEL ALMACÉN =====
+  async function getAlmacenInfo() {
+    if (!almacenId) return { nombre: "Almacén de Barrio", rut: "", direccion: "", telefono: "", giro: "" };
+    try {
+      const data = await configService.getAlmacenData(almacenId);
+      if (data) {
+        return {
+          nombre: data.nombreFiscal || data.nombre || "Almacén de Barrio",
+          rut: data.rut || "",
+          direccion: data.direccion || "",
+          telefono: data.telefono || "",
+          giro: data.giro || "",
+        };
+      }
+    } catch (e) {
+      console.error("Error cargando datos almacén:", e);
+    }
+    return { nombre: "Almacén de Barrio", rut: "", direccion: "", telefono: "", giro: "" };
   }
 
   function getFechaFiltro() {
@@ -122,15 +143,18 @@ export default function Reports() {
     setSortConfig((prev) => ({ key, direction: prev.key === key && prev.direction === "asc" ? "desc" : "asc" }));
   }
 
-  function exportarPDF() {
+  async function exportarPDF() {
+    const almacen = await getAlmacenInfo();
     const doc = new jsPDF();
     doc.setFontSize(16);
-    doc.text("Inventario - POS Almacen de Barrio", 14, 20);
+    doc.text(`Inventario - ${almacen.nombre}`, 14, 20);
     doc.setFontSize(10);
-    doc.text(`Generado: ${new Date().toLocaleDateString("es-CL")}`, 14, 30);
-    doc.text(`Total productos: ${totalProductos}`, 14, 38);
-    doc.text(`Valor stock (costo): ${formatCurrency(valorStockCosto)}`, 14, 46);
-    doc.text(`Valor stock (venta): ${formatCurrency(valorStockVenta)}`, 14, 54);
+    if (almacen.rut) doc.text(`RUT: ${almacen.rut}`, 14, 28);
+    if (almacen.direccion) doc.text(`Dirección: ${almacen.direccion}`, 14, 34);
+    doc.text(`Generado: ${new Date().toLocaleDateString("es-CL")}`, 14, almacen.direccion ? 40 : 34);
+    doc.text(`Total productos: ${totalProductos}`, 14, almacen.direccion ? 46 : 40);
+    doc.text(`Valor stock (costo): ${formatCurrency(valorStockCosto)}`, 14, almacen.direccion ? 52 : 46);
+    doc.text(`Valor stock (venta): ${formatCurrency(valorStockVenta)}`, 14, almacen.direccion ? 58 : 52);
 
     const body = sortedProductos.map((p) => [
       p.nombre, p.categoria, p.stock + " " + p.unidad,
@@ -140,7 +164,7 @@ export default function Reports() {
 
     autoTable(doc, {
       head: [["Producto", "Categoria", "Stock", "Precio Venta", "Precio Costo", "Estado"]],
-      body, startY: 62, styles: { fontSize: 9 },
+      body, startY: almacen.direccion ? 64 : 58, styles: { fontSize: 9 },
       headStyles: { fillColor: [59, 130, 246] },
     });
     doc.save("inventario.pdf");
@@ -151,7 +175,8 @@ export default function Reports() {
     return ventas.filter((v) => v.createdAt?.startsWith(anioMes));
   }
 
-  function generarLibroVentasPDF() {
+  async function generarLibroVentasPDF() {
+    const almacen = await getAlmacenInfo();
     const ventasMes = getVentasMes(mesLibro);
     const normales = ventasMes.filter((v) => v.tipo !== "fiado-recuperado");
     const recups = ventasMes.filter((v) => v.tipo === "fiado-recuperado");
@@ -173,12 +198,14 @@ export default function Reports() {
     doc.setFontSize(18);
     doc.text("LIBRO DE VENTAS", 105, 20, { align: "center" });
     doc.setFontSize(12);
-    doc.text(userData?.nombreAlmacen || "Almacen de Barrio", 105, 28, { align: "center" });
+    doc.text(almacen.nombre, 105, 28, { align: "center" });
+    if (almacen.rut) doc.text(`RUT: ${almacen.rut}`, 105, 33, { align: "center" });
+    if (almacen.direccion) doc.text(almacen.direccion, 105, 38, { align: "center" });
     doc.setFontSize(10);
-    doc.text(`Periodo: ${mesLibro}`, 105, 34, { align: "center" });
-    doc.text(`Generado: ${new Date().toLocaleDateString("es-CL")}`, 105, 39, { align: "center" });
+    doc.text(`Periodo: ${mesLibro}`, 105, almacen.direccion ? 44 : 39, { align: "center" });
+    doc.text(`Generado: ${new Date().toLocaleDateString("es-CL")}`, 105, almacen.direccion ? 49 : 44, { align: "center" });
 
-    let y = 50;
+    let y = almacen.direccion ? 58 : 53;
     doc.setFontSize(12);
     doc.text("1. RESUMEN DE VENTAS", 14, y);
     y += 8;
@@ -237,12 +264,13 @@ export default function Reports() {
     localStorage.setItem(`informe_ventas_${mes}`, "1");
   }
 
-  function exportarVentasPDF() {
+  async function exportarVentasPDF() {
     if (!puedeDescargarInformeVentas()) {
       alert("Ya usaste tu informe gratuito de este mes. Upgrade a Pro para informes ilimitados.");
       return;
     }
 
+    const almacen = await getAlmacenInfo();
     const doc = new jsPDF();
     const periodoLabel = {
       hoy: "Hoy",
@@ -256,9 +284,10 @@ export default function Reports() {
     doc.setFontSize(11);
     doc.text(`Período: ${periodoLabel}`, 14, 28);
     doc.text(`Generado: ${new Date().toLocaleDateString("es-CL")}`, 14, 34);
-    doc.text(`Almacén: ${userData?.nombreAlmacen || "Almacén de Barrio"}`, 14, 40);
+    doc.text(`Almacén: ${almacen.nombre}`, 14, 40);
+    if (almacen.rut) doc.text(`RUT: ${almacen.rut}`, 14, 46);
 
-    let y = 50;
+    let y = almacen.rut ? 56 : 50;
     doc.setFontSize(12);
     doc.text("1. RESUMEN", 14, y);
     y += 7;

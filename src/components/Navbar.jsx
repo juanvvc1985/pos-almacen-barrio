@@ -1,16 +1,19 @@
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
+import { useOffline } from "../hooks/useOffline";
 import { salesService } from "../services/firestoreSales";
 import { formatCurrency } from "../utils/format";
 import PlanBadge from "../components/PlanBadge";
 import { 
   ShoppingCart, Package, BarChart3, AlertTriangle, 
-  Users, Tag, LogOut, Menu, X, UserPlus 
+  Users, Tag, LogOut, Menu, X, UserPlus, Settings,
+  Wifi, WifiOff, RefreshCw
 } from "lucide-react";
 import { useState } from "react";
 
 export default function Navbar() {
   const { isDueño, isVendedor, userData, logout, almacenId } = useAuth();
+  const { isOnline, pendingCount, syncing } = useOffline();
   const [menuOpen, setMenuOpen] = useState(false);
   const [mostrarCierreLogout, setMostrarCierreLogout] = useState(false);
   const [resumenLogout, setResumenLogout] = useState(null);
@@ -26,6 +29,7 @@ export default function Navbar() {
     { path: "/mermas", label: "Mermas", icon: AlertTriangle, show: isDueño },
     { path: "/informes", label: "Informes", icon: BarChart3, show: isDueño },
     { path: "/vendedores", label: "Vendedores", icon: UserPlus, show: isDueño },
+    { path: "/configuracion", label: "Configuración", icon: Settings, show: isDueño },
   ];
 
   async function handleLogout() {
@@ -73,10 +77,32 @@ export default function Navbar() {
 
   return (
     <>
+      {/* Barra de estado offline */}
+      {!isOnline && (
+        <div className="bg-amber-500 text-white text-xs text-center py-1 px-4 font-medium flex items-center justify-center gap-2">
+          <WifiOff size={14} />
+          Sin conexión a internet. Trabajando en modo offline.
+          {pendingCount > 0 && <span>• {pendingCount} operaciones pendientes</span>}
+        </div>
+      )}
+      {isOnline && pendingCount > 0 && (
+        <div className="bg-blue-500 text-white text-xs text-center py-1 px-4 font-medium flex items-center justify-center gap-2">
+          <RefreshCw size={14} className={syncing ? "animate-spin" : ""} />
+          {syncing ? "Sincronizando..." : `Hay ${pendingCount} operación(es) pendiente(s) de sincronizar`}
+        </div>
+      )}
+
       <nav className="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-50">
         <div className="container mx-auto px-4 max-w-7xl">
           <div className="flex items-center justify-between h-16">
-            <Link to="/" className="font-bold text-xl text-blue-600">POS Almacén</Link>
+            <Link to="/" className="font-bold text-xl text-blue-600 flex items-center gap-2">
+              POS Almacén
+              {isOnline ? (
+                <Wifi size={14} className="text-green-500" />
+              ) : (
+                <WifiOff size={14} className="text-amber-500" />
+              )}
+            </Link>
             <div className="hidden md:flex items-center space-x-1">
               {navItems.filter(i => i.show).map((item) => (
                 <Link key={item.path} to={item.path}

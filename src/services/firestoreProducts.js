@@ -128,6 +128,16 @@ export async function discountStock(productId, cantidad) {
   });
 }
 
+export async function discountStockBatch(carritoItems) {
+  // Desconta stock de múltiples productos en paralelo (usado por POS offline/online)
+  const results = [];
+  for (const item of carritoItems) {
+    const res = await discountStock(item.id, item.cantidad);
+    results.push(res);
+  }
+  return results;
+}
+
 export async function getProductByBarcode(almacenId, barcode) {
   if (!almacenId || !barcode) return null;
   const q = query(
@@ -155,5 +165,5 @@ export async function searchProducts(almacenId, searchTerm) {
 
 export const productsService = {
   getProducts, getProduct, createProduct, updateProduct, deleteProduct,
-  addStock, discountStock, getProductByBarcode, searchProducts,
+  addStock, discountStock, discountStockBatch, getProductByBarcode, searchProducts,
 };

@@ -108,4 +108,14 @@ export const usersService = {
     }
     await deleteDoc(doc(db, "users", uid));
   },
+
+  async cambiarPasswordVendedor(uid, nuevaPassword) {
+    // Guardamos la nueva contraseña en el documento del vendedor
+    // El hook useAuth la aplicará automáticamente al siguiente login del vendedor
+    const ref = doc(db, "users", uid);
+    await updateDoc(ref, {
+      passwordPending: nuevaPassword,
+      updatedAt: new Date().toISOString(),
+    });
+  },
 };
