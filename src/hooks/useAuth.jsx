@@ -33,6 +33,35 @@ export const PLANES = {
 };
 
 const FIREBASE_API_KEY = "AIzaSyAQUD8KyWSPYNz73RTrdSy-jZ3Lf2QiF3c";
+const OFFLINE_SESSION_KEY = "pos_offline_session";
+const OFFLINE_USERS_KEY = "pos_offline_users";
+
+function getOfflineSession() {
+  try {
+    return JSON.parse(localStorage.getItem(OFFLINE_SESSION_KEY));
+  } catch { return null; }
+}
+
+function saveOfflineSession(user, userData) {
+  localStorage.setItem(OFFLINE_SESSION_KEY, JSON.stringify({
+    uid: user.uid,
+    email: user.email,
+    displayName: user.displayName,
+    photoURL: user.photoURL,
+    userData,
+    savedAt: new Date().toISOString(),
+  }));
+}
+
+function clearOfflineSession() {
+  localStorage.removeItem(OFFLINE_SESSION_KEY);
+}
+
+function saveOfflineUser(uid, data) {
+  const users = JSON.parse(localStorage.getItem(OFFLINE_USERS_KEY) || "{}");
+  users[uid] = { ...data, _offlineSavedAt: new Date().toISOString() };
+  localStorage.setItem(OFFLINE_USERS_KEY, JSON.stringify(users));
+}
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
@@ -40,6 +69,18 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Primero intentar restaurar sesión offline mientras Firebase Auth carga
+    const offline = getOfflineSession();
+    if (offline && offline.userData) {
+      setUser({
+        uid: offline.uid,
+        email: offline.email,
+        displayName: offline.displayName,
+        photoURL: offline.photoURL,
+      });
+      setUserData(offline.userData);
+    }
+
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         setUser(firebaseUser);
@@ -62,12 +103,18 @@ export function AuthProvider({ children }) {
           }
 
           setUserData(data);
+          saveOfflineSession(firebaseUser, data);
+          saveOfflineUser(firebaseUser.uid, data);
         } else {
           setUserData(null);
         }
       } else {
-        setUser(null);
-        setUserData(null);
+        // Si no hay usuario Firebase pero tenemos offline, mantenerlo (estamos offline)
+        const stillOffline = getOfflineSession();
+        if (!stillOffline) {
+          setUser(null);
+          setUserData(null);
+        }
       }
       setLoading(false);
     });
@@ -75,8 +122,18 @@ export function AuthProvider({ children }) {
   }, []);
 
   async function findEmailByUsername(username) {
-    const snap = await getDoc(doc(db, "publicUsernames", username.trim().toLowerCase()));
-    if (snap.exists()) return snap.data().email;
+    // Primero buscar en cache offline
+    const users = JSON.parse(localStorage.getItem(OFFLINE_USERS_KEY) || "{}");
+    for (const uid in users) {
+      if (users[uid].username === username.trim().toLowerCase()) {
+        return users[uid].email;
+      }
+    }
+    // Si no está en cache y hay internet, buscar en Firestore
+    if (navigator.onLine) {
+      const snap = await getDoc(doc(db, "publicUsernames", username.trim().toLowerCase()));
+      if (snap.exists()) return snap.data().email;
+    }
     return null;
   }
 
@@ -89,6 +146,24 @@ export function AuthProvider({ children }) {
       }
       email = foundEmail;
     }
+
+    // Si estamos offline, verificar contra sesión guardada
+    if (!navigator.onLine) {
+      const offline = getOfflineSession();
+      if (offline && offline.email === email) {
+        // Restaurar usuario offline
+        setUser({
+          uid: offline.uid,
+          email: offline.email,
+          displayName: offline.displayName,
+          photoURL: offline.photoURL,
+        });
+        setUserData(offline.userData);
+        return { user: offline, offline: true };
+      }
+      throw new Error("Sin conexión. Primero inicia sesión con internet al menos una vez.");
+    }
+
     const result = await signInWithEmailAndPassword(auth, email, password);
     const userDoc = await getDoc(doc(db, "users", result.user.uid));
     if (userDoc.exists()) {
@@ -98,6 +173,8 @@ export function AuthProvider({ children }) {
         throw new Error("Usuario desactivado. Contacta al dueño.");
       }
       setUserData(data);
+      saveOfflineSession(result.user, data);
+      saveOfflineUser(result.user.uid, data);
     }
     return result;
   };
@@ -117,14 +194,18 @@ export function AuthProvider({ children }) {
       almacenId: almacenRef.id, plan: PLANES.BASICO,
       createdAt: new Date().toISOString(),
     });
-    setUserData({
+    const newUserData = {
       email, nombre, role: ROLES.DUEÑO,
       almacenId: almacenRef.id, plan: PLANES.BASICO,
-    });
+    };
+    setUserData(newUserData);
+    saveOfflineSession(result.user, newUserData);
+    saveOfflineUser(result.user.uid, newUserData);
     return result;
   };
 
   const logout = async () => {
+    clearOfflineSession();
     await signOut(auth);
     setUser(null);
     setUserData(null);
@@ -137,7 +218,7 @@ export function AuthProvider({ children }) {
   return (
     <AuthContext.Provider
       value={{ user, userData, loading, login, registerDueño, logout,
-        isDueño, isVendedor, almacenId, isAuthenticated: !!user }}
+        isDueño, isVendedor, almacenId, isAuthenticated: !!userData }}
     >
       {children}
     </AuthContext.Provider>

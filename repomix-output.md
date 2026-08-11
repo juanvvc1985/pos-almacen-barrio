@@ -53,9 +53,11 @@ src/
     firebase.js
   hooks/
     useAuth.jsx
+    useOffline.js
     useTurno.js
   pages/
     AdminVendedores.jsx
+    ConfiguracionAlmacen.jsx
     Dashboard.jsx
     Login.jsx
     Register.jsx
@@ -747,17 +749,20 @@ export default function Mermas() {
 ````javascript
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
+import { useOffline } from "../hooks/useOffline";
 import { salesService } from "../services/firestoreSales";
 import { formatCurrency } from "../utils/format";
 import PlanBadge from "../components/PlanBadge";
 import { 
   ShoppingCart, Package, BarChart3, AlertTriangle, 
-  Users, Tag, LogOut, Menu, X, UserPlus 
+  Users, Tag, LogOut, Menu, X, UserPlus, Settings,
+  Wifi, WifiOff, RefreshCw
 } from "lucide-react";
 import { useState } from "react";
 
 export default function Navbar() {
   const { isDueño, isVendedor, userData, logout, almacenId } = useAuth();
+  const { isOnline, pendingCount, syncing } = useOffline();
   const [menuOpen, setMenuOpen] = useState(false);
   const [mostrarCierreLogout, setMostrarCierreLogout] = useState(false);
   const [resumenLogout, setResumenLogout] = useState(null);
@@ -773,6 +778,7 @@ export default function Navbar() {
     { path: "/mermas", label: "Mermas", icon: AlertTriangle, show: isDueño },
     { path: "/informes", label: "Informes", icon: BarChart3, show: isDueño },
     { path: "/vendedores", label: "Vendedores", icon: UserPlus, show: isDueño },
+    { path: "/configuracion", label: "Configuración", icon: Settings, show: isDueño },
   ];
 
   async function handleLogout() {
@@ -820,10 +826,32 @@ export default function Navbar() {
 
   return (
     <>
+      {/* Barra de estado offline */}
+      {!isOnline && (
+        <div className="bg-amber-500 text-white text-xs text-center py-1 px-4 font-medium flex items-center justify-center gap-2">
+          <WifiOff size={14} />
+          Sin conexión a internet. Trabajando en modo offline.
+          {pendingCount > 0 && <span>• {pendingCount} operaciones pendientes</span>}
+        </div>
+      )}
+      {isOnline && pendingCount > 0 && (
+        <div className="bg-blue-500 text-white text-xs text-center py-1 px-4 font-medium flex items-center justify-center gap-2">
+          <RefreshCw size={14} className={syncing ? "animate-spin" : ""} />
+          {syncing ? "Sincronizando..." : `Hay ${pendingCount} operación(es) pendiente(s) de sincronizar`}
+        </div>
+      )}
+
       <nav className="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-50">
         <div className="container mx-auto px-4 max-w-7xl">
           <div className="flex items-center justify-between h-16">
-            <Link to="/" className="font-bold text-xl text-blue-600">POS Almacén</Link>
+            <Link to="/" className="font-bold text-xl text-blue-600 flex items-center gap-2">
+              POS Almacén
+              {isOnline ? (
+                <Wifi size={14} className="text-green-500" />
+              ) : (
+                <WifiOff size={14} className="text-amber-500" />
+              )}
+            </Link>
             <div className="hidden md:flex items-center space-x-1">
               {navItems.filter(i => i.show).map((item) => (
                 <Link key={item.path} to={item.path}
@@ -1157,6 +1185,7 @@ export default function PlanBadge() {
 ````javascript
 import { useState, useEffect, useRef } from "react";
 import { useAuth } from "../hooks/useAuth";
+import { useOffline } from "../hooks/useOffline";
 import { productsService } from "../services/firestoreProducts";
 import { salesService } from "../services/firestoreSales";
 import { fiadosService } from "../services/firestoreFiados";
@@ -1167,7 +1196,7 @@ import InventoryAlert from "./InventoryAlert";
 import {
   Search, ScanLine, Trash2, Plus, Minus, ShoppingCart,
   Package, Clock, DollarSign, CreditCard, Smartphone, User,
-  X, Check, Printer, Scale, Loader2
+  X, Check, Printer, Scale, Loader2, WifiOff
 } from "lucide-react";
 
 const METODO_STYLES = {
@@ -1179,6 +1208,7 @@ const METODO_STYLES = {
 
 export default function POS() {
   const { almacenId, user, userData } = useAuth();
+  const { isOnline, addToQueue } = useOffline();
   const [productos, setProductos] = useState([]);
   const [search, setSearch] = useState("");
   const [carrito, setCarrito] = useState([]);
@@ -1384,22 +1414,34 @@ export default function POS() {
           setLoading(false);
           return;
         }
-        await fiadosService.createFiado(almacenId, {
+        const fiadoPayload = {
           ...venta,
           clienteNombre: fiadoData.nombre,
           clienteTelefono: fiadoData.telefono,
           clienteDireccion: fiadoData.direccion,
           estado: "pendiente",
-        });
+        };
+        if (!isOnline) {
+          addToQueue({ type: "fiado", almacenId, data: fiadoPayload });
+          mostrarMensaje("Fiado guardado localmente (offline)");
+        } else {
+          await fiadosService.createFiado(almacenId, fiadoPayload);
+          mostrarMensaje("Fiado registrado");
+        }
         setMostrarFiado(false);
         setFiadoData({ nombre: "", telefono: "", direccion: "" });
       } else {
-        await salesService.createSale(almacenId, venta);
+        if (!isOnline) {
+          addToQueue({ type: "venta", almacenId, data: venta });
+          mostrarMensaje("Venta guardada localmente (offline)");
+        } else {
+          await salesService.createSale(almacenId, venta);
+          mostrarMensaje("Venta registrada");
+        }
       }
 
       setCarrito([]);
       await cargarProductos();
-      mostrarMensaje("Venta registrada");
     } catch (err) {
       console.error(err);
       alert("Error al registrar la venta");
@@ -1434,6 +1476,13 @@ export default function POS() {
       {mensaje && (
         <div className="fixed top-20 right-4 bg-green-500 text-white px-4 py-2 rounded-lg shadow-lg z-50 animate-bounce">
           {mensaje}
+        </div>
+      )}
+
+      {!isOnline && (
+        <div className="mb-4 bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 rounded-lg text-sm flex items-center gap-2">
+          <WifiOff size={16} />
+          <span>Estás offline. Las ventas se guardarán localmente y se sincronizarán al reconectar.</span>
         </div>
       )}
 
@@ -1711,7 +1760,7 @@ export default function POS() {
                   className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white font-bold py-3 rounded-xl transition flex items-center justify-center gap-2"
                 >
                   {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Check size={20} />}
-                  {loading ? "Procesando..." : "Confirmar Venta"}
+                  {loading ? "Procesando..." : isOnline ? "Confirmar Venta" : "Guardar Venta (Offline)"}
                 </button>
                 {!turno && (
                   <p className="text-xs text-red-500 text-center mt-2">Abre un turno para vender</p>
@@ -2218,6 +2267,7 @@ import { fiadosService } from "../services/firestoreFiados";
 import { mermasService } from "../services/firestoreMermas";
 import { productsService } from "../services/firestoreProducts";
 import { getPlan } from "../services/planLimits";
+import { configService } from "../services/firestoreConfig";
 import { formatCurrency, formatDate, formatShortDate } from "../utils/format";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import jsPDF from "jspdf";
@@ -2267,6 +2317,26 @@ export default function Reports() {
     setMermas(m);
     setProductos(p);
     setLoading(false);
+  }
+
+  // ===== OBTENER DATOS DEL ALMACÉN =====
+  async function getAlmacenInfo() {
+    if (!almacenId) return { nombre: "Almacén de Barrio", rut: "", direccion: "", telefono: "", giro: "" };
+    try {
+      const data = await configService.getAlmacenData(almacenId);
+      if (data) {
+        return {
+          nombre: data.nombreFiscal || data.nombre || "Almacén de Barrio",
+          rut: data.rut || "",
+          direccion: data.direccion || "",
+          telefono: data.telefono || "",
+          giro: data.giro || "",
+        };
+      }
+    } catch (e) {
+      console.error("Error cargando datos almacén:", e);
+    }
+    return { nombre: "Almacén de Barrio", rut: "", direccion: "", telefono: "", giro: "" };
   }
 
   function getFechaFiltro() {
@@ -2335,15 +2405,18 @@ export default function Reports() {
     setSortConfig((prev) => ({ key, direction: prev.key === key && prev.direction === "asc" ? "desc" : "asc" }));
   }
 
-  function exportarPDF() {
+  async function exportarPDF() {
+    const almacen = await getAlmacenInfo();
     const doc = new jsPDF();
     doc.setFontSize(16);
-    doc.text("Inventario - POS Almacen de Barrio", 14, 20);
+    doc.text(`Inventario - ${almacen.nombre}`, 14, 20);
     doc.setFontSize(10);
-    doc.text(`Generado: ${new Date().toLocaleDateString("es-CL")}`, 14, 30);
-    doc.text(`Total productos: ${totalProductos}`, 14, 38);
-    doc.text(`Valor stock (costo): ${formatCurrency(valorStockCosto)}`, 14, 46);
-    doc.text(`Valor stock (venta): ${formatCurrency(valorStockVenta)}`, 14, 54);
+    if (almacen.rut) doc.text(`RUT: ${almacen.rut}`, 14, 28);
+    if (almacen.direccion) doc.text(`Dirección: ${almacen.direccion}`, 14, 34);
+    doc.text(`Generado: ${new Date().toLocaleDateString("es-CL")}`, 14, almacen.direccion ? 40 : 34);
+    doc.text(`Total productos: ${totalProductos}`, 14, almacen.direccion ? 46 : 40);
+    doc.text(`Valor stock (costo): ${formatCurrency(valorStockCosto)}`, 14, almacen.direccion ? 52 : 46);
+    doc.text(`Valor stock (venta): ${formatCurrency(valorStockVenta)}`, 14, almacen.direccion ? 58 : 52);
 
     const body = sortedProductos.map((p) => [
       p.nombre, p.categoria, p.stock + " " + p.unidad,
@@ -2353,7 +2426,7 @@ export default function Reports() {
 
     autoTable(doc, {
       head: [["Producto", "Categoria", "Stock", "Precio Venta", "Precio Costo", "Estado"]],
-      body, startY: 62, styles: { fontSize: 9 },
+      body, startY: almacen.direccion ? 64 : 58, styles: { fontSize: 9 },
       headStyles: { fillColor: [59, 130, 246] },
     });
     doc.save("inventario.pdf");
@@ -2364,7 +2437,8 @@ export default function Reports() {
     return ventas.filter((v) => v.createdAt?.startsWith(anioMes));
   }
 
-  function generarLibroVentasPDF() {
+  async function generarLibroVentasPDF() {
+    const almacen = await getAlmacenInfo();
     const ventasMes = getVentasMes(mesLibro);
     const normales = ventasMes.filter((v) => v.tipo !== "fiado-recuperado");
     const recups = ventasMes.filter((v) => v.tipo === "fiado-recuperado");
@@ -2386,12 +2460,14 @@ export default function Reports() {
     doc.setFontSize(18);
     doc.text("LIBRO DE VENTAS", 105, 20, { align: "center" });
     doc.setFontSize(12);
-    doc.text(userData?.nombreAlmacen || "Almacen de Barrio", 105, 28, { align: "center" });
+    doc.text(almacen.nombre, 105, 28, { align: "center" });
+    if (almacen.rut) doc.text(`RUT: ${almacen.rut}`, 105, 33, { align: "center" });
+    if (almacen.direccion) doc.text(almacen.direccion, 105, 38, { align: "center" });
     doc.setFontSize(10);
-    doc.text(`Periodo: ${mesLibro}`, 105, 34, { align: "center" });
-    doc.text(`Generado: ${new Date().toLocaleDateString("es-CL")}`, 105, 39, { align: "center" });
+    doc.text(`Periodo: ${mesLibro}`, 105, almacen.direccion ? 44 : 39, { align: "center" });
+    doc.text(`Generado: ${new Date().toLocaleDateString("es-CL")}`, 105, almacen.direccion ? 49 : 44, { align: "center" });
 
-    let y = 50;
+    let y = almacen.direccion ? 58 : 53;
     doc.setFontSize(12);
     doc.text("1. RESUMEN DE VENTAS", 14, y);
     y += 8;
@@ -2450,12 +2526,13 @@ export default function Reports() {
     localStorage.setItem(`informe_ventas_${mes}`, "1");
   }
 
-  function exportarVentasPDF() {
+  async function exportarVentasPDF() {
     if (!puedeDescargarInformeVentas()) {
       alert("Ya usaste tu informe gratuito de este mes. Upgrade a Pro para informes ilimitados.");
       return;
     }
 
+    const almacen = await getAlmacenInfo();
     const doc = new jsPDF();
     const periodoLabel = {
       hoy: "Hoy",
@@ -2469,9 +2546,10 @@ export default function Reports() {
     doc.setFontSize(11);
     doc.text(`Período: ${periodoLabel}`, 14, 28);
     doc.text(`Generado: ${new Date().toLocaleDateString("es-CL")}`, 14, 34);
-    doc.text(`Almacén: ${userData?.nombreAlmacen || "Almacén de Barrio"}`, 14, 40);
+    doc.text(`Almacén: ${almacen.nombre}`, 14, 40);
+    if (almacen.rut) doc.text(`RUT: ${almacen.rut}`, 14, 46);
 
-    let y = 50;
+    let y = almacen.rut ? 56 : 50;
     doc.setFontSize(12);
     doc.text("1. RESUMEN", 14, y);
     y += 7;
@@ -3051,7 +3129,7 @@ export const firebaseConfig = {
 ````javascript
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import { getFirestore, enableIndexedDbPersistence } from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: "AIzaSyAQUD8KyWSPYNz73RTrdSy-jZ3Lf2QiF3c",
@@ -3065,6 +3143,18 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
+
+// Activar persistencia offline (IndexedDB)
+enableIndexedDbPersistence(db).catch((err) => {
+  if (err.code === "failed-precondition") {
+    console.warn("Firestore offline: múltiples pestañas abiertas");
+  } else if (err.code === "unimplemented") {
+    console.warn("Firestore offline: navegador no soporta IndexedDB");
+  } else {
+    console.error("Firestore offline error:", err);
+  }
+});
+
 export default app;
 ````
 
@@ -3078,6 +3168,8 @@ import {
   createUserWithEmailAndPassword,
   signOut,
   updateProfile,
+  updatePassword,
+  sendPasswordResetEmail,
 } from "firebase/auth";
 import {
   doc,
@@ -3115,7 +3207,23 @@ export function AuthProvider({ children }) {
         setUser(firebaseUser);
         const userDoc = await getDoc(doc(db, "users", firebaseUser.uid));
         if (userDoc.exists()) {
-          setUserData(userDoc.data());
+          const data = userDoc.data();
+
+          // Si hay contraseña pendiente (cambiada por el dueño), aplicarla
+          if (data.passwordPending && data.role === "vendedor") {
+            try {
+              await updatePassword(firebaseUser, data.passwordPending);
+              await updateDoc(doc(db, "users", firebaseUser.uid), {
+                passwordPending: null,
+                passwordUpdatedAt: new Date().toISOString(),
+              });
+              console.log("Contraseña actualizada desde panel del dueño");
+            } catch (err) {
+              console.error("No se pudo actualizar contraseña pendiente:", err);
+            }
+          }
+
+          setUserData(data);
         } else {
           setUserData(null);
         }
@@ -3206,7 +3314,7 @@ export function useAuth() {
 
 export async function crearVendedorDirecto(almacenId, nombre, username, password) {
   const cleanUser = username.toLowerCase().trim();
-  const email = `vendedor.${cleanUser}.${almacenId.slice(0, 8)}@pos-almacen.local`;
+  const email = `vendedor.${cleanUser}.${almacenId}@pos-almacen.local`;
   const snapCheck = await getDoc(doc(db, "publicUsernames", cleanUser));
   if (snapCheck.exists()) throw new Error("El nombre de usuario ya existe");
 
@@ -3247,6 +3355,73 @@ export async function getVendedores(almacenId) {
   return snap.docs
     .map((d) => ({ id: d.id, ...d.data() }))
     .filter((u) => u.role === "vendedor");
+}
+
+export async function sendPasswordReset(email) {
+  await sendPasswordResetEmail(auth, email);
+}
+````
+
+## File: src/hooks/useOffline.js
+````javascript
+import { useState, useEffect, useCallback } from "react";
+
+const SYNC_KEY = "pos_offline_queue";
+
+export function useOffline() {
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [syncing, setSyncing] = useState(false);
+  const [pendingCount, setPendingCount] = useState(0);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
+
+  useEffect(() => {
+    const queue = JSON.parse(localStorage.getItem(SYNC_KEY) || "[]");
+    setPendingCount(queue.length);
+  }, [isOnline, syncing]);
+
+  const addToQueue = useCallback((operation) => {
+    const queue = JSON.parse(localStorage.getItem(SYNC_KEY) || "[]");
+    queue.push({ ...operation, timestamp: new Date().toISOString() });
+    localStorage.setItem(SYNC_KEY, JSON.stringify(queue));
+    setPendingCount(queue.length);
+  }, []);
+
+  const clearQueue = useCallback(() => {
+    localStorage.removeItem(SYNC_KEY);
+    setPendingCount(0);
+  }, []);
+
+  const getQueue = useCallback(() => {
+    return JSON.parse(localStorage.getItem(SYNC_KEY) || "[]");
+  }, []);
+
+  const removeFromQueue = useCallback((index) => {
+    const queue = JSON.parse(localStorage.getItem(SYNC_KEY) || "[]");
+    queue.splice(index, 1);
+    localStorage.setItem(SYNC_KEY, JSON.stringify(queue));
+    setPendingCount(queue.length);
+  }, []);
+
+  return {
+    isOnline,
+    syncing,
+    setSyncing,
+    pendingCount,
+    addToQueue,
+    clearQueue,
+    getQueue,
+    removeFromQueue,
+  };
 }
 ````
 
@@ -3342,7 +3517,7 @@ import { useState, useEffect } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { usersService } from "../services/firestoreUsers";
 import { puedeCrearVendedor, LIMITES } from "../services/planLimits";
-import { UserPlus, Trash2, UserCheck, UserX, Loader2, Crown, AlertTriangle } from "lucide-react";
+import { UserPlus, Trash2, UserCheck, UserX, Loader2, Crown, AlertTriangle, KeyRound } from "lucide-react";
 
 export default function AdminVendedores() {
   const { userData } = useAuth();
@@ -3352,6 +3527,8 @@ export default function AdminVendedores() {
   const [form, setForm] = useState({ username: "", password: "", nombre: "" });
   const [error, setError] = useState("");
   const [planInfo, setPlanInfo] = useState({ plan: "basico", usados: 0, limite: 1, permitido: true });
+  const [cambiandoPwd, setCambiandoPwd] = useState(null);
+  const [nuevaPwd, setNuevaPwd] = useState("");
 
   useEffect(() => {
     if (userData?.almacenId) {
@@ -3408,6 +3585,22 @@ export default function AdminVendedores() {
     } catch (err) {
       alert("Error al eliminar: " + (err.message || "Verifica las reglas de Firestore"));
       console.error(err);
+    }
+  }
+
+  async function handleCambiarPassword(vendedor) {
+    if (!nuevaPwd || nuevaPwd.length < 6) {
+      alert("La contraseña debe tener al menos 6 caracteres");
+      return;
+    }
+    try {
+      await usersService.cambiarPasswordVendedor(vendedor.id, nuevaPwd);
+      setCambiandoPwd(null);
+      setNuevaPwd("");
+      alert(`Contraseña de ${vendedor.nombre} actualizada. El cambio se aplicará la próxima vez que inicie sesión.`);
+      await cargarTodo();
+    } catch (err) {
+      alert("Error al cambiar contraseña: " + err.message);
     }
   }
 
@@ -3521,6 +3714,11 @@ export default function AdminVendedores() {
                       title={v.activo ? "Desactivar" : "Activar"}>
                       {v.activo ? <UserX size={16} /> : <UserCheck size={16} />}
                     </button>
+                    <button onClick={() => setCambiandoPwd(v)}
+                      className="p-1.5 text-blue-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition"
+                      title="Cambiar contraseña">
+                      <KeyRound size={16} />
+                    </button>
                     <button onClick={() => handleEliminar(v)}
                       className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition" title="Eliminar">
                       <Trash2 size={16} />
@@ -3537,6 +3735,238 @@ export default function AdminVendedores() {
             <p>No hay vendedores registrados</p>
           </div>
         )}
+      </div>
+
+      {cambiandoPwd && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl p-6 w-full max-w-sm">
+            <h3 className="font-bold text-gray-800 mb-1">Cambiar contraseña</h3>
+            <p className="text-sm text-gray-500 mb-4">{cambiandoPwd.nombre}</p>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Nueva contraseña</label>
+                <input
+                  type="password"
+                  value={nuevaPwd}
+                  onChange={(e) => setNuevaPwd(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                  placeholder="Mínimo 6 caracteres"
+                  minLength={6}
+                  autoFocus
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 mt-4">
+              <button onClick={() => { setCambiandoPwd(null); setNuevaPwd(""); }}
+                className="flex-1 py-2 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50">Cancelar</button>
+              <button onClick={() => handleCambiarPassword(cambiandoPwd)}
+                className="flex-1 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2">
+                <KeyRound size={16} /> Actualizar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+````
+
+## File: src/pages/ConfiguracionAlmacen.jsx
+````javascript
+import { useState, useEffect } from "react";
+import { useAuth } from "../hooks/useAuth";
+import { configService } from "../services/firestoreConfig";
+import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { db } from "../firebase/firebase";
+import { Settings, Save, Store, FileText, MapPin, Phone, Image, Loader2 } from "lucide-react";
+
+export default function ConfiguracionAlmacen() {
+  const { almacenId, isDueño } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [mensaje, setMensaje] = useState("");
+  const [form, setForm] = useState({
+    nombreFiscal: "",
+    rut: "",
+    direccion: "",
+    telefono: "",
+    giro: "",
+    logoUrl: "",
+  });
+
+  useEffect(() => {
+    if (almacenId) cargarConfig();
+  }, [almacenId]);
+
+  async function cargarConfig() {
+    setLoading(true);
+    try {
+      const snap = await getDoc(doc(db, "almacenes", almacenId));
+      if (snap.exists()) {
+        const d = snap.data();
+        setForm({
+          nombreFiscal: d.nombreFiscal || d.nombre || "",
+          rut: d.rut || "",
+          direccion: d.direccion || "",
+          telefono: d.telefono || "",
+          giro: d.giro || "",
+          logoUrl: d.logoUrl || "",
+        });
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    setLoading(false);
+  }
+
+  async function handleGuardar(e) {
+    e.preventDefault();
+    if (!isDueño) {
+      alert("Solo el dueño puede modificar la configuración");
+      return;
+    }
+    setSaving(true);
+    try {
+      await updateDoc(doc(db, "almacenes", almacenId), {
+        nombreFiscal: form.nombreFiscal.trim(),
+        rut: form.rut.trim(),
+        direccion: form.direccion.trim(),
+        telefono: form.telefono.trim(),
+        giro: form.giro.trim(),
+        logoUrl: form.logoUrl.trim(),
+        updatedAt: new Date().toISOString(),
+      });
+      setMensaje("Configuración guardada correctamente");
+      setTimeout(() => setMensaje(""), 3000);
+    } catch (err) {
+      alert("Error al guardar: " + err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-2xl mx-auto">
+      <div className="flex items-center gap-2 mb-6">
+        <Settings className="w-6 h-6 text-blue-600" />
+        <h1 className="text-2xl font-bold text-gray-800">Configuración del Almacén</h1>
+      </div>
+
+      {mensaje && (
+        <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg mb-6 text-sm">
+          {mensaje}
+        </div>
+      )}
+
+      <form onSubmit={handleGuardar} className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-5">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
+            <Store size={14} /> Nombre fiscal / Razón social
+          </label>
+          <input
+            type="text"
+            value={form.nombreFiscal}
+            onChange={(e) => setForm({ ...form, nombreFiscal: e.target.value })}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+            placeholder="Ej: Almacén La Esquina SpA"
+            required
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
+            <FileText size={14} /> RUT
+          </label>
+          <input
+            type="text"
+            value={form.rut}
+            onChange={(e) => setForm({ ...form, rut: e.target.value })}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+            placeholder="Ej: 76.123.456-K"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
+            <MapPin size={14} /> Dirección
+          </label>
+          <input
+            type="text"
+            value={form.direccion}
+            onChange={(e) => setForm({ ...form, direccion: e.target.value })}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+            placeholder="Ej: Av. Principal 123, Santiago"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
+            <Phone size={14} /> Teléfono
+          </label>
+          <input
+            type="text"
+            value={form.telefono}
+            onChange={(e) => setForm({ ...form, telefono: e.target.value })}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+            placeholder="Ej: +56 9 1234 5678"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Giro</label>
+          <input
+            type="text"
+            value={form.giro}
+            onChange={(e) => setForm({ ...form, giro: e.target.value })}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+            placeholder="Ej: Almacén y despacho de bebidas"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
+            <Image size={14} /> URL del Logo (opcional)
+          </label>
+          <input
+            type="url"
+            value={form.logoUrl}
+            onChange={(e) => setForm({ ...form, logoUrl: e.target.value })}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+            placeholder="https://..."
+          />
+          <p className="text-xs text-gray-400 mt-1">
+            Puedes subir una imagen a Imgur o Firebase Storage y pegar el enlace aquí.
+          </p>
+        </div>
+
+        <div className="pt-2">
+          <button
+            type="submit"
+            disabled={saving}
+            className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white font-semibold py-2.5 rounded-lg transition flex items-center justify-center gap-2"
+          >
+            {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save size={18} />}
+            {saving ? "Guardando..." : "Guardar Configuración"}
+          </button>
+        </div>
+      </form>
+
+      <div className="mt-6 bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-800">
+        <p className="font-medium mb-1">¿Por qué es importante?</p>
+        <ul className="list-disc list-inside space-y-1 text-blue-700">
+          <li>Los PDFs de informes mostrarán el nombre fiscal y RUT de tu almacén.</li>
+          <li>El contador o el SII pueden exigir estos datos en los registros de venta.</li>
+          <li>El logo aparecerá en los documentos si proporcionas una URL válida.</li>
+        </ul>
       </div>
     </div>
   );
@@ -3555,6 +3985,7 @@ import Mermas from "../components/Mermas";
 import Fiados from "../components/Fiados";
 import Offers from "../components/Offers";
 import AdminVendedores from "./AdminVendedores";
+import ConfiguracionAlmacen from "./ConfiguracionAlmacen";
 
 export default function Dashboard() {
   const { isDueño, loading } = useAuth();
@@ -3575,13 +4006,14 @@ export default function Dashboard() {
           <Route path="/" element={<POS />} />
           <Route path="/vender" element={<POS />} />
           <Route path="/productos" element={<ProductManager />} />
-          <Route path="/fiados" element={<Fiados />} />  {/* Vendedor también accede */}
+          <Route path="/fiados" element={<Fiados />} />
           {isDueño && (
             <>
               <Route path="/ofertas" element={<Offers />} />
               <Route path="/mermas" element={<Mermas />} />
               <Route path="/informes" element={<Reports />} />
               <Route path="/vendedores" element={<AdminVendedores />} />
+              <Route path="/configuracion" element={<ConfiguracionAlmacen />} />
             </>
           )}
           <Route path="*" element={<Navigate to="/" replace />} />
@@ -3596,8 +4028,8 @@ export default function Dashboard() {
 ````javascript
 import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { useAuth } from "../hooks/useAuth";
-import { Store, Eye, EyeOff, Loader2 } from "lucide-react";
+import { useAuth, sendPasswordReset } from "../hooks/useAuth";
+import { Store, Eye, EyeOff, Loader2, Mail } from "lucide-react";
 
 const MAX_EMAIL_LEN = 100;
 const MAX_PASSWORD_LEN = 50;
@@ -3609,11 +4041,15 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [mostrarRecuperar, setMostrarRecuperar] = useState(false);
+  const [emailRecuperar, setEmailRecuperar] = useState("");
+  const [recuperando, setRecuperando] = useState(false);
+  const [mensajeRecuperar, setMensajeRecuperar] = useState("");
   const { login } = useAuth();
   const navigate = useNavigate();
 
   function sanitizeInput(value, maxLen) {
-    return value.slice(0, maxLen).replace(/[<>"'&]/g, "");
+    return value.slice(0, maxLen).replace(/[<>'"&]/g, "");
   }
 
   const handleSubmit = async (e) => {
@@ -3650,6 +4086,28 @@ export default function Login() {
     }
   };
 
+  async function handleRecuperar(e) {
+    e.preventDefault();
+    setMensajeRecuperar("");
+    const email = sanitizeInput(emailRecuperar, MAX_EMAIL_LEN);
+    if (!email.includes("@")) {
+      setMensajeRecuperar("Ingresa un correo válido");
+      return;
+    }
+    setRecuperando(true);
+    try {
+      await sendPasswordReset(email);
+      setMensajeRecuperar("Te enviamos un correo para recuperar tu contraseña. Revisa tu bandeja de entrada.");
+      setEmailRecuperar("");
+    } catch (err) {
+      let msg = "Error al enviar correo";
+      if (err.code === "auth/user-not-found") msg = "No existe una cuenta con ese correo";
+      setMensajeRecuperar(msg);
+    } finally {
+      setRecuperando(false);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-600 to-blue-800 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-8">
@@ -3667,60 +4125,116 @@ export default function Login() {
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Usuario o Correo electrónico
-            </label>
-            <input
-              type="text"
-              value={identifier}
-              onChange={(e) => setIdentifier(sanitizeInput(e.target.value, MAX_EMAIL_LEN))}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
-              placeholder="juan o juan@email.com"
-              maxLength={MAX_EMAIL_LEN}
-              autoComplete="username"
-              required
-            />
-            <p className="text-xs text-gray-400 mt-1">
-              Vendedores: usa tu nombre de usuario. Dueños: usa tu correo.
-            </p>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Contraseña
-            </label>
-            <div className="relative">
+        {!mostrarRecuperar ? (
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Usuario o Correo electrónico
+              </label>
               <input
-                type={showPassword ? "text" : "password"}
-                value={password}
-                onChange={(e) => setPassword(sanitizeInput(e.target.value, MAX_PASSWORD_LEN))}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition pr-10"
-                placeholder="••••••••"
-                maxLength={MAX_PASSWORD_LEN}
-                minLength={6}
-                autoComplete="current-password"
+                type="text"
+                value={identifier}
+                onChange={(e) => setIdentifier(sanitizeInput(e.target.value, MAX_EMAIL_LEN))}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+                placeholder="juan o juan@email.com"
+                maxLength={MAX_EMAIL_LEN}
+                autoComplete="username"
                 required
               />
+              <p className="text-xs text-gray-400 mt-1">
+                Vendedores: usa tu nombre de usuario. Dueños: usa tu correo.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Contraseña
+              </label>
+              <div className="relative">
+                <input
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(sanitizeInput(e.target.value, MAX_PASSWORD_LEN))}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition pr-10"
+                  placeholder="••••••••"
+                  maxLength={MAX_PASSWORD_LEN}
+                  minLength={6}
+                  autoComplete="current-password"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : "Iniciar Sesión"}
+            </button>
+
+            <div className="text-center">
               <button
                 type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                onClick={() => setMostrarRecuperar(true)}
+                className="text-sm text-blue-600 hover:text-blue-700 font-medium"
               >
-                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                ¿Olvidaste tu contraseña?
               </button>
             </div>
-          </div>
+          </form>
+        ) : (
+          <form onSubmit={handleRecuperar} className="space-y-4">
+            <div className="text-center mb-4">
+              <Mail className="w-10 h-10 text-blue-600 mx-auto mb-2" />
+              <h2 className="text-lg font-bold text-gray-800">Recuperar contraseña</h2>
+              <p className="text-sm text-gray-500">Ingresa tu correo de dueño y te enviaremos un enlace</p>
+            </div>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-          >
-            {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : "Iniciar Sesión"}
-          </button>
-        </form>
+            {mensajeRecuperar && (
+              <div className={`border px-4 py-3 rounded-lg text-sm ${mensajeRecuperar.includes("enviamos") ? "bg-green-50 border-green-200 text-green-700" : "bg-red-50 border-red-200 text-red-700"}`}>
+                {mensajeRecuperar}
+              </div>
+            )}
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Correo electrónico</label>
+              <input
+                type="email"
+                value={emailRecuperar}
+                onChange={(e) => setEmailRecuperar(sanitizeInput(e.target.value, MAX_EMAIL_LEN))}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                placeholder="tu@email.com"
+                required
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={recuperando}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-lg transition disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {recuperando ? <Loader2 className="w-5 h-5 animate-spin" /> : "Enviar correo de recuperación"}
+            </button>
+
+            <div className="text-center">
+              <button
+                type="button"
+                onClick={() => { setMostrarRecuperar(false); setMensajeRecuperar(""); }}
+                className="text-sm text-gray-500 hover:text-gray-700"
+              >
+                Volver al login
+              </button>
+            </div>
+          </form>
+        )}
 
         <div className="mt-6 text-center">
           <p className="text-sm text-gray-600">
@@ -4112,7 +4626,14 @@ export async function updateConfig(almacenId, config) {
   await updateDoc(doc(db, "almacenes", almacenId), { config });
 }
 
-export const configService = { getConfig, updateConfig };
+export async function getAlmacenData(almacenId) {
+  if (!almacenId) return null;
+  const snap = await getDoc(doc(db, "almacenes", almacenId));
+  if (snap.exists()) return { id: snap.id, ...snap.data() };
+  return null;
+}
+
+export const configService = { getConfig, updateConfig, getAlmacenData };
 ````
 
 ## File: src/services/firestoreFiados.js
@@ -4346,6 +4867,16 @@ export async function discountStock(productId, cantidad) {
   });
 }
 
+export async function discountStockBatch(carritoItems) {
+  // Desconta stock de múltiples productos en paralelo (usado por POS offline/online)
+  const results = [];
+  for (const item of carritoItems) {
+    const res = await discountStock(item.id, item.cantidad);
+    results.push(res);
+  }
+  return results;
+}
+
 export async function getProductByBarcode(almacenId, barcode) {
   if (!almacenId || !barcode) return null;
   const q = query(
@@ -4373,7 +4904,7 @@ export async function searchProducts(almacenId, searchTerm) {
 
 export const productsService = {
   getProducts, getProduct, createProduct, updateProduct, deleteProduct,
-  addStock, discountStock, getProductByBarcode, searchProducts,
+  addStock, discountStock, discountStockBatch, getProductByBarcode, searchProducts,
 };
 ````
 
@@ -4564,6 +5095,16 @@ export const usersService = {
       await deleteDoc(doc(db, "publicUsernames", username));
     }
     await deleteDoc(doc(db, "users", uid));
+  },
+
+  async cambiarPasswordVendedor(uid, nuevaPassword) {
+    // Guardamos la nueva contraseña en el documento del vendedor
+    // El hook useAuth la aplicará automáticamente al siguiente login del vendedor
+    const ref = doc(db, "users", uid);
+    await updateDoc(ref, {
+      passwordPending: nuevaPassword,
+      updatedAt: new Date().toISOString(),
+    });
   },
 };
 ````

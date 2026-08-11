@@ -23,7 +23,7 @@ const METODO_STYLES = {
 
 export default function POS() {
   const { almacenId, user, userData } = useAuth();
-  const { isOnline, addToQueue } = useOffline();
+  const { isOnline, addToQueue, saveOfflineTurno, getOfflineTurno, clearOfflineTurno } = useOffline();
   const [productos, setProductos] = useState([]);
   const [search, setSearch] = useState("");
   const [carrito, setCarrito] = useState([]);
@@ -80,8 +80,17 @@ export default function POS() {
   }
 
   async function cargarTurno() {
+    // Si estamos offline, usar turno guardado en localStorage
+    if (!isOnline) {
+      const offlineTurno = getOfflineTurno();
+      if (offlineTurno) {
+        setTurno(offlineTurno);
+        return;
+      }
+    }
     const t = await salesService.getTurnoActivo(almacenId);
     setTurno(t);
+    if (t) saveOfflineTurno(t);
   }
 
   const productosFiltrados = search.trim()
@@ -136,14 +145,27 @@ export default function POS() {
 
   async function handleAbrirTurno() {
     const monto = Number(montoInicial) || 0;
-    const nuevo = await salesService.createTurno(almacenId, {
+    const turnoData = {
       estado: "abierto",
       vendedorId: user.uid,
       vendedorNombre: userData?.nombre || user.email,
       montoInicial: monto,
       ventas: { efectivo: 0, tarjeta: 0, transferencia: 0, fiado: 0 },
-    });
+    };
+
+    if (!isOnline) {
+      const nuevo = { id: `offline_${Date.now()}`, ...turnoData, createdAt: new Date().toISOString() };
+      setTurno(nuevo);
+      saveOfflineTurno(nuevo);
+      setMostrarAbrirTurno(false);
+      setMontoInicial("");
+      mostrarMensaje("Turno abierto (offline)");
+      return;
+    }
+
+    const nuevo = await salesService.createTurno(almacenId, turnoData);
     setTurno(nuevo);
+    saveOfflineTurno(nuevo);
     setMostrarAbrirTurno(false);
     setMontoInicial("");
     mostrarMensaje("Turno abierto");
@@ -151,6 +173,17 @@ export default function POS() {
 
   async function handleCerrarTurno() {
     if (!turno) return;
+
+    if (!isOnline) {
+      // Offline: solo marcar turno como cerrado localmente
+      const cerrado = { ...turno, estado: "cerrado", cerradoEn: new Date().toISOString() };
+      setTurno(null);
+      clearOfflineTurno();
+      addToQueue({ type: "turno_cerrar", turnoId: turno.id, data: cerrado });
+      mostrarMensaje("Turno cerrado (se sincronizará al reconectar)");
+      return;
+    }
+
     const ventasHoy = await salesService.getTodaySales(almacenId);
     const resumen = { efectivo: 0, tarjeta: 0, transferencia: 0, fiado: 0 };
     ventasHoy.forEach((v) => {
@@ -181,6 +214,7 @@ export default function POS() {
       },
     });
     setTurno(null);
+    clearOfflineTurno();
     setMostrarCerrarTurno(false);
     setResumenCierre(null);
     mostrarMensaje("Turno cerrado");
@@ -195,8 +229,9 @@ export default function POS() {
 
     setLoading(true);
     try {
+      // Validar stock (offline: solo contra productos cargados en memoria)
       for (const item of carrito) {
-        const prod = await productsService.getProduct(item.id);
+        const prod = productos.find(p => p.id === item.id);
         if (!prod || (prod.stock || 0) < item.cantidad) {
           alert(`Stock insuficiente: ${item.nombre}`);
           setLoading(false);
@@ -204,9 +239,12 @@ export default function POS() {
         }
       }
 
+      // Descontar stock localmente para reflejar cambio inmediato
       for (const item of carrito) {
-        await productsService.discountStock(item.id, item.cantidad);
+        const prod = productos.find(p => p.id === item.id);
+        if (prod) prod.stock -= item.cantidad;
       }
+      setProductos([...productos]);
 
       const venta = {
         productos: carrito.map((c) => ({
@@ -236,12 +274,19 @@ export default function POS() {
           clienteDireccion: fiadoData.direccion,
           estado: "pendiente",
         };
+
         if (!isOnline) {
           addToQueue({ type: "fiado", almacenId, data: fiadoPayload });
           mostrarMensaje("Fiado guardado localmente (offline)");
         } else {
-          await fiadosService.createFiado(almacenId, fiadoPayload);
-          mostrarMensaje("Fiado registrado");
+          try {
+            await fiadosService.createFiado(almacenId, fiadoPayload);
+            mostrarMensaje("Fiado registrado");
+          } catch (err) {
+            // Si falla por red aunque estemos "online", encolar
+            addToQueue({ type: "fiado", almacenId, data: fiadoPayload });
+            mostrarMensaje("Fiado guardado localmente (error de red)");
+          }
         }
         setMostrarFiado(false);
         setFiadoData({ nombre: "", telefono: "", direccion: "" });
@@ -250,13 +295,17 @@ export default function POS() {
           addToQueue({ type: "venta", almacenId, data: venta });
           mostrarMensaje("Venta guardada localmente (offline)");
         } else {
-          await salesService.createSale(almacenId, venta);
-          mostrarMensaje("Venta registrada");
+          try {
+            await salesService.createSale(almacenId, venta);
+            mostrarMensaje("Venta registrada");
+          } catch (err) {
+            addToQueue({ type: "venta", almacenId, data: venta });
+            mostrarMensaje("Venta guardada localmente (error de red)");
+          }
         }
       }
 
       setCarrito([]);
-      await cargarProductos();
     } catch (err) {
       console.error(err);
       alert("Error al registrar la venta");
