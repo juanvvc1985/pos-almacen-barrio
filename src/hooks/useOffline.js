@@ -37,23 +37,41 @@ export function useOffline() {
 
       setSyncing(true);
       const remaining = [];
+      const turnoIdMap = {}; // Mapeo: tempId -> realId
 
       for (const op of queue) {
         try {
-          if (op.type === "venta") {
+          if (op.type === "turno_abrir") {
+            // Crear turno en Firestore primero (obtiene ID real)
+            const nuevoTurno = await salesService.createTurno(op.almacenId, op.data);
+            turnoIdMap[op.tempId] = nuevoTurno.id;
+            // Actualizar turno offline guardado con el ID real
+            const offlineTurno = JSON.parse(localStorage.getItem(OFFLINE_TURNO_KEY) || "null");
+            if (offlineTurno && offlineTurno.id === op.tempId) {
+              localStorage.setItem(OFFLINE_TURNO_KEY, JSON.stringify({
+                ...offlineTurno,
+                id: nuevoTurno.id,
+              }));
+            }
+          } else if (op.type === "venta") {
+            const turnoId = turnoIdMap[op.data.turnoId] || op.data.turnoId;
             await productsService.discountStockBatch(op.data.productos.map(p => ({
               id: p.id,
               cantidad: p.cantidad
             })));
-            await salesService.createSale(op.almacenId, op.data);
+            await salesService.createSale(op.almacenId, { ...op.data, turnoId });
           } else if (op.type === "fiado") {
+            const turnoId = turnoIdMap[op.data.turnoId] || op.data.turnoId;
             await productsService.discountStockBatch(op.data.productos.map(p => ({
               id: p.id,
               cantidad: p.cantidad
             })));
-            await fiadosService.createFiado(op.almacenId, op.data);
+            await fiadosService.createFiado(op.almacenId, { ...op.data, turnoId });
           } else if (op.type === "turno_cerrar") {
-            await salesService.updateTurno(op.turnoId, op.data);
+            const turnoId = turnoIdMap[op.turnoId] || op.turnoId;
+            await salesService.updateTurno(turnoId, op.data);
+            // Limpiar turno offline si se cerró correctamente
+            localStorage.removeItem(OFFLINE_TURNO_KEY);
           }
         } catch (err) {
           console.error("Error sincronizando operación:", err);

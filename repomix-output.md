@@ -1208,7 +1208,7 @@ const METODO_STYLES = {
 
 export default function POS() {
   const { almacenId, user, userData } = useAuth();
-  const { isOnline, addToQueue } = useOffline();
+  const { isOnline, addToQueue, saveOfflineTurno, getOfflineTurno, clearOfflineTurno } = useOffline();
   const [productos, setProductos] = useState([]);
   const [search, setSearch] = useState("");
   const [carrito, setCarrito] = useState([]);
@@ -1265,8 +1265,17 @@ export default function POS() {
   }
 
   async function cargarTurno() {
+    // Si estamos offline, usar turno guardado en localStorage
+    if (!isOnline) {
+      const offlineTurno = getOfflineTurno();
+      if (offlineTurno) {
+        setTurno(offlineTurno);
+        return;
+      }
+    }
     const t = await salesService.getTurnoActivo(almacenId);
     setTurno(t);
+    if (t) saveOfflineTurno(t);
   }
 
   const productosFiltrados = search.trim()
@@ -1321,14 +1330,27 @@ export default function POS() {
 
   async function handleAbrirTurno() {
     const monto = Number(montoInicial) || 0;
-    const nuevo = await salesService.createTurno(almacenId, {
+    const turnoData = {
       estado: "abierto",
       vendedorId: user.uid,
       vendedorNombre: userData?.nombre || user.email,
       montoInicial: monto,
       ventas: { efectivo: 0, tarjeta: 0, transferencia: 0, fiado: 0 },
-    });
+    };
+
+    if (!isOnline) {
+      const nuevo = { id: `offline_${Date.now()}`, ...turnoData, createdAt: new Date().toISOString() };
+      setTurno(nuevo);
+      saveOfflineTurno(nuevo);
+      setMostrarAbrirTurno(false);
+      setMontoInicial("");
+      mostrarMensaje("Turno abierto (offline)");
+      return;
+    }
+
+    const nuevo = await salesService.createTurno(almacenId, turnoData);
     setTurno(nuevo);
+    saveOfflineTurno(nuevo);
     setMostrarAbrirTurno(false);
     setMontoInicial("");
     mostrarMensaje("Turno abierto");
@@ -1336,6 +1358,17 @@ export default function POS() {
 
   async function handleCerrarTurno() {
     if (!turno) return;
+
+    if (!isOnline) {
+      // Offline: solo marcar turno como cerrado localmente
+      const cerrado = { ...turno, estado: "cerrado", cerradoEn: new Date().toISOString() };
+      setTurno(null);
+      clearOfflineTurno();
+      addToQueue({ type: "turno_cerrar", turnoId: turno.id, data: cerrado });
+      mostrarMensaje("Turno cerrado (se sincronizará al reconectar)");
+      return;
+    }
+
     const ventasHoy = await salesService.getTodaySales(almacenId);
     const resumen = { efectivo: 0, tarjeta: 0, transferencia: 0, fiado: 0 };
     ventasHoy.forEach((v) => {
@@ -1366,6 +1399,7 @@ export default function POS() {
       },
     });
     setTurno(null);
+    clearOfflineTurno();
     setMostrarCerrarTurno(false);
     setResumenCierre(null);
     mostrarMensaje("Turno cerrado");
@@ -1380,8 +1414,9 @@ export default function POS() {
 
     setLoading(true);
     try {
+      // Validar stock (offline: solo contra productos cargados en memoria)
       for (const item of carrito) {
-        const prod = await productsService.getProduct(item.id);
+        const prod = productos.find(p => p.id === item.id);
         if (!prod || (prod.stock || 0) < item.cantidad) {
           alert(`Stock insuficiente: ${item.nombre}`);
           setLoading(false);
@@ -1389,9 +1424,12 @@ export default function POS() {
         }
       }
 
+      // Descontar stock localmente para reflejar cambio inmediato
       for (const item of carrito) {
-        await productsService.discountStock(item.id, item.cantidad);
+        const prod = productos.find(p => p.id === item.id);
+        if (prod) prod.stock -= item.cantidad;
       }
+      setProductos([...productos]);
 
       const venta = {
         productos: carrito.map((c) => ({
@@ -1421,12 +1459,19 @@ export default function POS() {
           clienteDireccion: fiadoData.direccion,
           estado: "pendiente",
         };
+
         if (!isOnline) {
           addToQueue({ type: "fiado", almacenId, data: fiadoPayload });
           mostrarMensaje("Fiado guardado localmente (offline)");
         } else {
-          await fiadosService.createFiado(almacenId, fiadoPayload);
-          mostrarMensaje("Fiado registrado");
+          try {
+            await fiadosService.createFiado(almacenId, fiadoPayload);
+            mostrarMensaje("Fiado registrado");
+          } catch (err) {
+            // Si falla por red aunque estemos "online", encolar
+            addToQueue({ type: "fiado", almacenId, data: fiadoPayload });
+            mostrarMensaje("Fiado guardado localmente (error de red)");
+          }
         }
         setMostrarFiado(false);
         setFiadoData({ nombre: "", telefono: "", direccion: "" });
@@ -1435,13 +1480,17 @@ export default function POS() {
           addToQueue({ type: "venta", almacenId, data: venta });
           mostrarMensaje("Venta guardada localmente (offline)");
         } else {
-          await salesService.createSale(almacenId, venta);
-          mostrarMensaje("Venta registrada");
+          try {
+            await salesService.createSale(almacenId, venta);
+            mostrarMensaje("Venta registrada");
+          } catch (err) {
+            addToQueue({ type: "venta", almacenId, data: venta });
+            mostrarMensaje("Venta guardada localmente (error de red)");
+          }
         }
       }
 
       setCarrito([]);
-      await cargarProductos();
     } catch (err) {
       console.error(err);
       alert("Error al registrar la venta");
@@ -3128,8 +3177,13 @@ export const firebaseConfig = {
 ## File: src/firebase/firebase.js
 ````javascript
 import { initializeApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
-import { getFirestore, enableIndexedDbPersistence } from "firebase/firestore";
+import { getAuth, setPersistence, browserLocalPersistence } from "firebase/auth";
+import {
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  CACHE_SIZE_UNLIMITED
+} from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: "AIzaSyAQUD8KyWSPYNz73RTrdSy-jZ3Lf2QiF3c",
@@ -3141,20 +3195,20 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
-export const db = getFirestore(app);
 
-// Activar persistencia offline (IndexedDB)
-enableIndexedDbPersistence(db).catch((err) => {
-  if (err.code === "failed-precondition") {
-    console.warn("Firestore offline: múltiples pestañas abiertas");
-  } else if (err.code === "unimplemented") {
-    console.warn("Firestore offline: navegador no soporta IndexedDB");
-  } else {
-    console.error("Firestore offline error:", err);
-  }
+// Auth con persistencia local (IndexedDB del navegador)
+const auth = getAuth(app);
+setPersistence(auth, browserLocalPersistence).catch(console.error);
+
+// Firestore con cache persistente + multi-tab desde el arranque
+const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager(),
+    cacheSizeBytes: CACHE_SIZE_UNLIMITED
+  })
 });
 
+export { auth, db };
 export default app;
 ````
 
@@ -3195,6 +3249,35 @@ export const PLANES = {
 };
 
 const FIREBASE_API_KEY = "AIzaSyAQUD8KyWSPYNz73RTrdSy-jZ3Lf2QiF3c";
+const OFFLINE_SESSION_KEY = "pos_offline_session";
+const OFFLINE_USERS_KEY = "pos_offline_users";
+
+function getOfflineSession() {
+  try {
+    return JSON.parse(localStorage.getItem(OFFLINE_SESSION_KEY));
+  } catch { return null; }
+}
+
+function saveOfflineSession(user, userData) {
+  localStorage.setItem(OFFLINE_SESSION_KEY, JSON.stringify({
+    uid: user.uid,
+    email: user.email,
+    displayName: user.displayName,
+    photoURL: user.photoURL,
+    userData,
+    savedAt: new Date().toISOString(),
+  }));
+}
+
+function clearOfflineSession() {
+  localStorage.removeItem(OFFLINE_SESSION_KEY);
+}
+
+function saveOfflineUser(uid, data) {
+  const users = JSON.parse(localStorage.getItem(OFFLINE_USERS_KEY) || "{}");
+  users[uid] = { ...data, _offlineSavedAt: new Date().toISOString() };
+  localStorage.setItem(OFFLINE_USERS_KEY, JSON.stringify(users));
+}
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
@@ -3202,6 +3285,18 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Primero intentar restaurar sesión offline mientras Firebase Auth carga
+    const offline = getOfflineSession();
+    if (offline && offline.userData) {
+      setUser({
+        uid: offline.uid,
+        email: offline.email,
+        displayName: offline.displayName,
+        photoURL: offline.photoURL,
+      });
+      setUserData(offline.userData);
+    }
+
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         setUser(firebaseUser);
@@ -3224,12 +3319,18 @@ export function AuthProvider({ children }) {
           }
 
           setUserData(data);
+          saveOfflineSession(firebaseUser, data);
+          saveOfflineUser(firebaseUser.uid, data);
         } else {
           setUserData(null);
         }
       } else {
-        setUser(null);
-        setUserData(null);
+        // Si no hay usuario Firebase pero tenemos offline, mantenerlo (estamos offline)
+        const stillOffline = getOfflineSession();
+        if (!stillOffline) {
+          setUser(null);
+          setUserData(null);
+        }
       }
       setLoading(false);
     });
@@ -3237,8 +3338,18 @@ export function AuthProvider({ children }) {
   }, []);
 
   async function findEmailByUsername(username) {
-    const snap = await getDoc(doc(db, "publicUsernames", username.trim().toLowerCase()));
-    if (snap.exists()) return snap.data().email;
+    // Primero buscar en cache offline
+    const users = JSON.parse(localStorage.getItem(OFFLINE_USERS_KEY) || "{}");
+    for (const uid in users) {
+      if (users[uid].username === username.trim().toLowerCase()) {
+        return users[uid].email;
+      }
+    }
+    // Si no está en cache y hay internet, buscar en Firestore
+    if (navigator.onLine) {
+      const snap = await getDoc(doc(db, "publicUsernames", username.trim().toLowerCase()));
+      if (snap.exists()) return snap.data().email;
+    }
     return null;
   }
 
@@ -3251,6 +3362,24 @@ export function AuthProvider({ children }) {
       }
       email = foundEmail;
     }
+
+    // Si estamos offline, verificar contra sesión guardada
+    if (!navigator.onLine) {
+      const offline = getOfflineSession();
+      if (offline && offline.email === email) {
+        // Restaurar usuario offline
+        setUser({
+          uid: offline.uid,
+          email: offline.email,
+          displayName: offline.displayName,
+          photoURL: offline.photoURL,
+        });
+        setUserData(offline.userData);
+        return { user: offline, offline: true };
+      }
+      throw new Error("Sin conexión. Primero inicia sesión con internet al menos una vez.");
+    }
+
     const result = await signInWithEmailAndPassword(auth, email, password);
     const userDoc = await getDoc(doc(db, "users", result.user.uid));
     if (userDoc.exists()) {
@@ -3260,6 +3389,8 @@ export function AuthProvider({ children }) {
         throw new Error("Usuario desactivado. Contacta al dueño.");
       }
       setUserData(data);
+      saveOfflineSession(result.user, data);
+      saveOfflineUser(result.user.uid, data);
     }
     return result;
   };
@@ -3279,14 +3410,18 @@ export function AuthProvider({ children }) {
       almacenId: almacenRef.id, plan: PLANES.BASICO,
       createdAt: new Date().toISOString(),
     });
-    setUserData({
+    const newUserData = {
       email, nombre, role: ROLES.DUEÑO,
       almacenId: almacenRef.id, plan: PLANES.BASICO,
-    });
+    };
+    setUserData(newUserData);
+    saveOfflineSession(result.user, newUserData);
+    saveOfflineUser(result.user.uid, newUserData);
     return result;
   };
 
   const logout = async () => {
+    clearOfflineSession();
     await signOut(auth);
     setUser(null);
     setUserData(null);
@@ -3299,7 +3434,7 @@ export function AuthProvider({ children }) {
   return (
     <AuthContext.Provider
       value={{ user, userData, loading, login, registerDueño, logout,
-        isDueño, isVendedor, almacenId, isAuthenticated: !!user }}
+        isDueño, isVendedor, almacenId, isAuthenticated: !!userData }}
     >
       {children}
     </AuthContext.Provider>
@@ -3365,8 +3500,12 @@ export async function sendPasswordReset(email) {
 ## File: src/hooks/useOffline.js
 ````javascript
 import { useState, useEffect, useCallback } from "react";
+import { salesService } from "../services/firestoreSales";
+import { fiadosService } from "../services/firestoreFiados";
+import { productsService } from "../services/firestoreProducts";
 
 const SYNC_KEY = "pos_offline_queue";
+const OFFLINE_TURNO_KEY = "pos_offline_turno";
 
 export function useOffline() {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -3388,6 +3527,48 @@ export function useOffline() {
     const queue = JSON.parse(localStorage.getItem(SYNC_KEY) || "[]");
     setPendingCount(queue.length);
   }, [isOnline, syncing]);
+
+  // Sincronizar cola automáticamente al reconectar
+  useEffect(() => {
+    if (!isOnline) return;
+
+    async function syncQueue() {
+      const queue = JSON.parse(localStorage.getItem(SYNC_KEY) || "[]");
+      if (queue.length === 0) return;
+
+      setSyncing(true);
+      const remaining = [];
+
+      for (const op of queue) {
+        try {
+          if (op.type === "venta") {
+            await productsService.discountStockBatch(op.data.productos.map(p => ({
+              id: p.id,
+              cantidad: p.cantidad
+            })));
+            await salesService.createSale(op.almacenId, op.data);
+          } else if (op.type === "fiado") {
+            await productsService.discountStockBatch(op.data.productos.map(p => ({
+              id: p.id,
+              cantidad: p.cantidad
+            })));
+            await fiadosService.createFiado(op.almacenId, op.data);
+          } else if (op.type === "turno_cerrar") {
+            await salesService.updateTurno(op.turnoId, op.data);
+          }
+        } catch (err) {
+          console.error("Error sincronizando operación:", err);
+          remaining.push(op);
+        }
+      }
+
+      localStorage.setItem(SYNC_KEY, JSON.stringify(remaining));
+      setPendingCount(remaining.length);
+      setSyncing(false);
+    }
+
+    syncQueue();
+  }, [isOnline]);
 
   const addToQueue = useCallback((operation) => {
     const queue = JSON.parse(localStorage.getItem(SYNC_KEY) || "[]");
@@ -3412,6 +3593,20 @@ export function useOffline() {
     setPendingCount(queue.length);
   }, []);
 
+  const saveOfflineTurno = useCallback((turno) => {
+    localStorage.setItem(OFFLINE_TURNO_KEY, JSON.stringify(turno));
+  }, []);
+
+  const getOfflineTurno = useCallback(() => {
+    try {
+      return JSON.parse(localStorage.getItem(OFFLINE_TURNO_KEY));
+    } catch { return null; }
+  }, []);
+
+  const clearOfflineTurno = useCallback(() => {
+    localStorage.removeItem(OFFLINE_TURNO_KEY);
+  }, []);
+
   return {
     isOnline,
     syncing,
@@ -3421,6 +3616,9 @@ export function useOffline() {
     clearQueue,
     getQueue,
     removeFromQueue,
+    saveOfflineTurno,
+    getOfflineTurno,
+    clearOfflineTurno,
   };
 }
 ````

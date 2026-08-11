@@ -52,8 +52,9 @@ export default function ConfiguracionAlmacen() {
     }
     setSaving(true);
     try {
+      const nombreGuardar = form.nombreFiscal.trim() || "Negocio";
       await updateDoc(doc(db, "almacenes", almacenId), {
-        nombreFiscal: form.nombreFiscal.trim(),
+        nombreFiscal: nombreGuardar,
         rut: form.rut.trim(),
         direccion: form.direccion.trim(),
         telefono: form.telefono.trim(),
@@ -61,6 +62,8 @@ export default function ConfiguracionAlmacen() {
         logoUrl: form.logoUrl.trim(),
         updatedAt: new Date().toISOString(),
       });
+      // Guardar en localStorage para que aparezca en login y navbar
+      localStorage.setItem("pos_negocio_nombre", nombreGuardar);
       setMensaje("Configuración guardada correctamente");
       setTimeout(() => setMensaje(""), 3000);
     } catch (err) {
@@ -82,7 +85,7 @@ export default function ConfiguracionAlmacen() {
     <div className="max-w-2xl mx-auto">
       <div className="flex items-center gap-2 mb-6">
         <Settings className="w-6 h-6 text-blue-600" />
-        <h1 className="text-2xl font-bold text-gray-800">Configuración del Almacén</h1>
+        <h1 className="text-2xl font-bold text-gray-800">Configuración del Negocio</h1>
       </div>
 
       {mensaje && (
@@ -94,16 +97,17 @@ export default function ConfiguracionAlmacen() {
       <form onSubmit={handleGuardar} className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-5">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
-            <Store size={14} /> Nombre fiscal / Razón social
+            <Store size={14} /> Nombre del negocio / Razón social *
           </label>
           <input
             type="text"
             value={form.nombreFiscal}
             onChange={(e) => setForm({ ...form, nombreFiscal: e.target.value })}
             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-            placeholder="Ej: Almacén La Esquina SpA"
+            placeholder="Ej: Almacén La Esquina"
             required
           />
+          <p className="text-xs text-gray-400 mt-1">Este nombre aparecerá en la app y en los PDFs.</p>
         </div>
 
         <div>
@@ -187,9 +191,9 @@ export default function ConfiguracionAlmacen() {
       <div className="mt-6 bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-800">
         <p className="font-medium mb-1">¿Por qué es importante?</p>
         <ul className="list-disc list-inside space-y-1 text-blue-700">
-          <li>Los PDFs de informes mostrarán el nombre fiscal y RUT de tu almacén.</li>
-          <li>El contador o el SII pueden exigir estos datos en los registros de venta.</li>
-          <li>El logo aparecerá en los documentos si proporcionas una URL válida.</li>
+          <li>El nombre del negocio aparece en la app, login y PDFs.</li>
+          <li>Los PDFs de informes mostrarán el nombre fiscal y RUT.</li>
+          <li>El contador o el SII pueden exigir estos datos.</li>
         </ul>
       </div>
     </div>

@@ -7,9 +7,10 @@ import PlanBadge from "../components/PlanBadge";
 import { 
   ShoppingCart, Package, BarChart3, AlertTriangle, 
   Users, Tag, LogOut, Menu, X, UserPlus, Settings,
-  Wifi, WifiOff, RefreshCw
+  Wifi, WifiOff, RefreshCw, Store
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { configService } from "../services/firestoreConfig";
 
 export default function Navbar() {
   const { isDueño, isVendedor, userData, logout, almacenId } = useAuth();
@@ -17,7 +18,20 @@ export default function Navbar() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [mostrarCierreLogout, setMostrarCierreLogout] = useState(false);
   const [resumenLogout, setResumenLogout] = useState(null);
+  const [nombreNegocio, setNombreNegocio] = useState("Negocio");
   const location = useLocation();
+
+  useEffect(() => {
+    if (!almacenId) return;
+    // Cargar nombre del negocio
+    configService.getAlmacenData(almacenId).then(data => {
+      if (data) {
+        const nombre = data.nombreFiscal || data.nombre || "Negocio";
+        setNombreNegocio(nombre);
+        localStorage.setItem("pos_negocio_nombre", nombre);
+      }
+    });
+  }, [almacenId]);
 
   const isActive = (path) => location.pathname === path;
 
@@ -77,7 +91,6 @@ export default function Navbar() {
 
   return (
     <>
-      {/* Barra de estado offline */}
       {!isOnline && (
         <div className="bg-amber-500 text-white text-xs text-center py-1 px-4 font-medium flex items-center justify-center gap-2">
           <WifiOff size={14} />
@@ -96,11 +109,12 @@ export default function Navbar() {
         <div className="container mx-auto px-4 max-w-7xl">
           <div className="flex items-center justify-between h-16">
             <Link to="/" className="font-bold text-xl text-blue-600 flex items-center gap-2">
-              POS Almacén
+              <Store size={20} />
+              <span className="truncate max-w-[140px] sm:max-w-xs">{nombreNegocio}</span>
               {isOnline ? (
-                <Wifi size={14} className="text-green-500" />
+                <Wifi size={14} className="text-green-500 shrink-0" />
               ) : (
-                <WifiOff size={14} className="text-amber-500" />
+                <WifiOff size={14} className="text-amber-500 shrink-0" />
               )}
             </Link>
             <div className="hidden md:flex items-center space-x-1">

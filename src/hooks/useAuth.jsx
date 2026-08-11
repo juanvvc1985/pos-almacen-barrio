@@ -69,7 +69,6 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Primero intentar restaurar sesión offline mientras Firebase Auth carga
     const offline = getOfflineSession();
     if (offline && offline.userData) {
       setUser({
@@ -88,7 +87,6 @@ export function AuthProvider({ children }) {
         if (userDoc.exists()) {
           const data = userDoc.data();
 
-          // Si hay contraseña pendiente (cambiada por el dueño), aplicarla
           if (data.passwordPending && data.role === "vendedor") {
             try {
               await updatePassword(firebaseUser, data.passwordPending);
@@ -109,7 +107,6 @@ export function AuthProvider({ children }) {
           setUserData(null);
         }
       } else {
-        // Si no hay usuario Firebase pero tenemos offline, mantenerlo (estamos offline)
         const stillOffline = getOfflineSession();
         if (!stillOffline) {
           setUser(null);
@@ -122,14 +119,12 @@ export function AuthProvider({ children }) {
   }, []);
 
   async function findEmailByUsername(username) {
-    // Primero buscar en cache offline
     const users = JSON.parse(localStorage.getItem(OFFLINE_USERS_KEY) || "{}");
     for (const uid in users) {
       if (users[uid].username === username.trim().toLowerCase()) {
         return users[uid].email;
       }
     }
-    // Si no está en cache y hay internet, buscar en Firestore
     if (navigator.onLine) {
       const snap = await getDoc(doc(db, "publicUsernames", username.trim().toLowerCase()));
       if (snap.exists()) return snap.data().email;
@@ -147,11 +142,9 @@ export function AuthProvider({ children }) {
       email = foundEmail;
     }
 
-    // Si estamos offline, verificar contra sesión guardada
     if (!navigator.onLine) {
       const offline = getOfflineSession();
       if (offline && offline.email === email) {
-        // Restaurar usuario offline
         setUser({
           uid: offline.uid,
           email: offline.email,

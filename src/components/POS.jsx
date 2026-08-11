@@ -74,13 +74,40 @@ export default function POS() {
 
   async function cargarProductos() {
     setLoadingProductos(true);
-    const data = await productsService.getProducts(almacenId);
-    setProductos(data);
-    setLoadingProductos(false);
+    try {
+      let data = await productsService.getProducts(almacenId);
+
+      // Aplicar descuentos de stock de operaciones pendientes (offline)
+      const queue = JSON.parse(localStorage.getItem("pos_offline_queue") || "[]");
+      const pendingDiscounts = {};
+      queue.forEach(op => {
+        if ((op.type === "venta" || op.type === "fiado") && op.data?.productos) {
+          op.data.productos.forEach(p => {
+            pendingDiscounts[p.id] = (pendingDiscounts[p.id] || 0) + (p.cantidad || 0);
+          });
+        }
+      });
+
+      if (Object.keys(pendingDiscounts).length > 0) {
+        data = data.map(p => {
+          if (pendingDiscounts[p.id]) {
+            return { ...p, stock: Math.max(0, (p.stock || 0) - pendingDiscounts[p.id]) };
+          }
+          return p;
+        });
+      }
+
+      setProductos(data);
+    } catch (err) {
+      console.error("Error cargando productos:", err);
+      const cached = productsService.getCachedProducts(almacenId);
+      if (cached) setProductos(cached);
+    } finally {
+      setLoadingProductos(false);
+    }
   }
 
   async function cargarTurno() {
-    // Si estamos offline, usar turno guardado en localStorage
     if (!isOnline) {
       const offlineTurno = getOfflineTurno();
       if (offlineTurno) {
@@ -154,9 +181,11 @@ export default function POS() {
     };
 
     if (!isOnline) {
-      const nuevo = { id: `offline_${Date.now()}`, ...turnoData, createdAt: new Date().toISOString() };
+      const tempId = `offline_${Date.now()}`;
+      const nuevo = { id: tempId, ...turnoData, createdAt: new Date().toISOString() };
       setTurno(nuevo);
       saveOfflineTurno(nuevo);
+      addToQueue({ type: "turno_abrir", almacenId, tempId, data: turnoData });
       setMostrarAbrirTurno(false);
       setMontoInicial("");
       mostrarMensaje("Turno abierto (offline)");
@@ -175,7 +204,6 @@ export default function POS() {
     if (!turno) return;
 
     if (!isOnline) {
-      // Offline: solo marcar turno como cerrado localmente
       const cerrado = { ...turno, estado: "cerrado", cerradoEn: new Date().toISOString() };
       setTurno(null);
       clearOfflineTurno();
@@ -229,7 +257,6 @@ export default function POS() {
 
     setLoading(true);
     try {
-      // Validar stock (offline: solo contra productos cargados en memoria)
       for (const item of carrito) {
         const prod = productos.find(p => p.id === item.id);
         if (!prod || (prod.stock || 0) < item.cantidad) {
@@ -239,7 +266,6 @@ export default function POS() {
         }
       }
 
-      // Descontar stock localmente para reflejar cambio inmediato
       for (const item of carrito) {
         const prod = productos.find(p => p.id === item.id);
         if (prod) prod.stock -= item.cantidad;
@@ -283,7 +309,6 @@ export default function POS() {
             await fiadosService.createFiado(almacenId, fiadoPayload);
             mostrarMensaje("Fiado registrado");
           } catch (err) {
-            // Si falla por red aunque estemos "online", encolar
             addToQueue({ type: "fiado", almacenId, data: fiadoPayload });
             mostrarMensaje("Fiado guardado localmente (error de red)");
           }
@@ -320,12 +345,17 @@ export default function POS() {
   }
 
   async function handleScan(code) {
-    const producto = await productsService.getProductByBarcode(almacenId, code);
-    if (producto) {
-      agregarAlCarrito(producto);
-      mostrarMensaje(`Agregado: ${producto.nombre}`);
-    } else {
-      alert("Producto no encontrado");
+    try {
+      const producto = await productsService.getProductByBarcode(almacenId, code);
+      if (producto) {
+        agregarAlCarrito(producto);
+        mostrarMensaje(`Agregado: ${producto.nombre}`);
+      } else {
+        alert("Producto no encontrado");
+      }
+    } catch (err) {
+      console.error("Error escaneando:", err);
+      alert("Error al buscar producto. ¿Estás offline?");
     }
   }
 

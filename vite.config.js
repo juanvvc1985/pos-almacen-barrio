@@ -7,10 +7,13 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
+      workbox: {
+        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024, // 5 MB en vez de 2 MB
+      },
       manifest: {
-        name: "POS Almacen de Barrio",
-        short_name: "POS Almacen",
-        description: "Sistema de punto de venta para almacenes de barrio",
+        name: "Negocio",
+        short_name: "Negocio",
+        description: "Sistema de punto de venta",
         theme_color: "#2563eb",
         background_color: "#ffffff",
         display: "standalone",

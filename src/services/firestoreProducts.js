@@ -7,6 +7,7 @@ import {
 import { puedeCrearProducto } from "./planLimits";
 
 const COLLECTION = "productos";
+const PRODUCTS_CACHE_KEY = "pos_products_cache";
 
 function generateId() {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
@@ -19,15 +20,54 @@ function generateId() {
   });
 }
 
+function getCacheKey(almacenId) {
+  return `${PRODUCTS_CACHE_KEY}_${almacenId}`;
+}
+
+export function saveProductsToCache(almacenId, products) {
+  try {
+    localStorage.setItem(getCacheKey(almacenId), JSON.stringify({
+      products,
+      timestamp: new Date().toISOString(),
+    }));
+  } catch (e) {
+    console.error("Error guardando productos en cache:", e);
+  }
+}
+
+export function getCachedProducts(almacenId) {
+  try {
+    const raw = localStorage.getItem(getCacheKey(almacenId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed.products || null;
+  } catch (e) {
+    console.error("Error leyendo productos de cache:", e);
+    return null;
+  }
+}
+
 export async function getProducts(almacenId) {
   if (!almacenId) return [];
-  const q = query(
-    collection(db, COLLECTION),
-    where("almacenId", "==", almacenId)
-  );
-  const snap = await getDocs(q);
-  const products = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-  return products.sort((a, b) => (a.nombre || "").localeCompare(b.nombre || ""));
+
+  try {
+    const q = query(
+      collection(db, COLLECTION),
+      where("almacenId", "==", almacenId)
+    );
+    const snap = await getDocs(q);
+    const products = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const sorted = products.sort((a, b) => (a.nombre || "").localeCompare(b.nombre || ""));
+
+    // Guardar en cache para uso offline
+    saveProductsToCache(almacenId, sorted);
+    return sorted;
+  } catch (err) {
+    console.warn("Error cargando productos de Firestore, usando cache local:", err.message);
+    const cached = getCachedProducts(almacenId);
+    if (cached) return cached;
+    throw err;
+  }
 }
 
 export async function getProduct(productId) {
@@ -129,7 +169,6 @@ export async function discountStock(productId, cantidad) {
 }
 
 export async function discountStockBatch(carritoItems) {
-  // Desconta stock de múltiples productos en paralelo (usado por POS offline/online)
   const results = [];
   for (const item of carritoItems) {
     const res = await discountStock(item.id, item.cantidad);
@@ -140,14 +179,23 @@ export async function discountStockBatch(carritoItems) {
 
 export async function getProductByBarcode(almacenId, barcode) {
   if (!almacenId || !barcode) return null;
-  const q = query(
-    collection(db, COLLECTION),
-    where("almacenId", "==", almacenId),
-    where("codigoBarras", "==", barcode)
-  );
-  const snap = await getDocs(q);
-  if (!snap.empty) return { id: snap.docs[0].id, ...snap.docs[0].data() };
-  return null;
+  try {
+    const q = query(
+      collection(db, COLLECTION),
+      where("almacenId", "==", almacenId),
+      where("codigoBarras", "==", barcode)
+    );
+    const snap = await getDocs(q);
+    if (!snap.empty) return { id: snap.docs[0].id, ...snap.docs[0].data() };
+    return null;
+  } catch (err) {
+    // Fallback: buscar en cache local
+    const cached = getCachedProducts(almacenId);
+    if (cached) {
+      return cached.find(p => p.codigoBarras === barcode) || null;
+    }
+    throw err;
+  }
 }
 
 export async function searchProducts(almacenId, searchTerm) {
@@ -166,4 +214,5 @@ export async function searchProducts(almacenId, searchTerm) {
 export const productsService = {
   getProducts, getProduct, createProduct, updateProduct, deleteProduct,
   addStock, discountStock, discountStockBatch, getProductByBarcode, searchProducts,
+  getCachedProducts, saveProductsToCache,
 };

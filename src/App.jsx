@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./hooks/useAuth";
 import Login from "./pages/Login";
@@ -22,6 +23,18 @@ function PrivateRoute({ children, requireDueño = false }) {
 }
 
 function AppRoutes() {
+  const { userData } = useAuth();
+
+  useEffect(() => {
+    // Cambiar título de la pestaña según el negocio configurado
+    const saved = localStorage.getItem("pos_negocio_nombre");
+    if (saved) {
+      document.title = saved;
+    } else if (userData?.nombre) {
+      document.title = userData.nombre;
+    }
+  }, [userData]);
+
   return (
     <Routes>
       <Route path="/login" element={<Login />} />

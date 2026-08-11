@@ -1,7 +1,7 @@
 {
-  "name": "POS Almacen de Barrio",
-  "short_name": "POS Almacen",
-  "description": "Sistema de punto de venta para almacenes de barrio",
+  "name": "Negocio",
+  "short_name": "Negocio",
+  "description": "Sistema de punto de venta",
   "theme_color": "#2563eb",
   "background_color": "#ffffff",
   "display": "standalone",

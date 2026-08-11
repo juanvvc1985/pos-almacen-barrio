@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { Store, Eye, EyeOff, Loader2, ArrowLeft } from "lucide-react";
@@ -15,11 +15,17 @@ export default function Register() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [nombreNegocio, setNombreNegocio] = useState("Tu Negocio");
   const { registerDueño } = useAuth();
   const navigate = useNavigate();
 
+  useEffect(() => {
+    const saved = localStorage.getItem("pos_negocio_nombre");
+    if (saved) setNombreNegocio(saved);
+  }, []);
+
   function sanitize(value, max) {
-    return value.slice(0, max).replace(/[<>"'&]/g, "");
+    return value.slice(0, max).replace(/[<>'"&]/g, "");
   }
 
   const handleSubmit = async (e) => {
@@ -47,6 +53,8 @@ export default function Register() {
     setLoading(true);
     try {
       await registerDueño(cleanEmail, cleanPass, cleanNombre, cleanAlmacen);
+      // Guardar nombre para que aparezca en login la próxima vez
+      localStorage.setItem("pos_negocio_nombre", cleanAlmacen || "Negocio");
       navigate("/");
     } catch (err) {
       let msg = "Error al registrar";
@@ -73,7 +81,7 @@ export default function Register() {
             <Store className="w-8 h-8 text-green-600" />
           </div>
           <h1 className="text-2xl font-bold text-gray-800">Crear Cuenta de Dueño</h1>
-          <p className="text-gray-500 mt-1">Registra tu almacén y comienza a vender</p>
+          <p className="text-gray-500 mt-1">Registra tu negocio y comienza a vender</p>
         </div>
 
         {error && (
@@ -97,7 +105,7 @@ export default function Register() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Nombre del almacén</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Nombre del negocio</label>
             <input
               type="text"
               value={nombreAlmacen}
