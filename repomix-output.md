@@ -1571,6 +1571,7 @@ export default function POS() {
 
     setLoading(true);
     try {
+      // 1. Verificar stock disponible
       for (const item of carrito) {
         const prod = productos.find(p => p.id === item.id);
         if (!prod || (prod.stock || 0) < item.cantidad) {
@@ -1580,6 +1581,20 @@ export default function POS() {
         }
       }
 
+      // 2. Descontar stock en Firestore (online) o solo local (offline)
+      const itemsParaDescontar = carrito.map((c) => ({ id: c.id, cantidad: c.cantidad }));
+
+      if (isOnline) {
+        try {
+          await productsService.discountStockBatch(itemsParaDescontar);
+        } catch (err) {
+          alert("Error al descontar stock: " + (err.message || "Verifica que haya suficiente stock"));
+          setLoading(false);
+          return;
+        }
+      }
+
+      // 3. Actualizar stock en estado local (para que se vea inmediato)
       for (const item of carrito) {
         const prod = productos.find(p => p.id === item.id);
         if (prod) prod.stock -= item.cantidad;
@@ -3410,22 +3425,84 @@ export const PLANES = {
 const FIREBASE_API_KEY = "AIzaSyAQUD8KyWSPYNz73RTrdSy-jZ3Lf2QiF3c";
 const OFFLINE_SESSION_KEY = "pos_offline_session";
 const OFFLINE_USERS_KEY = "pos_offline_users";
+const IDB_NAME = "pos_offline_db";
+const IDB_STORE = "session";
+const IDB_VERSION = 1;
 
+// ─── IndexedDB helpers ───
+function openIDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(IDB_NAME, IDB_VERSION);
+    req.onerror = () => reject(req.error);
+    req.onsuccess = () => resolve(req.result);
+    req.onupgradeneeded = (e) => {
+      e.target.result.createObjectStore(IDB_STORE);
+    };
+  });
+}
+
+async function idbSet(key, value) {
+  const db = await openIDB();
+  const tx = db.transaction(IDB_STORE, "readwrite");
+  const store = tx.objectStore(IDB_STORE);
+  return new Promise((resolve, reject) => {
+    const req = store.put(value, key);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function idbGet(key) {
+  try {
+    const db = await openIDB();
+    const tx = db.transaction(IDB_STORE, "readonly");
+    const store = tx.objectStore(IDB_STORE);
+    return new Promise((resolve, reject) => {
+      const req = store.get(key);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  } catch {
+    return null;
+  }
+}
+
+async function idbDel(key) {
+  try {
+    const db = await openIDB();
+    const tx = db.transaction(IDB_STORE, "readwrite");
+    const store = tx.objectStore(IDB_STORE);
+    return new Promise((resolve, reject) => {
+      const req = store.delete(key);
+      req.onsuccess = () => resolve();
+      req.onerror = () => reject(req.error);
+    });
+  } catch {
+    /* noop */
+  }
+}
+
+// ─── localStorage helpers (fallback) ───
 function getOfflineSession() {
   try {
     return JSON.parse(localStorage.getItem(OFFLINE_SESSION_KEY));
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
 function saveOfflineSession(user, userData) {
-  localStorage.setItem(OFFLINE_SESSION_KEY, JSON.stringify({
-    uid: user.uid,
-    email: user.email,
-    displayName: user.displayName,
-    photoURL: user.photoURL,
-    userData,
-    savedAt: new Date().toISOString(),
-  }));
+  localStorage.setItem(
+    OFFLINE_SESSION_KEY,
+    JSON.stringify({
+      uid: user.uid,
+      email: user.email?.toLowerCase(),
+      displayName: user.displayName,
+      photoURL: user.photoURL,
+      userData,
+      savedAt: new Date().toISOString(),
+    })
+  );
 }
 
 function clearOfflineSession() {
@@ -3438,88 +3515,28 @@ function saveOfflineUser(uid, data) {
   localStorage.setItem(OFFLINE_USERS_KEY, JSON.stringify(users));
 }
 
+function getOfflineUser(uid) {
+  try {
+    const users = JSON.parse(localStorage.getItem(OFFLINE_USERS_KEY) || "{}");
+    return users[uid] || null;
+  } catch {
+    return null;
+  }
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [userData, setUserData] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const offline = getOfflineSession();
-    if (offline && offline.userData) {
-      setUser({
-        uid: offline.uid,
-        email: offline.email,
-        displayName: offline.displayName,
-        photoURL: offline.photoURL,
-      });
-      setUserData(offline.userData);
-    }
+    let unsub = null;
+    let mounted = true;
 
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        setUser(firebaseUser);
-        const userDoc = await getDoc(doc(db, "users", firebaseUser.uid));
-        if (userDoc.exists()) {
-          const data = userDoc.data();
-
-          if (data.passwordPending && data.role === "vendedor") {
-            try {
-              await updatePassword(firebaseUser, data.passwordPending);
-              await updateDoc(doc(db, "users", firebaseUser.uid), {
-                passwordPending: null,
-                passwordUpdatedAt: new Date().toISOString(),
-              });
-              console.log("Contraseña actualizada desde panel del dueño");
-            } catch (err) {
-              console.error("No se pudo actualizar contraseña pendiente:", err);
-            }
-          }
-
-          setUserData(data);
-          saveOfflineSession(firebaseUser, data);
-          saveOfflineUser(firebaseUser.uid, data);
-        } else {
-          setUserData(null);
-        }
-      } else {
-        const stillOffline = getOfflineSession();
-        if (!stillOffline) {
-          setUser(null);
-          setUserData(null);
-        }
-      }
-      setLoading(false);
-    });
-    return () => unsubscribe();
-  }, []);
-
-  async function findEmailByUsername(username) {
-    const users = JSON.parse(localStorage.getItem(OFFLINE_USERS_KEY) || "{}");
-    for (const uid in users) {
-      if (users[uid].username === username.trim().toLowerCase()) {
-        return users[uid].email;
-      }
-    }
-    if (navigator.onLine) {
-      const snap = await getDoc(doc(db, "publicUsernames", username.trim().toLowerCase()));
-      if (snap.exists()) return snap.data().email;
-    }
-    return null;
-  }
-
-  const login = async (identifier, password) => {
-    let email = identifier.trim();
-    if (!email.includes("@")) {
-      const foundEmail = await findEmailByUsername(email);
-      if (!foundEmail) {
-        throw new Error("Usuario no encontrado");
-      }
-      email = foundEmail;
-    }
-
-    if (!navigator.onLine) {
-      const offline = getOfflineSession();
-      if (offline && offline.email === email) {
+    async function init() {
+      // 1. Restaurar sesión offline lo más rápido posible
+      const offline = (await idbGet("session").catch(() => null)) || getOfflineSession();
+      if (mounted && offline?.userData) {
         setUser({
           uid: offline.uid,
           email: offline.email,
@@ -3527,24 +3544,145 @@ export function AuthProvider({ children }) {
           photoURL: offline.photoURL,
         });
         setUserData(offline.userData);
-        return { user: offline, offline: true };
       }
-      throw new Error("Sin conexión. Primero inicia sesión con internet al menos una vez.");
+
+      // 2. Escuchar Firebase Auth (puede confirmar o invalidar)
+      unsub = onAuthStateChanged(auth, async (firebaseUser) => {
+        if (!mounted) return;
+
+        if (firebaseUser) {
+          setUser(firebaseUser);
+          try {
+            const userDoc = await getDoc(doc(db, "users", firebaseUser.uid));
+            if (userDoc.exists()) {
+              const data = userDoc.data();
+
+              if (data.passwordPending && data.role === "vendedor") {
+                try {
+                  await updatePassword(firebaseUser, data.passwordPending);
+                  await updateDoc(doc(db, "users", firebaseUser.uid), {
+                    passwordPending: null,
+                    passwordUpdatedAt: new Date().toISOString(),
+                  });
+                } catch (err) {
+                  console.error("No se pudo actualizar contraseña pendiente:", err);
+                }
+              }
+
+              setUserData(data);
+              const session = {
+                uid: firebaseUser.uid,
+                email: firebaseUser.email?.toLowerCase(),
+                displayName: firebaseUser.displayName,
+                photoURL: firebaseUser.photoURL,
+                userData: data,
+                savedAt: new Date().toISOString(),
+              };
+              await idbSet("session", session);
+              saveOfflineSession(firebaseUser, data);
+              saveOfflineUser(firebaseUser.uid, data);
+            } else {
+              // Documento no existe: usar cache si hay
+              const cached = getOfflineUser(firebaseUser.uid);
+              if (cached) setUserData(cached);
+            }
+          } catch (err) {
+            // Fallo de red (offline): mantener cache
+            const cached = getOfflineUser(firebaseUser.uid);
+            if (cached) setUserData(cached);
+            console.warn("Firestore offline, usando cache:", err.message);
+          }
+        } else {
+          // Firebase dice que no hay usuario
+          const stillOffline = (await idbGet("session").catch(() => null)) || getOfflineSession();
+          if (!stillOffline) {
+            setUser(null);
+            setUserData(null);
+          }
+        }
+
+        if (mounted) setLoading(false);
+      });
     }
 
-    const result = await signInWithEmailAndPassword(auth, email, password);
-    const userDoc = await getDoc(doc(db, "users", result.user.uid));
-    if (userDoc.exists()) {
-      const data = userDoc.data();
-      if (data.activo === false) {
-        await signOut(auth);
-        throw new Error("Usuario desactivado. Contacta al dueño.");
-      }
-      setUserData(data);
-      saveOfflineSession(result.user, data);
-      saveOfflineUser(result.user.uid, data);
+    init();
+
+    return () => {
+      mounted = false;
+      if (unsub) unsub();
+    };
+  }, []);
+
+  async function findEmailByUsername(username) {
+    const clean = username.toLowerCase().trim();
+    const users = JSON.parse(localStorage.getItem(OFFLINE_USERS_KEY) || "{}");
+    for (const uid in users) {
+      if (users[uid].username === clean) return users[uid].email;
     }
-    return result;
+    if (navigator.onLine) {
+      const snap = await getDoc(doc(db, "publicUsernames", clean));
+      if (snap.exists()) return snap.data().email;
+    }
+    return null;
+  }
+
+  const login = async (identifier, password) => {
+    let email = identifier.trim().toLowerCase();
+    if (!email.includes("@")) {
+      const foundEmail = await findEmailByUsername(email);
+      if (!foundEmail) throw new Error("Usuario no encontrado");
+      email = foundEmail.toLowerCase();
+    }
+
+    // Intento 1: Firebase Auth (por si hay internet lenta o intermitente)
+    try {
+      const result = await signInWithEmailAndPassword(auth, email, password);
+      const userDoc = await getDoc(doc(db, "users", result.user.uid));
+      if (userDoc.exists()) {
+        const data = userDoc.data();
+        if (data.activo === false) {
+          await signOut(auth);
+          throw new Error("Usuario desactivado. Contacta al dueño.");
+        }
+        setUserData(data);
+        const session = {
+          uid: result.user.uid,
+          email: result.user.email?.toLowerCase(),
+          displayName: result.user.displayName,
+          photoURL: result.user.photoURL,
+          userData: data,
+          savedAt: new Date().toISOString(),
+        };
+        await idbSet("session", session);
+        saveOfflineSession(result.user, data);
+        saveOfflineUser(result.user.uid, data);
+      }
+      return result;
+    } catch (err) {
+      // Intento 2: Fallback offline si falló por red
+      const isNetworkError =
+        err.code === "auth/network-request-failed" ||
+        err.code === "auth/timeout" ||
+        err.message?.includes("network") ||
+        err.message?.includes("fetch") ||
+        !navigator.onLine;
+
+      if (isNetworkError) {
+        const offline = (await idbGet("session").catch(() => null)) || getOfflineSession();
+        if (offline && offline.email?.toLowerCase() === email) {
+          setUser({
+            uid: offline.uid,
+            email: offline.email,
+            displayName: offline.displayName,
+            photoURL: offline.photoURL,
+          });
+          setUserData(offline.userData);
+          return { user: offline, offline: true };
+        }
+        throw new Error("Sin conexión. Primero inicia sesión con internet al menos una vez.");
+      }
+      throw err;
+    }
   };
 
   const registerDueño = async (email, password, nombre, nombreAlmacen) => {
@@ -3558,21 +3696,37 @@ export function AuthProvider({ children }) {
       createdAt: new Date().toISOString(),
     });
     await setDoc(doc(db, "users", result.user.uid), {
-      email, nombre, role: ROLES.DUEÑO,
-      almacenId: almacenRef.id, plan: PLANES.BASICO,
+      email,
+      nombre,
+      role: ROLES.DUEÑO,
+      almacenId: almacenRef.id,
+      plan: PLANES.BASICO,
       createdAt: new Date().toISOString(),
     });
     const newUserData = {
-      email, nombre, role: ROLES.DUEÑO,
-      almacenId: almacenRef.id, plan: PLANES.BASICO,
+      email,
+      nombre,
+      role: ROLES.DUEÑO,
+      almacenId: almacenRef.id,
+      plan: PLANES.BASICO,
     };
     setUserData(newUserData);
+    const session = {
+      uid: result.user.uid,
+      email: result.user.email?.toLowerCase(),
+      displayName: result.user.displayName,
+      photoURL: result.user.photoURL,
+      userData: newUserData,
+      savedAt: new Date().toISOString(),
+    };
+    await idbSet("session", session);
     saveOfflineSession(result.user, newUserData);
     saveOfflineUser(result.user.uid, newUserData);
     return result;
   };
 
   const logout = async () => {
+    await idbDel("session");
     clearOfflineSession();
     await signOut(auth);
     setUser(null);
@@ -3585,8 +3739,18 @@ export function AuthProvider({ children }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, userData, loading, login, registerDueño, logout,
-        isDueño, isVendedor, almacenId, isAuthenticated: !!userData }}
+      value={{
+        user,
+        userData,
+        loading,
+        login,
+        registerDueño,
+        logout,
+        isDueño,
+        isVendedor,
+        almacenId,
+        isAuthenticated: !!userData,
+      }}
     >
       {children}
     </AuthContext.Provider>
@@ -3621,18 +3785,26 @@ export async function crearVendedorDirecto(almacenId, nombre, username, password
   }
   const uid = data.localId;
   await setDoc(doc(db, "users", uid), {
-    email, nombre, username: cleanUser, role: ROLES.VENDEDOR,
-    almacenId, activo: true, createdAt: new Date().toISOString(),
+    email,
+    nombre,
+    username: cleanUser,
+    role: ROLES.VENDEDOR,
+    almacenId,
+    activo: true,
+    createdAt: new Date().toISOString(),
   });
   await setDoc(doc(db, "publicUsernames", cleanUser), {
-    email, almacenId, uid,
+    email,
+    almacenId,
+    uid,
   });
   return { uid, email, username: cleanUser };
 }
 
 export async function toggleVendedorEstado(vendedorId, activo) {
   await updateDoc(doc(db, "users", vendedorId), {
-    activo, updatedAt: new Date().toISOString(),
+    activo,
+    updatedAt: new Date().toISOString(),
   });
 }
 
