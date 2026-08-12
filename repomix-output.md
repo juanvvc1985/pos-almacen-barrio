@@ -83,6 +83,7 @@ CAPACITOR_APK.md
 COMPILAR_Y_VER.bat
 CREAR_APK.bat
 DIAGNOSTICO.bat
+firebase.json
 firestore.indexes.json
 firestore.rules
 fix-stock.cjs
@@ -6513,6 +6514,37 @@ echo ==========================================
 echo Si ves algun [ERROR] arriba, ese es el problema.
 echo.
 pause
+````
+
+## File: firebase.json
+````json
+{
+  "hosting": {
+    "public": "dist",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ],
+    "headers": [
+      {
+        "source": "/sw.js",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache"
+          }
+        ]
+      }
+    ]
+  }
+}
 ````
 
 ## File: firestore.indexes.json
