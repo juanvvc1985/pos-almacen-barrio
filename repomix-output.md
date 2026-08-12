@@ -79,7 +79,9 @@ src/
   main.jsx
 .gitattributes
 .gitignore
+CAPACITOR_APK.md
 COMPILAR_Y_VER.bat
+CREAR_APK.bat
 DIAGNOSTICO.bat
 firestore.indexes.json
 firestore.rules
@@ -91,6 +93,8 @@ INSTRUCCIONES_v5.md
 INSTRUCCIONES.txt
 package.json
 postcss.config.js
+README_BRAND_APK.md
+README_FIX.md
 README.md
 tailwind.config.js
 vite.config.js
@@ -101,9 +105,9 @@ vite.config.js
 ## File: public/manifest.json
 ````json
 {
-  "name": "POS Almacen de Barrio",
-  "short_name": "POS Almacen",
-  "description": "Sistema de punto de venta para almacenes de barrio",
+  "name": "Negocio",
+  "short_name": "Negocio",
+  "description": "Sistema de punto de venta",
   "theme_color": "#2563eb",
   "background_color": "#ffffff",
   "display": "standalone",
@@ -117,91 +121,493 @@ vite.config.js
 
 ## File: src/components/BarcodeScanner.jsx
 ````javascript
-import { useEffect, useRef, useState } from "react";
-import { Html5Qrcode, Html5QrcodeScannerState } from "html5-qrcode";
-import { X, Camera } from "lucide-react";
+import { useState, useRef, useCallback, useEffect } from 'react';
+import { BrowserMultiFormatReader } from '@zxing/browser';
+import { BarcodeFormat, DecodeHintType } from '@zxing/library';
+import { X, Camera, Image as ImageIcon, Scan, AlertTriangle, Keyboard } from 'lucide-react';
 
-export default function BarcodeScanner({ onScan, onClose }) {
-  const [error, setError] = useState("");
-  const scannerRef = useRef(null);
-  const containerRef = useRef(null);
-  const activeRef = useRef(true);
+// ───────────────────────────────────────────────
+// LECTOR ZXING CONFIGURADO PARA EAN-13 Y MÁS
+// ───────────────────────────────────────────────
+const createZXingReader = () => {
+  const hints = new Map();
+  const formats = [
+    BarcodeFormat.EAN_13,
+    BarcodeFormat.EAN_8,
+    BarcodeFormat.UPC_A,
+    BarcodeFormat.UPC_E,
+    BarcodeFormat.CODE_128,
+    BarcodeFormat.CODE_39,
+    BarcodeFormat.CODE_93,
+    BarcodeFormat.ITF,
+    BarcodeFormat.QR_CODE,
+    BarcodeFormat.DATA_MATRIX,
+  ];
+  hints.set(DecodeHintType.POSSIBLE_FORMATS, formats);
+  hints.set(DecodeHintType.TRY_HARDER, true);
+
+  const reader = new BrowserMultiFormatReader(hints);
+  reader.timeBetweenDecodingAttempts = 100;
+  return reader;
+};
+
+// ───────────────────────────────────────────────
+// LEER ORIENTACIÓN EXIF DEL IPHONE
+// ───────────────────────────────────────────────
+const getExifOrientation = async (file) => {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const view = new DataView(e.target.result);
+      if (view.getUint16(0, false) !== 0xFFD8) { resolve(-1); return; }
+      const length = view.byteLength;
+      let offset = 2;
+      while (offset < length) {
+        const marker = view.getUint16(offset, false);
+        if (marker === 0xFFE1) {
+          const exifOffset = offset + 4;
+          if (view.getUint32(exifOffset, false) === 0x45786966) {
+            const tiffOffset = exifOffset + 6;
+            const little = view.getUint16(tiffOffset, false) === 0x4949;
+            const dirOffset = view.getUint32(tiffOffset + 4, little);
+            const entries = view.getUint16(tiffOffset + dirOffset, little);
+            for (let i = 0; i < entries; i++) {
+              const entryOffset = tiffOffset + dirOffset + 2 + i * 12;
+              if (view.getUint16(entryOffset, little) === 0x0112) {
+                resolve(view.getUint16(entryOffset + 8, little));
+                return;
+              }
+            }
+          }
+          offset += 2 + view.getUint16(offset + 2, false);
+        } else if (marker === 0xFFD9) {
+          break;
+        } else {
+          offset += 2 + view.getUint16(offset + 2, false);
+        }
+      }
+      resolve(-1);
+    };
+    reader.onerror = () => resolve(-1);
+    reader.readAsArrayBuffer(file.slice(0, 64 * 1024));
+  });
+};
+
+// ───────────────────────────────────────────────
+// CORREGIR ORIENTACIÓN DE IMAGEN
+// ───────────────────────────────────────────────
+const fixImageOrientation = (img, orientation) => {
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  const w = img.naturalWidth || img.width || 300;
+  const h = img.naturalHeight || img.height || 300;
+
+  if (orientation > 4) {
+    canvas.width = h;
+    canvas.height = w;
+  } else {
+    canvas.width = w;
+    canvas.height = h;
+  }
+
+  ctx.save();
+  switch (orientation) {
+    case 2: ctx.transform(-1, 0, 0, 1, w, 0); break;
+    case 3: ctx.transform(-1, 0, 0, -1, w, h); break;
+    case 4: ctx.transform(1, 0, 0, -1, 0, h); break;
+    case 5: ctx.transform(0, 1, 1, 0, 0, 0); break;
+    case 6: ctx.transform(0, 1, -1, 0, h, 0); break;
+    case 7: ctx.transform(0, -1, -1, 0, h, w); break;
+    case 8: ctx.transform(0, -1, 1, 0, 0, w); break;
+    default: break;
+  }
+  ctx.drawImage(img, 0, 0);
+  ctx.restore();
+  return canvas;
+};
+
+// ───────────────────────────────────────────────
+// ESTRATEGIA PRINCIPAL: ZXing desde imagen
+// ───────────────────────────────────────────────
+const scanWithZXing = async (file) => {
+  const reader = createZXingReader();
+  const url = URL.createObjectURL(file);
+
+  try {
+    // 1. Intentar decodificar directamente desde la URL de la imagen
+    const result = await reader.decodeFromImageUrl(url);
+    if (result) return result.getText();
+  } catch {
+    // 2. Si falla, corregir orientación EXIF y reintentar desde canvas
+    try {
+      const orientation = await getExifOrientation(file);
+      const img = new Image();
+      img.src = url;
+      await new Promise((res, rej) => { img.onload = res; img.onerror = rej; });
+
+      const fixedCanvas = fixImageOrientation(img, orientation > 0 ? orientation : 1);
+      const result2 = await reader.decodeFromCanvas(fixedCanvas);
+      if (result2) return result2.getText();
+    } catch {
+      // 3. Último intento: rotar la imagen en múltiples ángulos
+      try {
+        const img = new Image();
+        img.src = url;
+        await new Promise((res, rej) => { img.onload = res; img.onerror = rej; });
+
+        const baseCanvas = document.createElement('canvas');
+        baseCanvas.width = img.naturalWidth;
+        baseCanvas.height = img.naturalHeight;
+        baseCanvas.getContext('2d').drawImage(img, 0, 0);
+
+        const rotations = [0, 90, 180, 270];
+        for (const deg of rotations) {
+          const c = document.createElement('canvas');
+          const ctx = c.getContext('2d');
+          const rad = (deg * Math.PI) / 180;
+
+          if (deg === 90 || deg === 270) {
+            c.width = baseCanvas.height;
+            c.height = baseCanvas.width;
+          } else {
+            c.width = baseCanvas.width;
+            c.height = baseCanvas.height;
+          }
+
+          ctx.save();
+          ctx.translate(c.width / 2, c.height / 2);
+          ctx.rotate(rad);
+          ctx.drawImage(baseCanvas, -baseCanvas.width / 2, -baseCanvas.height / 2);
+          ctx.restore();
+
+          try {
+            const r = await reader.decodeFromCanvas(c);
+            if (r) return r.getText();
+          } catch { /* continuar */ }
+        }
+      } catch { /* fallar */ }
+    }
+  } finally {
+    URL.revokeObjectURL(url);
+    reader.reset();
+  }
+
+  throw new Error('ZXing no pudo detectar el código de barras');
+};
+
+// ───────────────────────────────────────────────
+// ESTRATEGIA FALLBACK: html5-qrcode scanFile
+// ───────────────────────────────────────────────
+let Html5QrcodeModule = null;
+const scanWithHtml5Qrcode = async (file) => {
+  try {
+    if (!Html5QrcodeModule) {
+      Html5QrcodeModule = await import('html5-qrcode');
+    }
+    const { Html5Qrcode, Html5QrcodeSupportedFormats } = Html5QrcodeModule;
+    const decodedText = await Html5Qrcode.scanFile(file, false, {
+      formatsToSupport: [
+        Html5QrcodeSupportedFormats.EAN_13,
+        Html5QrcodeSupportedFormats.EAN_8,
+        Html5QrcodeSupportedFormats.UPC_A,
+        Html5QrcodeSupportedFormats.UPC_E,
+        Html5QrcodeSupportedFormats.CODE_128,
+        Html5QrcodeSupportedFormats.CODE_39,
+        Html5QrcodeSupportedFormats.CODE_93,
+        Html5QrcodeSupportedFormats.ITF,
+        Html5QrcodeSupportedFormats.QR_CODE,
+      ],
+    });
+    return decodedText;
+  } catch {
+    return null;
+  }
+};
+
+// ───────────────────────────────────────────────
+// FUNCIÓN PRINCIPAL: ZXing → html5-qrcode → error
+// ───────────────────────────────────────────────
+const scanBarcodeFromFile = async (file) => {
+  // 1. ZXing (pura JS, funciona en iPhone)
+  try {
+    const result = await scanWithZXing(file);
+    if (result) return result;
+  } catch (err) {
+    console.log('ZXing falló:', err.message);
+  }
+
+  // 2. html5-qrcode (fallback)
+  const result = await scanWithHtml5Qrcode(file);
+  if (result) return result;
+
+  throw new Error('No se pudo detectar el código de barras en la foto. Intenta con mejor iluminación o usa el modo manual.');
+};
+
+// ───────────────────────────────────────────────
+// COMPONENTE
+// ───────────────────────────────────────────────
+export default function BarcodeScanner({ onScan, onClose, products = [] }) {
+  const [activeTab, setActiveTab] = useState('photo');
+  const [error, setError] = useState('');
+  const [processing, setProcessing] = useState(false);
+  const [manualCode, setManualCode] = useState('');
+  const fileInputRef = useRef(null);
+  const videoRef = useRef(null);
+  const zxingLiveRef = useRef(null);
+  const [scannerReady, setScannerReady] = useState(false);
+
+  const isIPhone = /iPhone|iPad|iPod/.test(navigator.userAgent);
+  const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
 
   useEffect(() => {
-    if (!containerRef.current) return;
-    activeRef.current = true;
-
-    const scanner = new Html5Qrcode("scanner-container");
-    scannerRef.current = scanner;
-
-    scanner
-      .start(
-        { facingMode: "environment" },
-        { fps: 10, qrbox: { width: 250, height: 250 } },
-        (decodedText) => {
-          onScan(decodedText);
-          onClose();
-        },
-        () => {}
-      )
-      .then(() => {
-        if (!activeRef.current) {
-          scanner
-            .stop()
-            .then(() => scanner.clear())
-            .catch(() => {});
-        }
-      })
-      .catch((err) => {
-        if (activeRef.current) {
-          setError("No se pudo iniciar la cámara. Asegúrate de dar permisos.");
-        }
-        console.error(err);
-      });
-
     return () => {
-      activeRef.current = false;
-      const s = scannerRef.current;
-      if (!s) return;
-      if (s.getState() === Html5QrcodeScannerState.SCANNING) {
-        s.stop()
-          .then(() => s.clear())
-          .catch(() => {});
+      if (zxingLiveRef.current) {
+        try { zxingLiveRef.current.reset(); } catch {}
       }
     };
-  }, [onScan, onClose]);
+  }, []);
+
+  const startLiveScanner = useCallback(async () => {
+    setError('');
+    try {
+      const reader = createZXingReader();
+      zxingLiveRef.current = reader;
+
+      const controls = await reader.decodeFromConstraints(
+        {
+          audio: false,
+          video: { facingMode: 'environment' },
+        },
+        videoRef.current,
+        (result, err) => {
+          if (result) {
+            handleCodeFound(result.getText());
+          }
+        }
+      );
+      setScannerReady(true);
+    } catch (err) {
+      setError('No se pudo iniciar la cámara. Usa el modo "Tomar foto" en iPhone.');
+      setScannerReady(false);
+    }
+  }, []);
+
+  const stopLiveScanner = useCallback(() => {
+    if (zxingLiveRef.current) {
+      try { zxingLiveRef.current.reset(); } catch {}
+      zxingLiveRef.current = null;
+    }
+    setScannerReady(false);
+  }, []);
+
+  const handleTabChange = (tab) => {
+    setActiveTab(tab);
+    setError('');
+    if (tab === 'camera') {
+      startLiveScanner();
+    } else {
+      stopLiveScanner();
+    }
+  };
+
+  useEffect(() => {
+    if (isIPhone || isSafari) {
+      setActiveTab('photo');
+    } else {
+      setActiveTab('camera');
+      startLiveScanner();
+    }
+  }, []);
+
+  const handleFileChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setProcessing(true);
+    setError('');
+
+    try {
+      const code = await scanBarcodeFromFile(file);
+      handleCodeFound(code);
+    } catch (err) {
+      setError(err.message || 'No se detectó código. Intenta con mejor iluminación, más cerca y sin reflejos.');
+    } finally {
+      setProcessing(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleManualSubmit = (e) => {
+    e.preventDefault();
+    if (!manualCode.trim()) return;
+    handleCodeFound(manualCode.trim());
+  };
+
+  const handleCodeFound = (code) => {
+    stopLiveScanner();
+    onScan(code);
+    onClose();
+  };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-90 z-50 flex flex-col items-center justify-center p-4">
-      <div className="w-full max-w-md">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2 text-white">
-            <Camera size={20} />
-            <span className="font-medium">Escanear código</span>
-          </div>
+    <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+      <div className="bg-gray-900 rounded-xl w-full max-w-md overflow-hidden border border-gray-700">
+        <div className="flex items-center justify-between p-4 border-b border-gray-700">
+          <h2 className="text-white font-semibold flex items-center gap-2">
+            <Scan className="w-5 h-5" />
+            Escanear código
+          </h2>
+          <button onClick={() => { stopLiveScanner(); onClose(); }} className="text-gray-400 hover:text-white">
+            <X className="w-6 h-6" />
+          </button>
+        </div>
+
+        <div className="flex border-b border-gray-700">
           <button
-            onClick={onClose}
-            className="p-2 text-white hover:bg-white/10 rounded-lg transition"
+            onClick={() => handleTabChange('camera')}
+            className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 transition-colors ${
+              activeTab === 'camera' ? 'text-blue-400 border-b-2 border-blue-400 bg-gray-800' : 'text-gray-400 hover:text-gray-200'
+            }`}
           >
-            <X size={24} />
+            <Camera className="w-4 h-4" />
+            Cámara en vivo
+          </button>
+          <button
+            onClick={() => handleTabChange('photo')}
+            className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 transition-colors ${
+              activeTab === 'photo' ? 'text-blue-400 border-b-2 border-blue-400 bg-gray-800' : 'text-gray-400 hover:text-gray-200'
+            }`}
+          >
+            <ImageIcon className="w-4 h-4" />
+            Tomar foto
+          </button>
+          <button
+            onClick={() => handleTabChange('manual')}
+            className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 transition-colors ${
+              activeTab === 'manual' ? 'text-blue-400 border-b-2 border-blue-400 bg-gray-800' : 'text-gray-400 hover:text-gray-200'
+            }`}
+          >
+            <Keyboard className="w-4 h-4" />
+            Manual
           </button>
         </div>
 
         {error && (
-          <div className="bg-red-500 text-white px-4 py-3 rounded-lg mb-4 text-sm">
-            {error}
+          <div className="mx-4 mt-4 p-3 bg-red-500/20 border border-red-500/50 rounded-lg">
+            <p className="text-red-300 text-sm flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+              {error}
+            </p>
           </div>
         )}
 
-        <div
-          id="scanner-container"
-          ref={containerRef}
-          className="w-full aspect-square bg-black rounded-xl overflow-hidden"
-        />
+        <div className="p-4">
+          {activeTab === 'camera' && (
+            <div>
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                className="w-full aspect-square bg-black rounded-lg object-cover"
+              />
+              {!scannerReady && (
+                <p className="text-center text-gray-400 text-sm mt-3">
+                  Iniciando cámara...
+                </p>
+              )}
+              {(isIPhone || isSafari) && (
+                <p className="text-center text-amber-400 text-xs mt-2 flex items-center justify-center gap-1">
+                  <AlertTriangle className="w-3 h-3" />
+                  En iPhone/Safari la cámara en vivo puede no funcionar en HTTP. Usa "Tomar foto".
+                </p>
+              )}
+            </div>
+          )}
 
-        <p className="text-white/70 text-sm text-center mt-4">
-          Apunta la cámara al código de barras
-        </p>
+          {activeTab === 'photo' && (
+            <div className="text-center">
+              <div className="bg-gray-800 rounded-lg p-8 mb-4">
+                <Camera className="w-12 h-12 text-gray-500 mx-auto mb-3" />
+                <p className="text-white font-medium mb-1">
+                  Toma una foto del código de barras
+                </p>
+                <p className="text-gray-400 text-sm">
+                  Asegúrate de que el código sea legible y haya buena luz.
+                </p>
+              </div>
+
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={handleFileChange}
+                className="hidden"
+                id="camera-input"
+              />
+
+              <label
+                htmlFor="camera-input"
+                className={`inline-flex items-center gap-2 px-6 py-3 rounded-lg font-medium transition-all cursor-pointer ${
+                  processing
+                    ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
+                    : 'bg-blue-600 hover:bg-blue-500 text-white'
+                }`}
+              >
+                {processing ? (
+                  <>
+                    <span className="animate-spin w-4 h-4 border-2 border-white/30 border-t-white rounded-full" />
+                    Procesando...
+                  </>
+                ) : (
+                  <>
+                    <Camera className="w-5 h-5" />
+                    Abrir cámara
+                  </>
+                )}
+              </label>
+
+              {isIPhone && (
+                <p className="text-gray-500 text-xs mt-3">
+                  En iPhone usa este modo. Toma la foto y el sistema detectará el código automáticamente.
+                </p>
+              )}
+            </div>
+          )}
+
+          {activeTab === 'manual' && (
+            <form onSubmit={handleManualSubmit} className="space-y-4">
+              <div>
+                <label className="block text-gray-400 text-sm mb-2">
+                  Escribe el código de barras
+                </label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={manualCode}
+                  onChange={(e) => setManualCode(e.target.value)}
+                  placeholder="Ej: 7804682632213"
+                  className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                  autoFocus
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={!manualCode.trim()}
+                className="w-full py-3 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg font-medium transition-colors"
+              >
+                Buscar producto
+              </button>
+            </form>
+          )}
+        </div>
+
+        <div className="px-4 pb-4 text-center">
+          <p className="text-gray-500 text-xs">
+            Carrito · {products.length} items
+          </p>
+        </div>
       </div>
     </div>
   );
@@ -756,9 +1162,10 @@ import PlanBadge from "../components/PlanBadge";
 import { 
   ShoppingCart, Package, BarChart3, AlertTriangle, 
   Users, Tag, LogOut, Menu, X, UserPlus, Settings,
-  Wifi, WifiOff, RefreshCw
+  Wifi, WifiOff, RefreshCw, Store
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { configService } from "../services/firestoreConfig";
 
 export default function Navbar() {
   const { isDueño, isVendedor, userData, logout, almacenId } = useAuth();
@@ -766,7 +1173,20 @@ export default function Navbar() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [mostrarCierreLogout, setMostrarCierreLogout] = useState(false);
   const [resumenLogout, setResumenLogout] = useState(null);
+  const [nombreNegocio, setNombreNegocio] = useState("Negocio");
   const location = useLocation();
+
+  useEffect(() => {
+    if (!almacenId) return;
+    // Cargar nombre del negocio
+    configService.getAlmacenData(almacenId).then(data => {
+      if (data) {
+        const nombre = data.nombreFiscal || data.nombre || "Negocio";
+        setNombreNegocio(nombre);
+        localStorage.setItem("pos_negocio_nombre", nombre);
+      }
+    });
+  }, [almacenId]);
 
   const isActive = (path) => location.pathname === path;
 
@@ -826,7 +1246,6 @@ export default function Navbar() {
 
   return (
     <>
-      {/* Barra de estado offline */}
       {!isOnline && (
         <div className="bg-amber-500 text-white text-xs text-center py-1 px-4 font-medium flex items-center justify-center gap-2">
           <WifiOff size={14} />
@@ -845,11 +1264,12 @@ export default function Navbar() {
         <div className="container mx-auto px-4 max-w-7xl">
           <div className="flex items-center justify-between h-16">
             <Link to="/" className="font-bold text-xl text-blue-600 flex items-center gap-2">
-              POS Almacén
+              <Store size={20} />
+              <span className="truncate max-w-[140px] sm:max-w-xs">{nombreNegocio}</span>
               {isOnline ? (
-                <Wifi size={14} className="text-green-500" />
+                <Wifi size={14} className="text-green-500 shrink-0" />
               ) : (
-                <WifiOff size={14} className="text-amber-500" />
+                <WifiOff size={14} className="text-amber-500 shrink-0" />
               )}
             </Link>
             <div className="hidden md:flex items-center space-x-1">
@@ -1259,13 +1679,40 @@ export default function POS() {
 
   async function cargarProductos() {
     setLoadingProductos(true);
-    const data = await productsService.getProducts(almacenId);
-    setProductos(data);
-    setLoadingProductos(false);
+    try {
+      let data = await productsService.getProducts(almacenId);
+
+      // Aplicar descuentos de stock de operaciones pendientes (offline)
+      const queue = JSON.parse(localStorage.getItem("pos_offline_queue") || "[]");
+      const pendingDiscounts = {};
+      queue.forEach(op => {
+        if ((op.type === "venta" || op.type === "fiado") && op.data?.productos) {
+          op.data.productos.forEach(p => {
+            pendingDiscounts[p.id] = (pendingDiscounts[p.id] || 0) + (p.cantidad || 0);
+          });
+        }
+      });
+
+      if (Object.keys(pendingDiscounts).length > 0) {
+        data = data.map(p => {
+          if (pendingDiscounts[p.id]) {
+            return { ...p, stock: Math.max(0, (p.stock || 0) - pendingDiscounts[p.id]) };
+          }
+          return p;
+        });
+      }
+
+      setProductos(data);
+    } catch (err) {
+      console.error("Error cargando productos:", err);
+      const cached = productsService.getCachedProducts(almacenId);
+      if (cached) setProductos(cached);
+    } finally {
+      setLoadingProductos(false);
+    }
   }
 
   async function cargarTurno() {
-    // Si estamos offline, usar turno guardado en localStorage
     if (!isOnline) {
       const offlineTurno = getOfflineTurno();
       if (offlineTurno) {
@@ -1339,9 +1786,11 @@ export default function POS() {
     };
 
     if (!isOnline) {
-      const nuevo = { id: `offline_${Date.now()}`, ...turnoData, createdAt: new Date().toISOString() };
+      const tempId = `offline_${Date.now()}`;
+      const nuevo = { id: tempId, ...turnoData, createdAt: new Date().toISOString() };
       setTurno(nuevo);
       saveOfflineTurno(nuevo);
+      addToQueue({ type: "turno_abrir", almacenId, tempId, data: turnoData });
       setMostrarAbrirTurno(false);
       setMontoInicial("");
       mostrarMensaje("Turno abierto (offline)");
@@ -1360,7 +1809,6 @@ export default function POS() {
     if (!turno) return;
 
     if (!isOnline) {
-      // Offline: solo marcar turno como cerrado localmente
       const cerrado = { ...turno, estado: "cerrado", cerradoEn: new Date().toISOString() };
       setTurno(null);
       clearOfflineTurno();
@@ -1414,7 +1862,6 @@ export default function POS() {
 
     setLoading(true);
     try {
-      // Validar stock (offline: solo contra productos cargados en memoria)
       for (const item of carrito) {
         const prod = productos.find(p => p.id === item.id);
         if (!prod || (prod.stock || 0) < item.cantidad) {
@@ -1424,7 +1871,6 @@ export default function POS() {
         }
       }
 
-      // Descontar stock localmente para reflejar cambio inmediato
       for (const item of carrito) {
         const prod = productos.find(p => p.id === item.id);
         if (prod) prod.stock -= item.cantidad;
@@ -1468,7 +1914,6 @@ export default function POS() {
             await fiadosService.createFiado(almacenId, fiadoPayload);
             mostrarMensaje("Fiado registrado");
           } catch (err) {
-            // Si falla por red aunque estemos "online", encolar
             addToQueue({ type: "fiado", almacenId, data: fiadoPayload });
             mostrarMensaje("Fiado guardado localmente (error de red)");
           }
@@ -1505,12 +1950,17 @@ export default function POS() {
   }
 
   async function handleScan(code) {
-    const producto = await productsService.getProductByBarcode(almacenId, code);
-    if (producto) {
-      agregarAlCarrito(producto);
-      mostrarMensaje(`Agregado: ${producto.nombre}`);
-    } else {
-      alert("Producto no encontrado");
+    try {
+      const producto = await productsService.getProductByBarcode(almacenId, code);
+      if (producto) {
+        agregarAlCarrito(producto);
+        mostrarMensaje(`Agregado: ${producto.nombre}`);
+      } else {
+        alert("Producto no encontrado");
+      }
+    } catch (err) {
+      console.error("Error escaneando:", err);
+      alert("Error al buscar producto. ¿Estás offline?");
     }
   }
 
@@ -3285,7 +3735,6 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Primero intentar restaurar sesión offline mientras Firebase Auth carga
     const offline = getOfflineSession();
     if (offline && offline.userData) {
       setUser({
@@ -3304,7 +3753,6 @@ export function AuthProvider({ children }) {
         if (userDoc.exists()) {
           const data = userDoc.data();
 
-          // Si hay contraseña pendiente (cambiada por el dueño), aplicarla
           if (data.passwordPending && data.role === "vendedor") {
             try {
               await updatePassword(firebaseUser, data.passwordPending);
@@ -3325,7 +3773,6 @@ export function AuthProvider({ children }) {
           setUserData(null);
         }
       } else {
-        // Si no hay usuario Firebase pero tenemos offline, mantenerlo (estamos offline)
         const stillOffline = getOfflineSession();
         if (!stillOffline) {
           setUser(null);
@@ -3338,14 +3785,12 @@ export function AuthProvider({ children }) {
   }, []);
 
   async function findEmailByUsername(username) {
-    // Primero buscar en cache offline
     const users = JSON.parse(localStorage.getItem(OFFLINE_USERS_KEY) || "{}");
     for (const uid in users) {
       if (users[uid].username === username.trim().toLowerCase()) {
         return users[uid].email;
       }
     }
-    // Si no está en cache y hay internet, buscar en Firestore
     if (navigator.onLine) {
       const snap = await getDoc(doc(db, "publicUsernames", username.trim().toLowerCase()));
       if (snap.exists()) return snap.data().email;
@@ -3363,11 +3808,9 @@ export function AuthProvider({ children }) {
       email = foundEmail;
     }
 
-    // Si estamos offline, verificar contra sesión guardada
     if (!navigator.onLine) {
       const offline = getOfflineSession();
       if (offline && offline.email === email) {
-        // Restaurar usuario offline
         setUser({
           uid: offline.uid,
           email: offline.email,
@@ -3538,23 +3981,41 @@ export function useOffline() {
 
       setSyncing(true);
       const remaining = [];
+      const turnoIdMap = {}; // Mapeo: tempId -> realId
 
       for (const op of queue) {
         try {
-          if (op.type === "venta") {
+          if (op.type === "turno_abrir") {
+            // Crear turno en Firestore primero (obtiene ID real)
+            const nuevoTurno = await salesService.createTurno(op.almacenId, op.data);
+            turnoIdMap[op.tempId] = nuevoTurno.id;
+            // Actualizar turno offline guardado con el ID real
+            const offlineTurno = JSON.parse(localStorage.getItem(OFFLINE_TURNO_KEY) || "null");
+            if (offlineTurno && offlineTurno.id === op.tempId) {
+              localStorage.setItem(OFFLINE_TURNO_KEY, JSON.stringify({
+                ...offlineTurno,
+                id: nuevoTurno.id,
+              }));
+            }
+          } else if (op.type === "venta") {
+            const turnoId = turnoIdMap[op.data.turnoId] || op.data.turnoId;
             await productsService.discountStockBatch(op.data.productos.map(p => ({
               id: p.id,
               cantidad: p.cantidad
             })));
-            await salesService.createSale(op.almacenId, op.data);
+            await salesService.createSale(op.almacenId, { ...op.data, turnoId });
           } else if (op.type === "fiado") {
+            const turnoId = turnoIdMap[op.data.turnoId] || op.data.turnoId;
             await productsService.discountStockBatch(op.data.productos.map(p => ({
               id: p.id,
               cantidad: p.cantidad
             })));
-            await fiadosService.createFiado(op.almacenId, op.data);
+            await fiadosService.createFiado(op.almacenId, { ...op.data, turnoId });
           } else if (op.type === "turno_cerrar") {
-            await salesService.updateTurno(op.turnoId, op.data);
+            const turnoId = turnoIdMap[op.turnoId] || op.turnoId;
+            await salesService.updateTurno(turnoId, op.data);
+            // Limpiar turno offline si se cerró correctamente
+            localStorage.removeItem(OFFLINE_TURNO_KEY);
           }
         } catch (err) {
           console.error("Error sincronizando operación:", err);
@@ -4026,8 +4487,9 @@ export default function ConfiguracionAlmacen() {
     }
     setSaving(true);
     try {
+      const nombreGuardar = form.nombreFiscal.trim() || "Negocio";
       await updateDoc(doc(db, "almacenes", almacenId), {
-        nombreFiscal: form.nombreFiscal.trim(),
+        nombreFiscal: nombreGuardar,
         rut: form.rut.trim(),
         direccion: form.direccion.trim(),
         telefono: form.telefono.trim(),
@@ -4035,6 +4497,8 @@ export default function ConfiguracionAlmacen() {
         logoUrl: form.logoUrl.trim(),
         updatedAt: new Date().toISOString(),
       });
+      // Guardar en localStorage para que aparezca en login y navbar
+      localStorage.setItem("pos_negocio_nombre", nombreGuardar);
       setMensaje("Configuración guardada correctamente");
       setTimeout(() => setMensaje(""), 3000);
     } catch (err) {
@@ -4056,7 +4520,7 @@ export default function ConfiguracionAlmacen() {
     <div className="max-w-2xl mx-auto">
       <div className="flex items-center gap-2 mb-6">
         <Settings className="w-6 h-6 text-blue-600" />
-        <h1 className="text-2xl font-bold text-gray-800">Configuración del Almacén</h1>
+        <h1 className="text-2xl font-bold text-gray-800">Configuración del Negocio</h1>
       </div>
 
       {mensaje && (
@@ -4068,16 +4532,17 @@ export default function ConfiguracionAlmacen() {
       <form onSubmit={handleGuardar} className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-5">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
-            <Store size={14} /> Nombre fiscal / Razón social
+            <Store size={14} /> Nombre del negocio / Razón social *
           </label>
           <input
             type="text"
             value={form.nombreFiscal}
             onChange={(e) => setForm({ ...form, nombreFiscal: e.target.value })}
             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-            placeholder="Ej: Almacén La Esquina SpA"
+            placeholder="Ej: Almacén La Esquina"
             required
           />
+          <p className="text-xs text-gray-400 mt-1">Este nombre aparecerá en la app y en los PDFs.</p>
         </div>
 
         <div>
@@ -4161,9 +4626,9 @@ export default function ConfiguracionAlmacen() {
       <div className="mt-6 bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-800">
         <p className="font-medium mb-1">¿Por qué es importante?</p>
         <ul className="list-disc list-inside space-y-1 text-blue-700">
-          <li>Los PDFs de informes mostrarán el nombre fiscal y RUT de tu almacén.</li>
-          <li>El contador o el SII pueden exigir estos datos en los registros de venta.</li>
-          <li>El logo aparecerá en los documentos si proporcionas una URL válida.</li>
+          <li>El nombre del negocio aparece en la app, login y PDFs.</li>
+          <li>Los PDFs de informes mostrarán el nombre fiscal y RUT.</li>
+          <li>El contador o el SII pueden exigir estos datos.</li>
         </ul>
       </div>
     </div>
@@ -4224,10 +4689,10 @@ export default function Dashboard() {
 
 ## File: src/pages/Login.jsx
 ````javascript
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth, sendPasswordReset } from "../hooks/useAuth";
-import { Store, Eye, EyeOff, Loader2, Mail } from "lucide-react";
+import { Store, Eye, EyeOff, Loader2, Mail, WifiOff } from "lucide-react";
 
 const MAX_EMAIL_LEN = 100;
 const MAX_PASSWORD_LEN = 50;
@@ -4243,8 +4708,14 @@ export default function Login() {
   const [emailRecuperar, setEmailRecuperar] = useState("");
   const [recuperando, setRecuperando] = useState(false);
   const [mensajeRecuperar, setMensajeRecuperar] = useState("");
+  const [nombreNegocio, setNombreNegocio] = useState("Tu Negocio");
   const { login } = useAuth();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const saved = localStorage.getItem("pos_negocio_nombre");
+    if (saved) setNombreNegocio(saved);
+  }, []);
 
   function sanitizeInput(value, maxLen) {
     return value.slice(0, maxLen).replace(/[<>'"&]/g, "");
@@ -4272,12 +4743,29 @@ export default function Login() {
       navigate("/");
     } catch (err) {
       let msg = "Error al iniciar sesión";
-      if (err.message === "Usuario no encontrado") msg = "Usuario no encontrado";
-      else if (err.code === "auth/user-not-found") msg = "Usuario no encontrado";
-      else if (err.code === "auth/wrong-password") msg = "Contraseña incorrecta";
-      else if (err.code === "auth/invalid-credential") msg = "Usuario o contraseña incorrectos";
-      else if (err.code === "auth/invalid-email") msg = "Formato de usuario/correo inválido";
-      else if (err.code === "auth/too-many-requests") msg = "Demasiados intentos. Intenta más tarde.";
+
+      // Errores offline específicos
+      if (err.message?.includes("Sin conexión")) {
+        msg = err.message;
+      } else if (err.message === "Usuario no encontrado") {
+        msg = "Usuario no encontrado";
+      } else if (err.code === "auth/user-not-found") {
+        msg = "Usuario no encontrado";
+      } else if (err.code === "auth/wrong-password") {
+        msg = "Contraseña incorrecta";
+      } else if (err.code === "auth/invalid-credential") {
+        msg = "Usuario o contraseña incorrectos";
+      } else if (err.code === "auth/invalid-email") {
+        msg = "Formato de usuario/correo inválido";
+      } else if (err.code === "auth/too-many-requests") {
+        msg = "Demasiados intentos. Intenta más tarde.";
+      } else if (err.code === "auth/network-request-failed") {
+        msg = "Sin conexión a internet. Si ya iniciaste sesión antes en este dispositivo, inténtalo de nuevo. Si es la primera vez, necesitas internet.";
+      } else if (err.message) {
+        // Mostrar mensaje original si no coincide con los anteriores
+        msg = err.message;
+      }
+
       setError(msg);
     } finally {
       setLoading(false);
@@ -4313,9 +4801,16 @@ export default function Login() {
           <div className="bg-blue-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
             <Store className="w-8 h-8 text-blue-600" />
           </div>
-          <h1 className="text-2xl font-bold text-gray-800">POS Almacén de Barrio</h1>
+          <h1 className="text-2xl font-bold text-gray-800">{nombreNegocio}</h1>
           <p className="text-gray-500 mt-1">Inicia sesión en tu cuenta</p>
         </div>
+
+        {!navigator.onLine && (
+          <div className="bg-amber-50 border border-amber-200 text-amber-700 px-4 py-3 rounded-lg mb-4 text-sm flex items-center gap-2">
+            <WifiOff size={16} />
+            <span>Sin internet. Si es la primera vez en este dispositivo, necesitas conectarte una vez para guardar la sesión.</span>
+          </div>
+        )}
 
         {error && (
           <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">
@@ -4450,7 +4945,7 @@ export default function Login() {
 
 ## File: src/pages/Register.jsx
 ````javascript
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { Store, Eye, EyeOff, Loader2, ArrowLeft } from "lucide-react";
@@ -4467,11 +4962,17 @@ export default function Register() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [nombreNegocio, setNombreNegocio] = useState("Tu Negocio");
   const { registerDueño } = useAuth();
   const navigate = useNavigate();
 
+  useEffect(() => {
+    const saved = localStorage.getItem("pos_negocio_nombre");
+    if (saved) setNombreNegocio(saved);
+  }, []);
+
   function sanitize(value, max) {
-    return value.slice(0, max).replace(/[<>"'&]/g, "");
+    return value.slice(0, max).replace(/[<>'"&]/g, "");
   }
 
   const handleSubmit = async (e) => {
@@ -4499,6 +5000,8 @@ export default function Register() {
     setLoading(true);
     try {
       await registerDueño(cleanEmail, cleanPass, cleanNombre, cleanAlmacen);
+      // Guardar nombre para que aparezca en login la próxima vez
+      localStorage.setItem("pos_negocio_nombre", cleanAlmacen || "Negocio");
       navigate("/");
     } catch (err) {
       let msg = "Error al registrar";
@@ -4525,7 +5028,7 @@ export default function Register() {
             <Store className="w-8 h-8 text-green-600" />
           </div>
           <h1 className="text-2xl font-bold text-gray-800">Crear Cuenta de Dueño</h1>
-          <p className="text-gray-500 mt-1">Registra tu almacén y comienza a vender</p>
+          <p className="text-gray-500 mt-1">Registra tu negocio y comienza a vender</p>
         </div>
 
         {error && (
@@ -4549,7 +5052,7 @@ export default function Register() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Nombre del almacén</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Nombre del negocio</label>
             <input
               type="text"
               value={nombreAlmacen}
@@ -4944,6 +5447,7 @@ import {
 import { puedeCrearProducto } from "./planLimits";
 
 const COLLECTION = "productos";
+const PRODUCTS_CACHE_KEY = "pos_products_cache";
 
 function generateId() {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
@@ -4956,15 +5460,54 @@ function generateId() {
   });
 }
 
+function getCacheKey(almacenId) {
+  return `${PRODUCTS_CACHE_KEY}_${almacenId}`;
+}
+
+export function saveProductsToCache(almacenId, products) {
+  try {
+    localStorage.setItem(getCacheKey(almacenId), JSON.stringify({
+      products,
+      timestamp: new Date().toISOString(),
+    }));
+  } catch (e) {
+    console.error("Error guardando productos en cache:", e);
+  }
+}
+
+export function getCachedProducts(almacenId) {
+  try {
+    const raw = localStorage.getItem(getCacheKey(almacenId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed.products || null;
+  } catch (e) {
+    console.error("Error leyendo productos de cache:", e);
+    return null;
+  }
+}
+
 export async function getProducts(almacenId) {
   if (!almacenId) return [];
-  const q = query(
-    collection(db, COLLECTION),
-    where("almacenId", "==", almacenId)
-  );
-  const snap = await getDocs(q);
-  const products = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-  return products.sort((a, b) => (a.nombre || "").localeCompare(b.nombre || ""));
+
+  try {
+    const q = query(
+      collection(db, COLLECTION),
+      where("almacenId", "==", almacenId)
+    );
+    const snap = await getDocs(q);
+    const products = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const sorted = products.sort((a, b) => (a.nombre || "").localeCompare(b.nombre || ""));
+
+    // Guardar en cache para uso offline
+    saveProductsToCache(almacenId, sorted);
+    return sorted;
+  } catch (err) {
+    console.warn("Error cargando productos de Firestore, usando cache local:", err.message);
+    const cached = getCachedProducts(almacenId);
+    if (cached) return cached;
+    throw err;
+  }
 }
 
 export async function getProduct(productId) {
@@ -5066,7 +5609,6 @@ export async function discountStock(productId, cantidad) {
 }
 
 export async function discountStockBatch(carritoItems) {
-  // Desconta stock de múltiples productos en paralelo (usado por POS offline/online)
   const results = [];
   for (const item of carritoItems) {
     const res = await discountStock(item.id, item.cantidad);
@@ -5077,14 +5619,23 @@ export async function discountStockBatch(carritoItems) {
 
 export async function getProductByBarcode(almacenId, barcode) {
   if (!almacenId || !barcode) return null;
-  const q = query(
-    collection(db, COLLECTION),
-    where("almacenId", "==", almacenId),
-    where("codigoBarras", "==", barcode)
-  );
-  const snap = await getDocs(q);
-  if (!snap.empty) return { id: snap.docs[0].id, ...snap.docs[0].data() };
-  return null;
+  try {
+    const q = query(
+      collection(db, COLLECTION),
+      where("almacenId", "==", almacenId),
+      where("codigoBarras", "==", barcode)
+    );
+    const snap = await getDocs(q);
+    if (!snap.empty) return { id: snap.docs[0].id, ...snap.docs[0].data() };
+    return null;
+  } catch (err) {
+    // Fallback: buscar en cache local
+    const cached = getCachedProducts(almacenId);
+    if (cached) {
+      return cached.find(p => p.codigoBarras === barcode) || null;
+    }
+    throw err;
+  }
 }
 
 export async function searchProducts(almacenId, searchTerm) {
@@ -5103,6 +5654,7 @@ export async function searchProducts(almacenId, searchTerm) {
 export const productsService = {
   getProducts, getProduct, createProduct, updateProduct, deleteProduct,
   addStock, discountStock, discountStockBatch, getProductByBarcode, searchProducts,
+  getCachedProducts, saveProductsToCache,
 };
 ````
 
@@ -5485,6 +6037,7 @@ export function estadoVencimiento(fechaVencimiento, diasAlerta = 3) {
 
 ## File: src/App.jsx
 ````javascript
+import { useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./hooks/useAuth";
 import Login from "./pages/Login";
@@ -5509,6 +6062,18 @@ function PrivateRoute({ children, requireDueño = false }) {
 }
 
 function AppRoutes() {
+  const { userData } = useAuth();
+
+  useEffect(() => {
+    // Cambiar título de la pestaña según el negocio configurado
+    const saved = localStorage.getItem("pos_negocio_nombre");
+    if (saved) {
+      document.title = saved;
+    } else if (userData?.nombre) {
+      document.title = userData.nombre;
+    }
+  }, [userData]);
+
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
@@ -5607,6 +6172,190 @@ lerna-debug.log*
 *.tmp
 ````
 
+## File: CAPACITOR_APK.md
+````markdown
+# GUÍA: Crear APK para Android (Beta en celular del dueño)
+
+## Opción A: Instalar como PWA (MÁS FÁCIL, recomendada primero)
+
+No necesitas APK. El dueño abre la URL de la app en Chrome del celular y:
+
+1. Abre Chrome → ve a la URL de tu app (ej: `https://tuproyecto.web.app`)
+2. Toca los **3 puntos** (menú) → **"Agregar a pantalla de inicio"**
+3. Aparece un icono en el celular como si fuera una app nativa
+4. Funciona offline (gracias al Service Worker de la PWA)
+
+**Ventajas:** Sin Android Studio, sin compilar, actualizas la web y el celular se actualiza solo.
+
+---
+
+## Opción B: APK real con Capacitor (para distribuir el .apk)
+
+Si el dueño quiere un archivo `.apk` para instalar sin depender del navegador, sigue estos pasos.
+
+### Requisitos
+
+1. **Node.js** (ya lo tienes)
+2. **Android Studio** (descarga gratis de [developer.android.com/studio](https://developer.android.com/studio))
+3. **Java JDK 17** (Android Studio suele instalarlo solo, o baja de Oracle)
+4. **Variables de entorno** en Windows:
+   - `ANDROID_HOME` → apuntando a `C:\Users\TU_USUARIO\AppData\Local\Android\Sdk`
+   - Agregar al PATH: `%ANDROID_HOME%\platform-tools`
+
+### Paso 1: Instalar Capacitor en tu proyecto
+
+Abre CMD o PowerShell en la carpeta del proyecto y ejecuta:
+
+```bash
+npm install @capacitor/core @capacitor/cli @capacitor/android
+```
+
+### Paso 2: Compilar la app web
+
+```bash
+npm run build
+```
+
+Esto genera la carpeta `dist/` con todos los archivos estáticos.
+
+### Paso 3: Inicializar Capacitor
+
+```bash
+npx cap init "NombreNegocio" "com.tuempresa.nombreapp" --web-dir dist
+```
+
+Ejemplo:
+```bash
+npx cap init "Almacen La Esquina" "com.esquina.pos" --web-dir dist
+```
+
+Esto crea el archivo `capacitor.config.json`.
+
+### Paso 4: Agregar Android
+
+```bash
+npx cap add android
+```
+
+Esto crea la carpeta `android/` con todo el proyecto Android.
+
+### Paso 5: Sincronizar cambios
+
+Cada vez que hagas `npm run build`, ejecuta:
+
+```bash
+npx cap sync
+```
+
+Esto copia los archivos de `dist/` al proyecto Android.
+
+### Paso 6: Abrir en Android Studio
+
+```bash
+npx cap open android
+```
+
+Se abre Android Studio. La primera vez tardará en descargar dependencias (Gradle).
+
+### Paso 7: Generar la APK
+
+En Android Studio:
+
+1. Espera que termine de cargar (barra de progreso abajo)
+2. Arriba a la derecha donde dice el nombre del proyecto, selecciona **"app"**
+3. Menú **Build → Build Bundle(s) / APK(s) → Build APK(s)**
+4. Espera unos minutos
+5. Abajo derecha aparece "Build Analyzer" o un aviso. Toca **"locate"** o ve a:
+   ```
+   android\app\build\outputs\apk\debug\app-debug.apk
+   ```
+
+### Paso 8: Instalar en el celular
+
+**Opción A - Por cable:**
+1. Conecta el celular por USB
+2. Activa "Modo desarrollador" y "Depuración USB" en el celular
+3. En Android Studio, toca el botón verde **"Run"** (▶️) arriba
+4. Elige tu celular de la lista → se instala automáticamente
+
+**Opción B - Enviar el .apk:**
+1. Copia el archivo `app-debug.apk` al celular (WhatsApp, email, cable)
+2. En el celular, toca el archivo → "Instalar"
+3. Si pide permiso: Configuración → Permitir instalar de esta fuente
+
+---
+
+## Script automático para Windows (CREAR_APK.bat)
+
+Haz doble clic en `CREAR_APK.bat` (incluido en este ZIP) después de haber instalado Android Studio. El script hará:
+
+1. `npm install` de Capacitor
+2. `npm run build`
+3. `cap init` (si no existe)
+4. `cap add android` (si no existe)
+5. `cap sync`
+6. `cap open android`
+
+Luego en Android Studio solo presionas **Build → Build APK**.
+
+---
+
+## Personalizar el nombre de la app en el celular
+
+El nombre que aparece debajo del icono en el celular sale de `capacitor.config.json`:
+
+```json
+{
+  "appId": "com.tuempresa.nombreapp",
+  "appName": "Almacen La Esquina",
+  "webDir": "dist"
+}
+```
+
+Cambia `appName` al nombre del negocio, luego ejecuta `npx cap sync`.
+
+---
+
+## Icono de la app en el celular
+
+Capacitor usa los iconos de `public/icon-192x192.png` y `public/icon-512x512.png`.
+
+Para generar iconos Android de todos los tamaños automáticamente:
+
+```bash
+npm install @capacitor/assets
+npx capacitor-assets generate --android
+```
+
+Esto crea los iconos en `android/app/src/main/res/` en todos los tamaños necesarios.
+
+---
+
+## Actualizar la app después de cambios
+
+1. Haces cambios en el código
+2. `npm run build`
+3. `npx cap sync`
+4. En Android Studio: **Build → Build APK** o presiona **Run**
+
+Si usas la Opción A (PWA), solo haces `firebase deploy` y el celular se actualiza solo al abrir la app.
+
+---
+
+## Resumen: ¿Qué opción elegir?
+
+| | PWA (Opción A) | APK (Opción B) |
+|---|---|---|
+| Esfuerzo | 0 minutos | 30-60 min primera vez |
+| Instalación | Agregar a inicio desde Chrome | Instalar .apk |
+| Actualizaciones | Automáticas (deploy web) | Hay que generar APK nueva |
+| Offline | ✅ Sí | ✅ Sí |
+| Escáner cámara | ✅ Funciona | ✅ Funciona |
+| Recomendado para | Beta rápida | Cliente final que no entiende de URLs |
+
+**Mi recomendación:** Empieza con la Opción A (PWA). Es inmediata y el dueño puede probar hoy mismo. Si luego quiere un .apk "de verdad", pasas a la Opción B.
+````
+
 ## File: COMPILAR_Y_VER.bat
 ````batch
 @echo off
@@ -5635,6 +6384,75 @@ start http://localhost:4173/
 echo.
 echo Servidor de prueba iniciado.
 call npx serve dist -l 4173
+pause
+````
+
+## File: CREAR_APK.bat
+````batch
+@echo off
+chcp 65001 >nul
+title Crear APK - POS Negocio
+color 0B
+cls
+
+echo ==========================================
+echo    CREAR APK PARA ANDROID
+echo ==========================================
+echo.
+
+cd /d "%~dp0"
+
+echo [1/6] Verificando Node.js...
+node --version >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] Node.js no encontrado. Instálalo primero.
+    pause
+    exit /b 1
+)
+
+echo [2/6] Instalando Capacitor...
+call npm install @capacitor/core @capacitor/cli @capacitor/android
+if errorlevel 1 (
+    echo [ERROR] Fallo al instalar Capacitor.
+    pause
+    exit /b 1
+)
+
+echo [3/6] Compilando app web...
+call npm run build
+if errorlevel 1 (
+    echo [ERROR] Fallo al compilar. Revisa errores arriba.
+    pause
+    exit /b 1
+)
+
+echo [4/6] Inicializando Capacitor (si es primera vez)...
+if not exist "capacitor.config.json" (
+    echo Creando capacitor.config.json...
+    call npx cap init "Negocio" "com.negocio.pos" --web-dir dist
+)
+
+echo [5/6] Agregando Android (si es primera vez)...
+if not exist "android" (
+    call npx cap add android
+)
+
+echo [6/6] Sincronizando archivos...
+call npx cap sync
+
+echo.
+echo ==========================================
+echo    LISTO. Abriendo Android Studio...
+echo ==========================================
+echo.
+echo Pasos finales en Android Studio:
+echo 1. Espera que cargue (descarga Gradle la primera vez)
+echo 2. Arriba a la derecha: selecciona "app"
+echo 3. Build -^> Build Bundle(s)/APK(s) -^> Build APK(s)
+echo 4. El APK queda en: androidppuild\outputspk\debugpp-debug.apk
+echo.
+
+call npx cap open android
 pause
 ````
 
@@ -5857,11 +6675,11 @@ console.log('Ahora solo falta: Guardar en VS Code (Ctrl+K, Ctrl+S) y probar.');
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <meta name="theme-color" content="#2563eb" />
-    <meta name="description" content="POS Almacen de Barrio - Sistema de punto de venta" />
+    <meta name="description" content="Sistema de punto de venta" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <link rel="manifest" href="/manifest.json" />
     <link rel="apple-touch-icon" href="/icon-192x192.png" />
-    <title>POS Almacén de Barrio</title>
+    <title>Negocio</title>
   </head>
   <body>
     <div id="root"></div>
@@ -6099,9 +6917,11 @@ IMPORTANTE: Firebase
     "preview": "vite preview"
   },
   "dependencies": {
+    "@zxing/browser": "^0.2.1",
+    "@zxing/library": "^0.23.0",
+    "date-fns": "^3.6.0",
     "firebase": "^10.12.0",
     "html5-qrcode": "^2.3.8",
-    "date-fns": "^3.6.0",
     "jspdf": "^2.5.1",
     "jspdf-autotable": "^3.8.2",
     "lucide-react": "^0.400.0",
@@ -6133,97 +6953,143 @@ export default {
 };
 ````
 
+## File: README_BRAND_APK.md
+````markdown
+# BRAND + APK - Cambios para el Negocio
+
+## Archivos incluidos
+
+| Archivo | Ruta en tu proyecto | Cambio |
+|---------|---------------------|--------|
+| Navbar.jsx | src/components/Navbar.jsx | Muestra nombre del negocio desde configuración |
+| Login.jsx | src/pages/Login.jsx | Muestra nombre del negocio guardado en localStorage |
+| Register.jsx | src/pages/Register.jsx | Guarda nombre del negocio en localStorage al registrar |
+| ConfiguracionAlmacen.jsx | src/pages/ConfiguracionAlmacen.jsx | Guarda nombre en localStorage al configurar |
+| App.jsx | src/App.jsx | Cambia document.title dinámicamente |
+| manifest.json | public/manifest.json | Nombre genérico "Negocio" |
+| index.html | index.html | Título genérico "Negocio" |
+| CAPACITOR_APK.md | (raíz) | Guía completa para crear APK |
+| CREAR_APK.bat | (raíz) | Script automático para Windows |
+
+## Instalación
+
+1. Copia cada archivo a su ruta correspondiente, reemplazando el anterior
+2. En VS Code: Ctrl+K, luego Ctrl+S
+3. `npm run build` + `npx serve dist -l 4173` para probar
+
+## Cómo funciona el nombre del negocio
+
+1. El dueño va a **Configuración** y escribe el nombre de su negocio
+2. Al guardar, se guarda en Firestore Y en `localStorage` del navegador
+3. La próxima vez que abra la app (incluso en login), aparece el nombre
+4. El Navbar muestra el nombre en vivo desde Firestore
+5. La pestaña del navegador cambia al nombre del negocio
+
+## Para crear la APK
+
+Lee `CAPACITOR_APK.md` para la guía completa. Resumen:
+
+**Opción A (Recomendada - 0 minutos):**
+- El dueño abre la URL en Chrome del celular
+- Menú → "Agregar a pantalla de inicio"
+- Funciona como app nativa, offline incluido
+
+**Opción B (APK real):**
+1. Instala Android Studio
+2. Corre `CREAR_APK.bat` (doble clic)
+3. En Android Studio: Build → Build APK
+4. Pasa el archivo `app-debug.apk` al celular del dueño
+
+## Nota sobre el manifest.json
+
+El `manifest.json` es estático (no puede cambiar sin compilar). Si quieres que el icono del celular diga exactamente el nombre del negocio en la Opción B (APK), edita `capacitor.config.json` después de correr `CREAR_APK.bat`:
+
+```json
+{
+  "appName": "Nombre Del Negocio"
+}
+```
+
+Luego `npx cap sync` y vuelve a generar el APK.
+````
+
+## File: README_FIX.md
+````markdown
+# FIX OFFLINE v5.2 + Cache de Productos
+
+## Archivos incluidos
+
+| Archivo | Ruta en tu proyecto | Cambio |
+|---------|---------------------|--------|
+| firebase.js | src/firebase/firebase.js | Firestore cache persistente moderna |
+| useAuth.jsx | src/hooks/useAuth.jsx | Login offline con sesión cacheada |
+| useOffline.js | src/hooks/useOffline.js | Sync automático con mapeo de IDs de turno |
+| POS.jsx | src/components/POS.jsx | Turno offline, ventas offline, cache de productos |
+| App.jsx | src/App.jsx | isAuthenticated por userData |
+| firestoreProducts.js | src/services/firestoreProducts.js | **NUEVO: Cache localStorage + fallback offline** |
+
+## Pasos para instalar
+
+1. Cierra el servidor de desarrollo (Ctrl+C en la ventana de Vite)
+2. Copia cada archivo a su ruta correspondiente, reemplazando el anterior
+3. En VS Code: Ctrl+K, luego Ctrl+S (Guardar Todo)
+4. Compila para producción y prueba offline:
+   ```
+   npm run build
+   npx serve dist -l 4173
+   ```
+5. Abre http://localhost:4173
+
+## Qué se arregló (Pendiente #1)
+
+- **Productos vacíos al recargar offline**: Ahora se guardan en localStorage al cargar online. Si recargas sin internet, lee del cache local.
+- **Stock persistente offline**: Al vender offline, el descuento de stock se aplica a los productos en memoria y se recalcula al cargar, leyendo la cola de operaciones pendientes.
+- **Escáner offline**: Si escaneas sin internet, busca en el cache local de productos.
+- **Sync de turnos**: Al reconectar, los turnos offline se crean en Firestore con ID real, y las ventas/fiados se actualizan con ese ID.
+
+## Cómo probar
+
+1. Con internet: entra a la app, abre turno, vende 2 productos
+2. Verifica en DevTools → Application → Local Storage → `pos_products_cache_XXX` existe
+3. Pon DevTools → Network → Offline
+4. Recarga la página (F5)
+5. **Esperado**: Los productos aparecen, el turno sigue activo, el stock refleja las ventas offline
+
+## Notas
+
+- No uses `npm run dev` para probar offline. Vite en modo dev NO sirve archivos sin internet.
+- Usa siempre `npm run build` + `npx serve dist -l 4173` (o el script COMPILAR_Y_VER.bat)
+````
+
 ## File: README.md
 ````markdown
-# POS Almacen de Barrio - Proyecto Completo
+# FIX: Escáner no detecta códigos de barras EAN/UPC en iPhone
 
-## Cambios incluidos en esta version
+## Problema
+La foto del código de barras se procesa pero no detecta nada. El código EAN-13 (7804682632213) es perfectamente legible.
 
-### 1. Fiado como metodo de pago en el POS
-- Nuevo boton "Fiado" (naranja) junto a Efectivo, Tarjeta y Transferencia
-- Modal para ingresar datos del cliente (nombre obligatorio)
-- Se descuenta stock automaticamente
-- La deuda aparece inmediatamente en Fiados
-- Tambien se registra como venta con metodo "fiado" en los informes
+## Causa
+`html5-qrcode` por defecto solo escanea **QR codes**. Los códigos de barras lineales (EAN-13, UPC, CODE_128) necesitan habilitarse explícitamente mediante `Html5QrcodeSupportedFormats`.
 
-### 2. Informe de Mermas
-- Nueva pestana "Mermas" en Informes
-- Filtros: Hoy, Ultima semana, Ultimo mes, Todo
-- Grafico circular por motivo de merma
-- Tabla detallada con fecha, producto, motivo, cantidad, perdida
+## Solución
+Se importan y configuran todos los formatos de código de barras soportados:
+- EAN_13, EAN_8
+- UPC_A, UPC_E
+- CODE_128, CODE_39, CODE_93
+- ITF
+- QR_CODE
 
-### 3. Informe de Inventario (con exportacion a PDF)
-- Nueva pestana "Inventario" en Informes
-- Busqueda por nombre, codigo o categoria
-- Tabla ordenable (clic en columnas)
-- Estados: OK (verde), Critico (naranja), Sin stock (rojo)
-- Boton "Exportar PDF" genera un PDF profesional listo para imprimir
-- Totales: inversion, potencial de venta, margen estimado
+Tanto en modo cámara en vivo como en modo foto, se pasan los formatos en la configuración.
 
----
+## Instalación
+1. Copia `BarcodeScanner.jsx` a `src/components/BarcodeScanner.jsx`
+2. En VS Code: Ctrl+K, Ctrl+S
+3. `npm run build`
+4. `npx serve dist -l 4173`
 
-## Como instalar
-
-### Paso 1: Instalar libreria para PDF
-```
-npm install jspdf jspdf-autotable
-```
-
-### Paso 2: Descomprimir y reemplazar
-1. Descomprime el ZIP
-2. Copia la carpeta `pos-almacen-barrio` y pegala en tu carpeta de proyectos
-3. Reemplaza todos los archivos existentes
-
-### Paso 3: Correr
-```
-npm run dev
-```
-Abre http://localhost:5173/
-
----
-
-## Datos demo precargados
-- 15 productos (Harina, Azucar, Arroz, Queso, Jamon, Frutas, Bebidas, etc.)
-- 2 deudas de ejemplo (Juan Perez y Maria Gonzalez)
-- Usuario admin precargado (cualquier email/contraseña funciona)
-
----
-
-## Estructura del proyecto
-```
-pos-almacen-barrio/
-  index.html
-  src/
-    App.jsx
-    main.jsx
-    index.css
-    components/
-      POS.jsx           - Punto de venta con fiado
-      ProductManager.jsx - CRUD productos
-      Reports.jsx        - Informes (ventas, mermas, inventario + PDF)
-      Mermas.jsx         - Control de mermas
-      Fiados.jsx         - Ventas a credito
-      Navbar.jsx         - Navegacion
-      InventoryAlert.jsx - Alertas de stock critico
-    pages/
-      Login.jsx          - Pantalla de login
-      Dashboard.jsx      - Layout principal
-    services/
-      demoData.js        - Datos en memoria / localStorage
-      products.js        - Servicio de productos
-      sales.js           - Servicio de ventas y turnos
-      mermas.js          - Servicio de mermas
-      fiados.js          - Servicio de fiados
-    hooks/
-      useAuth.jsx        - Autenticacion demo
-      useOffline.js      - Detector de conexion
-    utils/
-      format.js          - Formato de moneda y fechas
-    types/
-      index.js           - Constantes y enums
-    firebase/
-      config.js          - Configuracion Firebase (lista pero no activada)
-```
+## Cómo probar
+1. Toma foto al código de barras del producto
+2. El sistema ahora debería detectar el EAN-13 automáticamente
 ````
 
 ## File: tailwind.config.js
@@ -6249,10 +7115,13 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
+      workbox: {
+        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024, // 5 MB en vez de 2 MB
+      },
       manifest: {
-        name: "POS Almacen de Barrio",
-        short_name: "POS Almacen",
-        description: "Sistema de punto de venta para almacenes de barrio",
+        name: "Negocio",
+        short_name: "Negocio",
+        description: "Sistema de punto de venta",
         theme_color: "#2563eb",
         background_color: "#ffffff",
         display: "standalone",
