@@ -257,6 +257,7 @@ export default function POS() {
 
     setLoading(true);
     try {
+      // 1. Verificar stock disponible
       for (const item of carrito) {
         const prod = productos.find(p => p.id === item.id);
         if (!prod || (prod.stock || 0) < item.cantidad) {
@@ -266,6 +267,20 @@ export default function POS() {
         }
       }
 
+      // 2. Descontar stock en Firestore (online) o solo local (offline)
+      const itemsParaDescontar = carrito.map((c) => ({ id: c.id, cantidad: c.cantidad }));
+
+      if (isOnline) {
+        try {
+          await productsService.discountStockBatch(itemsParaDescontar);
+        } catch (err) {
+          alert("Error al descontar stock: " + (err.message || "Verifica que haya suficiente stock"));
+          setLoading(false);
+          return;
+        }
+      }
+
+      // 3. Actualizar stock en estado local (para que se vea inmediato)
       for (const item of carrito) {
         const prod = productos.find(p => p.id === item.id);
         if (prod) prod.stock -= item.cantidad;
