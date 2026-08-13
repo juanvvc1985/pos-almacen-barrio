@@ -7,7 +7,7 @@ import { formatCurrency, formatDate } from "../utils/format";
 import { Users, Trash2, DollarSign, CreditCard, Smartphone, Loader2, Search, CheckCircle } from "lucide-react";
 
 export default function Fiados() {
-  const { almacenId, isDueño } = useAuth();
+  const { almacenId, isDueño, user, userData } = useAuth();
   const [fiados, setFiados] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filtro, setFiltro] = useState("todas");
@@ -44,7 +44,7 @@ export default function Fiados() {
       await salesService.createSale(almacenId, {
         productos: [{ nombre: `Recuperación fiado - ${fiadoPago.clienteNombre}`, cantidad: 1, precioUnitario: monto, total: monto }],
         total: monto, metodoPago: pagoData.metodoPago, tipo: "fiado-recuperado",
-        fiadoId: fiadoPago.id, vendedorNombre: "Sistema",
+        fiadoId: fiadoPago.id, vendedorId: user.uid, vendedorNombre: userData?.nombre || user.email,
       });
       await cargarFiados();
       setFiadoPago(null); setPagoData({ monto: "", metodoPago: "efectivo" });

@@ -3,7 +3,11 @@ import { useAuth } from "../hooks/useAuth";
 import { configService } from "../services/firestoreConfig";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { db } from "../firebase/firebase";
-import { Settings, Save, Store, FileText, MapPin, Phone, Image, Loader2 } from "lucide-react";
+import { Settings, Save, Store, FileText, MapPin, Phone, Image, Loader2, Printer, Bluetooth } from "lucide-react";
+import {
+  getPrinterConfig, setPrinterConfig, emparejarImpresora,
+  desconectarImpresora, isWebBluetoothSupported, isConnected,
+} from "../services/printerService";
 
 export default function ConfiguracionAlmacen() {
   const { almacenId, isDueño } = useAuth();
@@ -18,6 +22,28 @@ export default function ConfiguracionAlmacen() {
     giro: "",
     logoUrl: "",
   });
+  const [printerConfig, setPrinterConfigState] = useState(getPrinterConfig());
+  const [conectando, setConectando] = useState(false);
+  const [errorImpresora, setErrorImpresora] = useState("");
+
+  async function handleEmparejarImpresora() {
+    setConectando(true);
+    setErrorImpresora("");
+    try {
+      const nombre = await emparejarImpresora();
+      setPrinterConfigState({ habilitada: true, nombreDispositivo: nombre });
+    } catch (err) {
+      setErrorImpresora(err.message || "No se pudo conectar con la impresora");
+    } finally {
+      setConectando(false);
+    }
+  }
+
+  function handleDesconectarImpresora() {
+    desconectarImpresora();
+    setPrinterConfig({ habilitada: false, nombreDispositivo: null });
+    setPrinterConfigState({ habilitada: false, nombreDispositivo: null });
+  }
 
   useEffect(() => {
     if (almacenId) cargarConfig();
@@ -187,6 +213,55 @@ export default function ConfiguracionAlmacen() {
           </button>
         </div>
       </form>
+
+      <div className="mt-6 bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <h2 className="text-lg font-bold text-gray-800 mb-1 flex items-center gap-2">
+          <Printer className="w-5 h-5 text-gray-600" /> Impresora térmica (Bluetooth)
+        </h2>
+        <p className="text-sm text-gray-500 mb-4">
+          Conecta una impresora térmica de 58mm/80mm para imprimir el ticket de venta cuando el cliente lo pida.
+        </p>
+
+        {!isWebBluetoothSupported() && (
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800 mb-4">
+            Este navegador no soporta impresión Bluetooth. En iPhone no es posible por una limitación de Apple
+            (no permite Web Bluetooth en Safari); en Android, usa Chrome.
+          </div>
+        )}
+
+        {printerConfig.habilitada && printerConfig.nombreDispositivo ? (
+          <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-lg p-3">
+            <div className="flex items-center gap-2 text-green-700">
+              <Bluetooth size={18} />
+              <span className="text-sm font-medium">
+                Conectada: {printerConfig.nombreDispositivo} {isConnected() ? "" : "(reconectará al imprimir)"}
+              </span>
+            </div>
+            <button
+              onClick={handleDesconectarImpresora}
+              className="text-sm text-gray-500 hover:text-red-600"
+            >
+              Desconectar
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={handleEmparejarImpresora}
+            disabled={conectando || !isWebBluetoothSupported()}
+            className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-900 disabled:bg-gray-300 text-white rounded-lg text-sm font-medium transition"
+          >
+            {conectando ? <Loader2 size={16} className="animate-spin" /> : <Bluetooth size={16} />}
+            {conectando ? "Buscando impresora..." : "Emparejar impresora"}
+          </button>
+        )}
+        {errorImpresora && (
+          <p className="text-sm text-red-600 mt-2">{errorImpresora}</p>
+        )}
+        <p className="text-xs text-gray-400 mt-3">
+          Solo funciona con impresoras Bluetooth de bajo consumo (BLE). Si tu impresora no aparece en la lista al
+          emparejar, es probablemente Bluetooth clásico (SPP) y no es compatible con esta función.
+        </p>
+      </div>
 
       <div className="mt-6 bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-800">
         <p className="font-medium mb-1">¿Por qué es importante?</p>

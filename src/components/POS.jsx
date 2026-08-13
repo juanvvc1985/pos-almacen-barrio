@@ -8,6 +8,9 @@ import { METODOS_PAGO } from "../types/index";
 import { formatCurrency } from "../utils/format";
 import BarcodeScanner from "./BarcodeScanner";
 import InventoryAlert from "./InventoryAlert";
+import { imprimirTicket, getPrinterConfig } from "../services/printerService";
+import { doc, getDoc } from "firebase/firestore";
+import { db } from "../firebase/firebase";
 import {
   Search, ScanLine, Trash2, Plus, Minus, ShoppingCart,
   Package, Clock, DollarSign, CreditCard, Smartphone, User,
@@ -20,6 +23,25 @@ const METODO_STYLES = {
   transferencia: { bg: "bg-purple-50", border: "border-purple-300", text: "text-purple-700" },
   fiado: { bg: "bg-orange-50", border: "border-orange-300", text: "text-orange-700" },
 };
+
+// Calcula cuánto de un ítem del carrito se cobra a precio oferta y cuánto a precio normal.
+// Si la oferta no tiene cantidadOferta configurada, se mantiene el comportamiento anterior
+// (todo el stock del producto se vende a precio oferta) para no romper ofertas ya creadas.
+function calcularLineaCarrito(item) {
+  const cantidad = item.cantidad;
+  if (!item.enOferta) {
+    return { totalLinea: item.precioVenta * cantidad, unidadesOferta: 0, unidadesNormal: cantidad };
+  }
+  const tieneLimite = item.cantidadOferta != null && item.cantidadOferta > 0;
+  if (!tieneLimite) {
+    return { totalLinea: item.precioOferta * cantidad, unidadesOferta: cantidad, unidadesNormal: 0 };
+  }
+  const disponibleOferta = Math.max(0, (item.cantidadOferta || 0) - (item.cantidadOfertaVendida || 0));
+  const unidadesOferta = Math.min(cantidad, disponibleOferta);
+  const unidadesNormal = cantidad - unidadesOferta;
+  const totalLinea = unidadesOferta * item.precioOferta + unidadesNormal * item.precioVenta;
+  return { totalLinea, unidadesOferta, unidadesNormal };
+}
 
 export default function POS() {
   const { almacenId, user, userData } = useAuth();
@@ -43,6 +65,19 @@ export default function POS() {
   const [montoInicial, setMontoInicial] = useState("");
   const [mostrarCerrarTurno, setMostrarCerrarTurno] = useState(false);
   const [resumenCierre, setResumenCierre] = useState(null);
+
+  const [aplicarDescuento, setAplicarDescuento] = useState(false);
+  const [montoACobrar, setMontoACobrar] = useState("");
+  const [ultimaVenta, setUltimaVenta] = useState(null);
+  const [imprimiendo, setImprimiendo] = useState(false);
+  const [almacenNombre, setAlmacenNombre] = useState("");
+
+  useEffect(() => {
+    if (!almacenId) return;
+    getDoc(doc(db, "almacenes", almacenId)).then((snap) => {
+      if (snap.exists()) setAlmacenNombre(snap.data().nombre || "");
+    }).catch(() => {});
+  }, [almacenId]);
 
   useEffect(() => {
     if (almacenId) {
@@ -168,7 +203,11 @@ export default function POS() {
     setCarrito(carrito.filter((c) => c.id !== id));
   }
 
-  const total = carrito.reduce((sum, c) => sum + c.precioVenta * c.cantidad, 0);
+  const totalSinDescuento = carrito.reduce((sum, c) => sum + calcularLineaCarrito(c).totalLinea, 0);
+  const montoACobrarNum = Number(montoACobrar);
+  const descuentoValido = aplicarDescuento && montoACobrar !== "" && !isNaN(montoACobrarNum) && montoACobrarNum >= 0 && montoACobrarNum < totalSinDescuento;
+  const montoDescuento = descuentoValido ? totalSinDescuento - montoACobrarNum : 0;
+  const total = descuentoValido ? montoACobrarNum : totalSinDescuento;
 
   async function handleAbrirTurno() {
     const monto = Number(montoInicial) || 0;
@@ -280,22 +319,45 @@ export default function POS() {
         }
       }
 
-      // 3. Actualizar stock en estado local (para que se vea inmediato)
+      // 3. Actualizar stock en estado local (para que se vea inmediato) y descontar
+      //    las unidades vendidas a precio oferta del cupo de cada oferta con límite.
+      const actualizacionesOferta = [];
       for (const item of carrito) {
         const prod = productos.find(p => p.id === item.id);
-        if (prod) prod.stock -= item.cantidad;
+        if (!prod) continue;
+        prod.stock -= item.cantidad;
+        const { unidadesOferta } = calcularLineaCarrito(item);
+        if (unidadesOferta > 0 && item.cantidadOferta != null && item.cantidadOferta > 0) {
+          const nuevaCantidadVendida = (prod.cantidadOfertaVendida || 0) + unidadesOferta;
+          prod.cantidadOfertaVendida = nuevaCantidadVendida;
+          actualizacionesOferta.push({ id: prod.id, cantidadOfertaVendida: nuevaCantidadVendida });
+        }
       }
       setProductos([...productos]);
 
+      if (isOnline && actualizacionesOferta.length > 0) {
+        for (const upd of actualizacionesOferta) {
+          try {
+            await productsService.updateProduct(upd.id, { cantidadOfertaVendida: upd.cantidadOfertaVendida });
+          } catch (err) {
+            console.error("No se pudo actualizar el cupo de oferta:", err);
+          }
+        }
+      }
+
       const venta = {
-        productos: carrito.map((c) => ({
-          id: c.id,
-          nombre: c.nombre,
-          cantidad: c.cantidad,
-          precioUnitario: c.precioVenta,
-          total: c.precioVenta * c.cantidad,
-        })),
+        productos: carrito.map((c) => {
+          const { totalLinea } = calcularLineaCarrito(c);
+          return {
+            id: c.id,
+            nombre: c.nombre,
+            cantidad: c.cantidad,
+            precioUnitario: c.precioVenta,
+            total: totalLinea,
+          };
+        }),
         total,
+        ...(descuentoValido ? { descuento: montoDescuento, totalSinDescuento } : {}),
         metodoPago,
         vendedorId: user.uid,
         vendedorNombre: userData?.nombre || user.email,
@@ -343,9 +405,12 @@ export default function POS() {
             mostrarMensaje("Venta guardada localmente (error de red)");
           }
         }
+        setUltimaVenta(venta);
       }
 
       setCarrito([]);
+      setAplicarDescuento(false);
+      setMontoACobrar("");
     } catch (err) {
       console.error(err);
       alert("Error al registrar la venta");
@@ -525,15 +590,24 @@ export default function POS() {
                   className="bg-white rounded-xl shadow-sm border border-gray-200 p-3 text-left hover:shadow-md hover:border-blue-300 transition active:scale-95"
                 >
                   <p className="font-medium text-gray-800 text-sm truncate">{p.nombre}</p>
-                  <p className="text-blue-600 font-bold text-sm mt-1">
-                    {formatCurrency(p.precioVenta)}
-                  </p>
+                  {p.enOferta ? (
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <p className="text-red-600 font-bold text-sm">{formatCurrency(p.precioOferta)}</p>
+                      <p className="text-xs text-gray-400 line-through">{formatCurrency(p.precioVenta)}</p>
+                    </div>
+                  ) : (
+                    <p className="text-blue-600 font-bold text-sm mt-1">
+                      {formatCurrency(p.precioVenta)}
+                    </p>
+                  )}
                   <p className="text-xs text-gray-400 mt-0.5">
                     Stock: {p.stock} {p.unidad}
                   </p>
                   {p.enOferta && (
                     <span className="inline-block mt-1 text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded">
-                      OFERTA
+                      {p.cantidadOferta != null && p.cantidadOferta > 0
+                        ? `OFERTA: ${Math.max(0, p.cantidadOferta - (p.cantidadOfertaVendida || 0))} u. restantes`
+                        : "OFERTA"}
                     </span>
                   )}
                 </button>
@@ -556,13 +630,23 @@ export default function POS() {
             </div>
           ) : (
             <div className="space-y-3 mb-4 max-h-80 overflow-y-auto">
-              {carrito.map((item) => (
+              {carrito.map((item) => {
+                const { totalLinea, unidadesOferta, unidadesNormal } = calcularLineaCarrito(item);
+                return (
                 <div key={item.id} className="flex items-center gap-3 p-2 bg-gray-50 rounded-lg">
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-sm text-gray-800 truncate">{item.nombre}</p>
                     <p className="text-xs text-gray-500">
                       {formatCurrency(item.precioVenta)} / {item.unidad}
                     </p>
+                    {unidadesOferta > 0 && unidadesNormal > 0 && (
+                      <p className="text-xs text-red-600">
+                        {unidadesOferta} en oferta + {unidadesNormal} a precio normal
+                      </p>
+                    )}
+                    {unidadesOferta > 0 && unidadesNormal === 0 && item.cantidadOferta != null && item.cantidadOferta > 0 && (
+                      <p className="text-xs text-red-600">Precio oferta aplicado</p>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-1">
@@ -590,7 +674,7 @@ export default function POS() {
                   </div>
 
                   <p className="text-sm font-bold text-gray-800 w-20 text-right">
-                    {formatCurrency(item.precioVenta * item.cantidad)}
+                    {formatCurrency(totalLinea)}
                   </p>
 
                   <button
@@ -600,16 +684,74 @@ export default function POS() {
                     <Trash2 size={14} />
                   </button>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
 
           {carrito.length > 0 && (
             <>
               <div className="border-t border-gray-200 pt-4 mb-4">
-                <div className="flex justify-between items-center mb-3">
-                  <span className="text-lg font-bold text-gray-800">Total</span>
-                  <span className="text-2xl font-bold text-blue-600">{formatCurrency(total)}</span>
+                {aplicarDescuento ? (
+                  <div className="space-y-1 mb-3">
+                    <div className="flex justify-between text-sm text-gray-500">
+                      <span>Subtotal</span>
+                      <span>{formatCurrency(totalSinDescuento)}</span>
+                    </div>
+                    {descuentoValido && (
+                      <div className="flex justify-between text-sm text-red-600">
+                        <span>Descuento</span>
+                        <span>-{formatCurrency(montoDescuento)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between items-center">
+                      <span className="text-lg font-bold text-gray-800">Total a cobrar</span>
+                      <span className="text-2xl font-bold text-blue-600">{formatCurrency(total)}</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex justify-between items-center mb-3">
+                    <span className="text-lg font-bold text-gray-800">Total</span>
+                    <span className="text-2xl font-bold text-blue-600">{formatCurrency(total)}</span>
+                  </div>
+                )}
+
+                <div className="mb-4">
+                  {!aplicarDescuento ? (
+                    <button
+                      onClick={() => setAplicarDescuento(true)}
+                      className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+                    >
+                      + Aplicar descuento
+                    </button>
+                  ) : (
+                    <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="text-sm font-medium text-gray-700">Monto a cobrar (con descuento)</label>
+                        <button
+                          onClick={() => { setAplicarDescuento(false); setMontoACobrar(""); }}
+                          className="text-xs text-gray-400 hover:text-red-500"
+                        >
+                          Quitar
+                        </button>
+                      </div>
+                      <input
+                        type="number"
+                        value={montoACobrar}
+                        onChange={(e) => setMontoACobrar(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-lg font-mono text-center outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder={`Menos de ${formatCurrency(totalSinDescuento)}`}
+                        min="0"
+                        step="1"
+                        autoFocus
+                      />
+                      {montoACobrar !== "" && !descuentoValido && (
+                        <p className="text-xs text-red-500">
+                          Ingresa un monto válido, menor al subtotal ({formatCurrency(totalSinDescuento)})
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-2 gap-2 mb-4">
@@ -715,6 +857,54 @@ export default function POS() {
                 Aceptar
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {ultimaVenta && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl p-6 max-w-sm w-full text-center">
+            <Check className="w-14 h-14 text-green-500 mx-auto mb-2" />
+            <h3 className="text-lg font-bold text-gray-800">Venta registrada</h3>
+            <p className="text-2xl font-bold text-blue-600 my-2">{formatCurrency(ultimaVenta.total)}</p>
+            <p className="text-sm text-gray-500 mb-4">
+              {ultimaVenta.metodoPago === "efectivo" ? "Efectivo" : ultimaVenta.metodoPago === "tarjeta" ? "Tarjeta" : "Transferencia"}
+            </p>
+
+            {getPrinterConfig().habilitada && (
+              <button
+                onClick={async () => {
+                  setImprimiendo(true);
+                  try {
+                    await imprimirTicket({
+                      almacenNombre,
+                      vendedor: ultimaVenta.vendedorNombre,
+                      productos: ultimaVenta.productos,
+                      total: ultimaVenta.total,
+                      descuento: ultimaVenta.descuento,
+                      totalSinDescuento: ultimaVenta.totalSinDescuento,
+                      metodoPago: ultimaVenta.metodoPago,
+                    });
+                  } catch (err) {
+                    alert(`No se pudo imprimir: ${err.message}`);
+                  } finally {
+                    setImprimiendo(false);
+                  }
+                }}
+                disabled={imprimiendo}
+                className="w-full mb-2 flex items-center justify-center gap-2 py-2.5 bg-gray-800 hover:bg-gray-900 disabled:bg-gray-300 text-white rounded-lg font-medium transition"
+              >
+                {imprimiendo ? <Loader2 size={18} className="animate-spin" /> : <Printer size={18} />}
+                {imprimiendo ? "Imprimiendo..." : "Imprimir ticket"}
+              </button>
+            )}
+
+            <button
+              onClick={() => setUltimaVenta(null)}
+              className="w-full py-2.5 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 font-medium transition"
+            >
+              Cerrar
+            </button>
           </div>
         </div>
       )}

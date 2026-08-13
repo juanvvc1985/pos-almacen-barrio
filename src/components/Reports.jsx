@@ -13,7 +13,7 @@ import autoTable from "jspdf-autotable";
 import {
   BarChart3, Download, Calendar, TrendingUp, Package,
   DollarSign, CreditCard, Smartphone, Users, AlertTriangle,
-  Loader2, Search, ArrowUpDown, Repeat, BookOpen, Crown, Lock
+  Loader2, Search, ArrowUpDown, Repeat, BookOpen, Crown, Lock, Trophy
 } from "lucide-react";
 
 const COLORS = ["#3b82f6", "#10b981", "#8b5cf6", "#f59e0b", "#ef4444", "#6b7280"];
@@ -29,6 +29,7 @@ export default function Reports() {
   const [filtroTiempo, setFiltroTiempo] = useState("hoy");
   const [searchInv, setSearchInv] = useState("");
   const [sortConfig, setSortConfig] = useState({ key: "nombre", direction: "asc" });
+  const [rankingSortKey, setRankingSortKey] = useState("ingresos");
   const [plan, setPlan] = useState("basico");
   const [mesLibro, setMesLibro] = useState(() => {
     const hoy = new Date();
@@ -107,6 +108,29 @@ export default function Reports() {
     { name: "Tarjeta", venta: porMetodoVentas.tarjeta || 0, recuperacion: porMetodoRecuperacion.tarjeta || 0 },
     { name: "Transferencia", venta: porMetodoVentas.transferencia || 0, recuperacion: porMetodoRecuperacion.transferencia || 0 },
   ];
+
+  // ===== RANKING DE PRODUCTOS VENDIDOS =====
+  // Cada venta ya guarda el detalle de items (v.productos[]) desde que se creó en POS.jsx;
+  // aquí solo se agrega esa información por producto para el período filtrado.
+  const rankingProductos = (() => {
+    const acumulado = {};
+    ventasNormales.forEach((v) => {
+      (v.productos || []).forEach((item) => {
+        const key = item.id || item.nombre;
+        if (!acumulado[key]) {
+          acumulado[key] = { id: key, nombre: item.nombre, cantidad: 0, ingresos: 0, ventas: 0 };
+        }
+        acumulado[key].cantidad += Number(item.cantidad) || 0;
+        acumulado[key].ingresos += Number(item.total) || 0;
+        acumulado[key].ventas += 1;
+      });
+    });
+    return Object.values(acumulado);
+  })();
+
+  const rankingOrdenado = [...rankingProductos].sort((a, b) => b[rankingSortKey] - a[rankingSortKey]);
+  const top10Ranking = rankingOrdenado.slice(0, 10).map((p) => ({ name: p.nombre, cantidad: p.cantidad, ingresos: p.ingresos }));
+  const totalUnidadesVendidas = rankingProductos.reduce((s, p) => s + p.cantidad, 0);
 
   const fiadosPendientes = fiados.filter((f) => f.estado === "pendiente" || f.estado === "parcial");
   const totalFiadoPendiente = fiadosPendientes.reduce((s, f) => s + ((f.total || 0) - (f.pagos?.reduce((p, pay) => p + (pay.monto || 0), 0) || 0)), 0);
@@ -332,6 +356,28 @@ export default function Reports() {
     marcarInformeVentasDescargado();
   }
 
+  async function exportarRankingPDF() {
+    const almacen = await getAlmacenInfo();
+    const doc = new jsPDF();
+    const periodoLabel = { hoy: "Hoy", semana: "Última semana", mes: "Último mes", todo: "Todo el historial" }[filtroTiempo];
+    doc.setFontSize(16);
+    doc.text(`Ranking de Productos - ${almacen.nombre}`, 14, 20);
+    doc.setFontSize(10);
+    doc.text(`Período: ${periodoLabel}`, 14, 28);
+    doc.text(`Generado: ${new Date().toLocaleDateString("es-CL")}`, 14, 34);
+    doc.text(`Unidades vendidas: ${totalUnidadesVendidas}`, 14, 40);
+
+    const body = rankingOrdenado.map((p, i) => [
+      i + 1, p.nombre, p.cantidad, formatCurrency(p.ingresos), p.ventas,
+    ]);
+    autoTable(doc, {
+      head: [["#", "Producto", "Unidades vendidas", "Ingresos", "Ventas donde aparece"]],
+      body, startY: 48, styles: { fontSize: 9 },
+      headStyles: { fillColor: [217, 119, 6] },
+    });
+    doc.save(`ranking-productos-${filtroTiempo}-${new Date().toISOString().split("T")[0]}.pdf`);
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -350,6 +396,7 @@ export default function Reports() {
       <div className="flex gap-1 bg-gray-100 p-1 rounded-xl mb-6 overflow-x-auto">
         {[
           { id: "ventas", label: "Ventas", icon: TrendingUp },
+          { id: "productos", label: "Ranking Productos", icon: Trophy },
           { id: "fiados", label: "Fiados", icon: Users },
           { id: "mermas", label: "Mermas", icon: AlertTriangle },
           { id: "inventario", label: "Inventario", icon: Package },
@@ -510,6 +557,111 @@ export default function Reports() {
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {activeTab === "productos" && (
+        <div className="space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex gap-2 flex-wrap">
+              {[
+                { value: "hoy", label: "Hoy" },
+                { value: "semana", label: "Ultima semana" },
+                { value: "mes", label: "Ultimo mes" },
+                { value: "todo", label: "Todo" },
+              ].map((f) => (
+                <button key={f.value} onClick={() => setFiltroTiempo(f.value)}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${
+                    filtroTiempo === f.value ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  }`}>{f.label}</button>
+              ))}
+            </div>
+            <button
+              onClick={exportarRankingPDF}
+              className="flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-sm font-medium transition"
+            >
+              <Download size={16} /> Descargar PDF
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+              <p className="text-sm text-gray-500">Productos distintos vendidos</p>
+              <p className="text-2xl font-bold text-gray-800">{rankingProductos.length}</p>
+            </div>
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+              <p className="text-sm text-gray-500">Unidades vendidas</p>
+              <p className="text-2xl font-bold text-blue-600">{totalUnidadesVendidas}</p>
+            </div>
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+              <p className="text-sm text-gray-500">Producto más vendido</p>
+              <p className="text-lg font-bold text-amber-600 truncate">
+                {rankingOrdenado[0]?.nombre || "—"}
+              </p>
+            </div>
+          </div>
+
+          {top10Ranking.length > 0 && (
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-semibold text-gray-800">Top 10 productos</h3>
+                <div className="flex gap-1 bg-gray-100 p-1 rounded-lg text-xs">
+                  <button onClick={() => setRankingSortKey("ingresos")}
+                    className={`px-2 py-1 rounded ${rankingSortKey === "ingresos" ? "bg-white shadow-sm font-medium" : "text-gray-500"}`}>
+                    Por ingresos
+                  </button>
+                  <button onClick={() => setRankingSortKey("cantidad")}
+                    className={`px-2 py-1 rounded ${rankingSortKey === "cantidad" ? "bg-white shadow-sm font-medium" : "text-gray-500"}`}>
+                    Por unidades
+                  </button>
+                </div>
+              </div>
+              <ResponsiveContainer width="100%" height={320}>
+                <BarChart data={top10Ranking} layout="vertical" margin={{ left: 20 }}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis type="number" tickFormatter={(v) => rankingSortKey === "ingresos" ? `$${v.toLocaleString("es-CL")}` : v} />
+                  <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 12 }} />
+                  <Tooltip formatter={(v) => rankingSortKey === "ingresos" ? formatCurrency(v) : `${v} unidades`} />
+                  <Bar dataKey={rankingSortKey} fill="#d97706" radius={[0, 4, 4, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="text-left px-4 py-3">#</th>
+                  <th className="text-left px-4 py-3">Producto</th>
+                  <th className="text-right px-4 py-3 cursor-pointer hover:bg-gray-100" onClick={() => setRankingSortKey("cantidad")}>
+                    Unidades vendidas <ArrowUpDown size={12} className="inline" />
+                  </th>
+                  <th className="text-right px-4 py-3 cursor-pointer hover:bg-gray-100" onClick={() => setRankingSortKey("ingresos")}>
+                    Ingresos <ArrowUpDown size={12} className="inline" />
+                  </th>
+                  <th className="text-right px-4 py-3">Ventas donde aparece</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {rankingOrdenado.map((p, i) => (
+                  <tr key={p.id} className="hover:bg-gray-50">
+                    <td className="px-4 py-2 text-gray-400">{i + 1}</td>
+                    <td className="px-4 py-2 font-medium">{p.nombre}</td>
+                    <td className="px-4 py-2 text-right">{p.cantidad}</td>
+                    <td className="px-4 py-2 text-right font-medium text-amber-700">{formatCurrency(p.ingresos)}</td>
+                    <td className="px-4 py-2 text-right text-gray-500">{p.ventas}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {rankingOrdenado.length === 0 && (
+              <div className="text-center py-8 text-gray-400">
+                <Trophy size={40} className="mx-auto mb-2" />
+                <p>No hay ventas en este período</p>
+              </div>
+            )}
           </div>
         </div>
       )}

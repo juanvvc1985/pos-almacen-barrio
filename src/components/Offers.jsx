@@ -9,7 +9,7 @@ export default function Offers() {
   const [productos, setProductos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [mostrarForm, setMostrarForm] = useState(false);
-  const [form, setForm] = useState({ productoId: "", precioOferta: "", razon: "" });
+  const [form, setForm] = useState({ productoId: "", precioOferta: "", razon: "", cantidadOferta: "" });
 
   useEffect(() => {
     if (almacenId) cargarProductos();
@@ -37,16 +37,33 @@ export default function Offers() {
       alert("El precio de oferta debe ser menor al precio normal");
       return;
     }
+    let cantidadOferta = null;
+    if (form.cantidadOferta !== "") {
+      cantidadOferta = Number(form.cantidadOferta);
+      if (isNaN(cantidadOferta) || cantidadOferta <= 0 || !Number.isInteger(cantidadOferta)) {
+        alert("La cantidad en oferta debe ser un número entero mayor a 0");
+        return;
+      }
+      if (cantidadOferta > producto.stock) {
+        alert(`Solo hay ${producto.stock} unidades en stock, no puedes ofertar ${cantidadOferta}`);
+        return;
+      }
+    }
 
     try {
       await productsService.updateProduct(producto.id, {
         enOferta: true,
         precioOferta,
         razonOferta: form.razon || null,
+        // Si se deja vacío, cantidadOferta queda null y se vende TODO el stock a precio
+        // oferta (comportamiento clásico). Si se especifica, solo esas unidades salen
+        // a precio oferta y el resto se cobra a precio normal automáticamente en el POS.
+        cantidadOferta,
+        cantidadOfertaVendida: 0,
       });
       await cargarProductos();
       setMostrarForm(false);
-      setForm({ productoId: "", precioOferta: "", razon: "" });
+      setForm({ productoId: "", precioOferta: "", razon: "", cantidadOferta: "" });
     } catch (err) {
       alert("Error al crear oferta");
     }
@@ -59,6 +76,8 @@ export default function Offers() {
         enOferta: false,
         precioOferta: null,
         razonOferta: null,
+        cantidadOferta: null,
+        cantidadOfertaVendida: null,
       });
       await cargarProductos();
     } catch (err) {
@@ -95,7 +114,7 @@ export default function Offers() {
       {mostrarForm && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
           <h2 className="text-lg font-bold text-gray-800 mb-4">Crear Oferta</h2>
-          <div className="grid md:grid-cols-3 gap-4">
+          <div className="grid md:grid-cols-4 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Producto</label>
               <select
@@ -106,7 +125,7 @@ export default function Offers() {
                 <option value="">Seleccionar...</option>
                 {productosSinOferta.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.nombre} - {formatCurrency(p.precioVenta)}
+                    {p.nombre} - {formatCurrency(p.precioVenta)} (stock: {p.stock})
                   </option>
                 ))}
               </select>
@@ -121,6 +140,20 @@ export default function Offers() {
                 placeholder="0"
                 min="0"
               />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Cantidad en oferta <span className="text-gray-400 font-normal">(opcional)</span>
+              </label>
+              <input
+                type="number"
+                value={form.cantidadOferta}
+                onChange={(e) => setForm({ ...form, cantidadOferta: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 outline-none"
+                placeholder="Todo el stock"
+                min="1"
+              />
+              <p className="text-xs text-gray-400 mt-1">Vacío = todo el stock queda en oferta</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Razón (opcional)</label>
@@ -168,6 +201,15 @@ export default function Offers() {
                 <span className="text-sm text-gray-400 line-through">{formatCurrency(p.precioVenta)}</span>
               </div>
               <p className="text-sm text-green-600 mt-1">Ahorro: {formatCurrency(ahorro)}</p>
+              {p.cantidadOferta != null && p.cantidadOferta > 0 && (
+                <p className="text-xs text-gray-500 mt-1">
+                  Cupo oferta: {Math.max(0, p.cantidadOferta - (p.cantidadOfertaVendida || 0))} de {p.cantidadOferta} unidades restantes
+                  {" "}(el resto se vende a precio normal)
+                </p>
+              )}
+              {(p.cantidadOferta == null || p.cantidadOferta === 0) && (
+                <p className="text-xs text-gray-400 mt-1">Aplica a todo el stock ({p.stock} unidades)</p>
+              )}
               <button
                 onClick={() => handleQuitarOferta(p.id)}
                 className="mt-3 w-full py-2 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition"
