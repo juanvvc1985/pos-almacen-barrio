@@ -70,6 +70,7 @@ src/
     firestoreSales.js
     firestoreUsers.js
     planLimits.js
+    printerService.js
   types/
     index.js
   utils/
@@ -334,7 +335,7 @@ import { formatCurrency, formatDate } from "../utils/format";
 import { Users, Trash2, DollarSign, CreditCard, Smartphone, Loader2, Search, CheckCircle } from "lucide-react";
 
 export default function Fiados() {
-  const { almacenId, isDueño } = useAuth();
+  const { almacenId, isDueño, user, userData } = useAuth();
   const [fiados, setFiados] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filtro, setFiltro] = useState("todas");
@@ -371,7 +372,7 @@ export default function Fiados() {
       await salesService.createSale(almacenId, {
         productos: [{ nombre: `Recuperación fiado - ${fiadoPago.clienteNombre}`, cantidad: 1, precioUnitario: monto, total: monto }],
         total: monto, metodoPago: pagoData.metodoPago, tipo: "fiado-recuperado",
-        fiadoId: fiadoPago.id, vendedorNombre: "Sistema",
+        fiadoId: fiadoPago.id, vendedorId: user.uid, vendedorNombre: userData?.nombre || user.email,
       });
       await cargarFiados();
       setFiadoPago(null); setPagoData({ monto: "", metodoPago: "efectivo" });
@@ -1077,7 +1078,7 @@ export default function Offers() {
   const [productos, setProductos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [mostrarForm, setMostrarForm] = useState(false);
-  const [form, setForm] = useState({ productoId: "", precioOferta: "", razon: "" });
+  const [form, setForm] = useState({ productoId: "", precioOferta: "", razon: "", cantidadOferta: "" });
 
   useEffect(() => {
     if (almacenId) cargarProductos();
@@ -1105,16 +1106,33 @@ export default function Offers() {
       alert("El precio de oferta debe ser menor al precio normal");
       return;
     }
+    let cantidadOferta = null;
+    if (form.cantidadOferta !== "") {
+      cantidadOferta = Number(form.cantidadOferta);
+      if (isNaN(cantidadOferta) || cantidadOferta <= 0 || !Number.isInteger(cantidadOferta)) {
+        alert("La cantidad en oferta debe ser un número entero mayor a 0");
+        return;
+      }
+      if (cantidadOferta > producto.stock) {
+        alert(`Solo hay ${producto.stock} unidades en stock, no puedes ofertar ${cantidadOferta}`);
+        return;
+      }
+    }
 
     try {
       await productsService.updateProduct(producto.id, {
         enOferta: true,
         precioOferta,
         razonOferta: form.razon || null,
+        // Si se deja vacío, cantidadOferta queda null y se vende TODO el stock a precio
+        // oferta (comportamiento clásico). Si se especifica, solo esas unidades salen
+        // a precio oferta y el resto se cobra a precio normal automáticamente en el POS.
+        cantidadOferta,
+        cantidadOfertaVendida: 0,
       });
       await cargarProductos();
       setMostrarForm(false);
-      setForm({ productoId: "", precioOferta: "", razon: "" });
+      setForm({ productoId: "", precioOferta: "", razon: "", cantidadOferta: "" });
     } catch (err) {
       alert("Error al crear oferta");
     }
@@ -1127,6 +1145,8 @@ export default function Offers() {
         enOferta: false,
         precioOferta: null,
         razonOferta: null,
+        cantidadOferta: null,
+        cantidadOfertaVendida: null,
       });
       await cargarProductos();
     } catch (err) {
@@ -1163,7 +1183,7 @@ export default function Offers() {
       {mostrarForm && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
           <h2 className="text-lg font-bold text-gray-800 mb-4">Crear Oferta</h2>
-          <div className="grid md:grid-cols-3 gap-4">
+          <div className="grid md:grid-cols-4 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Producto</label>
               <select
@@ -1174,7 +1194,7 @@ export default function Offers() {
                 <option value="">Seleccionar...</option>
                 {productosSinOferta.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.nombre} - {formatCurrency(p.precioVenta)}
+                    {p.nombre} - {formatCurrency(p.precioVenta)} (stock: {p.stock})
                   </option>
                 ))}
               </select>
@@ -1189,6 +1209,20 @@ export default function Offers() {
                 placeholder="0"
                 min="0"
               />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Cantidad en oferta <span className="text-gray-400 font-normal">(opcional)</span>
+              </label>
+              <input
+                type="number"
+                value={form.cantidadOferta}
+                onChange={(e) => setForm({ ...form, cantidadOferta: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 outline-none"
+                placeholder="Todo el stock"
+                min="1"
+              />
+              <p className="text-xs text-gray-400 mt-1">Vacío = todo el stock queda en oferta</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Razón (opcional)</label>
@@ -1236,6 +1270,15 @@ export default function Offers() {
                 <span className="text-sm text-gray-400 line-through">{formatCurrency(p.precioVenta)}</span>
               </div>
               <p className="text-sm text-green-600 mt-1">Ahorro: {formatCurrency(ahorro)}</p>
+              {p.cantidadOferta != null && p.cantidadOferta > 0 && (
+                <p className="text-xs text-gray-500 mt-1">
+                  Cupo oferta: {Math.max(0, p.cantidadOferta - (p.cantidadOfertaVendida || 0))} de {p.cantidadOferta} unidades restantes
+                  {" "}(el resto se vende a precio normal)
+                </p>
+              )}
+              {(p.cantidadOferta == null || p.cantidadOferta === 0) && (
+                <p className="text-xs text-gray-400 mt-1">Aplica a todo el stock ({p.stock} unidades)</p>
+              )}
               <button
                 onClick={() => handleQuitarOferta(p.id)}
                 className="mt-3 w-full py-2 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition"
@@ -1322,6 +1365,9 @@ import { METODOS_PAGO } from "../types/index";
 import { formatCurrency } from "../utils/format";
 import BarcodeScanner from "./BarcodeScanner";
 import InventoryAlert from "./InventoryAlert";
+import { imprimirTicket, getPrinterConfig } from "../services/printerService";
+import { doc, getDoc } from "firebase/firestore";
+import { db } from "../firebase/firebase";
 import {
   Search, ScanLine, Trash2, Plus, Minus, ShoppingCart,
   Package, Clock, DollarSign, CreditCard, Smartphone, User,
@@ -1334,6 +1380,25 @@ const METODO_STYLES = {
   transferencia: { bg: "bg-purple-50", border: "border-purple-300", text: "text-purple-700" },
   fiado: { bg: "bg-orange-50", border: "border-orange-300", text: "text-orange-700" },
 };
+
+// Calcula cuánto de un ítem del carrito se cobra a precio oferta y cuánto a precio normal.
+// Si la oferta no tiene cantidadOferta configurada, se mantiene el comportamiento anterior
+// (todo el stock del producto se vende a precio oferta) para no romper ofertas ya creadas.
+function calcularLineaCarrito(item) {
+  const cantidad = item.cantidad;
+  if (!item.enOferta) {
+    return { totalLinea: item.precioVenta * cantidad, unidadesOferta: 0, unidadesNormal: cantidad };
+  }
+  const tieneLimite = item.cantidadOferta != null && item.cantidadOferta > 0;
+  if (!tieneLimite) {
+    return { totalLinea: item.precioOferta * cantidad, unidadesOferta: cantidad, unidadesNormal: 0 };
+  }
+  const disponibleOferta = Math.max(0, (item.cantidadOferta || 0) - (item.cantidadOfertaVendida || 0));
+  const unidadesOferta = Math.min(cantidad, disponibleOferta);
+  const unidadesNormal = cantidad - unidadesOferta;
+  const totalLinea = unidadesOferta * item.precioOferta + unidadesNormal * item.precioVenta;
+  return { totalLinea, unidadesOferta, unidadesNormal };
+}
 
 export default function POS() {
   const { almacenId, user, userData } = useAuth();
@@ -1357,6 +1422,19 @@ export default function POS() {
   const [montoInicial, setMontoInicial] = useState("");
   const [mostrarCerrarTurno, setMostrarCerrarTurno] = useState(false);
   const [resumenCierre, setResumenCierre] = useState(null);
+
+  const [aplicarDescuento, setAplicarDescuento] = useState(false);
+  const [montoACobrar, setMontoACobrar] = useState("");
+  const [ultimaVenta, setUltimaVenta] = useState(null);
+  const [imprimiendo, setImprimiendo] = useState(false);
+  const [almacenNombre, setAlmacenNombre] = useState("");
+
+  useEffect(() => {
+    if (!almacenId) return;
+    getDoc(doc(db, "almacenes", almacenId)).then((snap) => {
+      if (snap.exists()) setAlmacenNombre(snap.data().nombre || "");
+    }).catch(() => {});
+  }, [almacenId]);
 
   useEffect(() => {
     if (almacenId) {
@@ -1482,7 +1560,11 @@ export default function POS() {
     setCarrito(carrito.filter((c) => c.id !== id));
   }
 
-  const total = carrito.reduce((sum, c) => sum + c.precioVenta * c.cantidad, 0);
+  const totalSinDescuento = carrito.reduce((sum, c) => sum + calcularLineaCarrito(c).totalLinea, 0);
+  const montoACobrarNum = Number(montoACobrar);
+  const descuentoValido = aplicarDescuento && montoACobrar !== "" && !isNaN(montoACobrarNum) && montoACobrarNum >= 0 && montoACobrarNum < totalSinDescuento;
+  const montoDescuento = descuentoValido ? totalSinDescuento - montoACobrarNum : 0;
+  const total = descuentoValido ? montoACobrarNum : totalSinDescuento;
 
   async function handleAbrirTurno() {
     const monto = Number(montoInicial) || 0;
@@ -1594,22 +1676,45 @@ export default function POS() {
         }
       }
 
-      // 3. Actualizar stock en estado local (para que se vea inmediato)
+      // 3. Actualizar stock en estado local (para que se vea inmediato) y descontar
+      //    las unidades vendidas a precio oferta del cupo de cada oferta con límite.
+      const actualizacionesOferta = [];
       for (const item of carrito) {
         const prod = productos.find(p => p.id === item.id);
-        if (prod) prod.stock -= item.cantidad;
+        if (!prod) continue;
+        prod.stock -= item.cantidad;
+        const { unidadesOferta } = calcularLineaCarrito(item);
+        if (unidadesOferta > 0 && item.cantidadOferta != null && item.cantidadOferta > 0) {
+          const nuevaCantidadVendida = (prod.cantidadOfertaVendida || 0) + unidadesOferta;
+          prod.cantidadOfertaVendida = nuevaCantidadVendida;
+          actualizacionesOferta.push({ id: prod.id, cantidadOfertaVendida: nuevaCantidadVendida });
+        }
       }
       setProductos([...productos]);
 
+      if (isOnline && actualizacionesOferta.length > 0) {
+        for (const upd of actualizacionesOferta) {
+          try {
+            await productsService.updateProduct(upd.id, { cantidadOfertaVendida: upd.cantidadOfertaVendida });
+          } catch (err) {
+            console.error("No se pudo actualizar el cupo de oferta:", err);
+          }
+        }
+      }
+
       const venta = {
-        productos: carrito.map((c) => ({
-          id: c.id,
-          nombre: c.nombre,
-          cantidad: c.cantidad,
-          precioUnitario: c.precioVenta,
-          total: c.precioVenta * c.cantidad,
-        })),
+        productos: carrito.map((c) => {
+          const { totalLinea } = calcularLineaCarrito(c);
+          return {
+            id: c.id,
+            nombre: c.nombre,
+            cantidad: c.cantidad,
+            precioUnitario: c.precioVenta,
+            total: totalLinea,
+          };
+        }),
         total,
+        ...(descuentoValido ? { descuento: montoDescuento, totalSinDescuento } : {}),
         metodoPago,
         vendedorId: user.uid,
         vendedorNombre: userData?.nombre || user.email,
@@ -1657,9 +1762,12 @@ export default function POS() {
             mostrarMensaje("Venta guardada localmente (error de red)");
           }
         }
+        setUltimaVenta(venta);
       }
 
       setCarrito([]);
+      setAplicarDescuento(false);
+      setMontoACobrar("");
     } catch (err) {
       console.error(err);
       alert("Error al registrar la venta");
@@ -1839,15 +1947,24 @@ export default function POS() {
                   className="bg-white rounded-xl shadow-sm border border-gray-200 p-3 text-left hover:shadow-md hover:border-blue-300 transition active:scale-95"
                 >
                   <p className="font-medium text-gray-800 text-sm truncate">{p.nombre}</p>
-                  <p className="text-blue-600 font-bold text-sm mt-1">
-                    {formatCurrency(p.precioVenta)}
-                  </p>
+                  {p.enOferta ? (
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <p className="text-red-600 font-bold text-sm">{formatCurrency(p.precioOferta)}</p>
+                      <p className="text-xs text-gray-400 line-through">{formatCurrency(p.precioVenta)}</p>
+                    </div>
+                  ) : (
+                    <p className="text-blue-600 font-bold text-sm mt-1">
+                      {formatCurrency(p.precioVenta)}
+                    </p>
+                  )}
                   <p className="text-xs text-gray-400 mt-0.5">
                     Stock: {p.stock} {p.unidad}
                   </p>
                   {p.enOferta && (
                     <span className="inline-block mt-1 text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded">
-                      OFERTA
+                      {p.cantidadOferta != null && p.cantidadOferta > 0
+                        ? `OFERTA: ${Math.max(0, p.cantidadOferta - (p.cantidadOfertaVendida || 0))} u. restantes`
+                        : "OFERTA"}
                     </span>
                   )}
                 </button>
@@ -1870,13 +1987,23 @@ export default function POS() {
             </div>
           ) : (
             <div className="space-y-3 mb-4 max-h-80 overflow-y-auto">
-              {carrito.map((item) => (
+              {carrito.map((item) => {
+                const { totalLinea, unidadesOferta, unidadesNormal } = calcularLineaCarrito(item);
+                return (
                 <div key={item.id} className="flex items-center gap-3 p-2 bg-gray-50 rounded-lg">
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-sm text-gray-800 truncate">{item.nombre}</p>
                     <p className="text-xs text-gray-500">
                       {formatCurrency(item.precioVenta)} / {item.unidad}
                     </p>
+                    {unidadesOferta > 0 && unidadesNormal > 0 && (
+                      <p className="text-xs text-red-600">
+                        {unidadesOferta} en oferta + {unidadesNormal} a precio normal
+                      </p>
+                    )}
+                    {unidadesOferta > 0 && unidadesNormal === 0 && item.cantidadOferta != null && item.cantidadOferta > 0 && (
+                      <p className="text-xs text-red-600">Precio oferta aplicado</p>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-1">
@@ -1904,7 +2031,7 @@ export default function POS() {
                   </div>
 
                   <p className="text-sm font-bold text-gray-800 w-20 text-right">
-                    {formatCurrency(item.precioVenta * item.cantidad)}
+                    {formatCurrency(totalLinea)}
                   </p>
 
                   <button
@@ -1914,16 +2041,74 @@ export default function POS() {
                     <Trash2 size={14} />
                   </button>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
 
           {carrito.length > 0 && (
             <>
               <div className="border-t border-gray-200 pt-4 mb-4">
-                <div className="flex justify-between items-center mb-3">
-                  <span className="text-lg font-bold text-gray-800">Total</span>
-                  <span className="text-2xl font-bold text-blue-600">{formatCurrency(total)}</span>
+                {aplicarDescuento ? (
+                  <div className="space-y-1 mb-3">
+                    <div className="flex justify-between text-sm text-gray-500">
+                      <span>Subtotal</span>
+                      <span>{formatCurrency(totalSinDescuento)}</span>
+                    </div>
+                    {descuentoValido && (
+                      <div className="flex justify-between text-sm text-red-600">
+                        <span>Descuento</span>
+                        <span>-{formatCurrency(montoDescuento)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between items-center">
+                      <span className="text-lg font-bold text-gray-800">Total a cobrar</span>
+                      <span className="text-2xl font-bold text-blue-600">{formatCurrency(total)}</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex justify-between items-center mb-3">
+                    <span className="text-lg font-bold text-gray-800">Total</span>
+                    <span className="text-2xl font-bold text-blue-600">{formatCurrency(total)}</span>
+                  </div>
+                )}
+
+                <div className="mb-4">
+                  {!aplicarDescuento ? (
+                    <button
+                      onClick={() => setAplicarDescuento(true)}
+                      className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+                    >
+                      + Aplicar descuento
+                    </button>
+                  ) : (
+                    <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="text-sm font-medium text-gray-700">Monto a cobrar (con descuento)</label>
+                        <button
+                          onClick={() => { setAplicarDescuento(false); setMontoACobrar(""); }}
+                          className="text-xs text-gray-400 hover:text-red-500"
+                        >
+                          Quitar
+                        </button>
+                      </div>
+                      <input
+                        type="number"
+                        value={montoACobrar}
+                        onChange={(e) => setMontoACobrar(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-lg font-mono text-center outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder={`Menos de ${formatCurrency(totalSinDescuento)}`}
+                        min="0"
+                        step="1"
+                        autoFocus
+                      />
+                      {montoACobrar !== "" && !descuentoValido && (
+                        <p className="text-xs text-red-500">
+                          Ingresa un monto válido, menor al subtotal ({formatCurrency(totalSinDescuento)})
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-2 gap-2 mb-4">
@@ -2029,6 +2214,54 @@ export default function POS() {
                 Aceptar
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {ultimaVenta && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl p-6 max-w-sm w-full text-center">
+            <Check className="w-14 h-14 text-green-500 mx-auto mb-2" />
+            <h3 className="text-lg font-bold text-gray-800">Venta registrada</h3>
+            <p className="text-2xl font-bold text-blue-600 my-2">{formatCurrency(ultimaVenta.total)}</p>
+            <p className="text-sm text-gray-500 mb-4">
+              {ultimaVenta.metodoPago === "efectivo" ? "Efectivo" : ultimaVenta.metodoPago === "tarjeta" ? "Tarjeta" : "Transferencia"}
+            </p>
+
+            {getPrinterConfig().habilitada && (
+              <button
+                onClick={async () => {
+                  setImprimiendo(true);
+                  try {
+                    await imprimirTicket({
+                      almacenNombre,
+                      vendedor: ultimaVenta.vendedorNombre,
+                      productos: ultimaVenta.productos,
+                      total: ultimaVenta.total,
+                      descuento: ultimaVenta.descuento,
+                      totalSinDescuento: ultimaVenta.totalSinDescuento,
+                      metodoPago: ultimaVenta.metodoPago,
+                    });
+                  } catch (err) {
+                    alert(`No se pudo imprimir: ${err.message}`);
+                  } finally {
+                    setImprimiendo(false);
+                  }
+                }}
+                disabled={imprimiendo}
+                className="w-full mb-2 flex items-center justify-center gap-2 py-2.5 bg-gray-800 hover:bg-gray-900 disabled:bg-gray-300 text-white rounded-lg font-medium transition"
+              >
+                {imprimiendo ? <Loader2 size={18} className="animate-spin" /> : <Printer size={18} />}
+                {imprimiendo ? "Imprimiendo..." : "Imprimir ticket"}
+              </button>
+            )}
+
+            <button
+              onClick={() => setUltimaVenta(null)}
+              className="w-full py-2.5 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 font-medium transition"
+            >
+              Cerrar
+            </button>
           </div>
         </div>
       )}
@@ -2498,7 +2731,7 @@ import autoTable from "jspdf-autotable";
 import {
   BarChart3, Download, Calendar, TrendingUp, Package,
   DollarSign, CreditCard, Smartphone, Users, AlertTriangle,
-  Loader2, Search, ArrowUpDown, Repeat, BookOpen, Crown, Lock
+  Loader2, Search, ArrowUpDown, Repeat, BookOpen, Crown, Lock, Trophy
 } from "lucide-react";
 
 const COLORS = ["#3b82f6", "#10b981", "#8b5cf6", "#f59e0b", "#ef4444", "#6b7280"];
@@ -2514,6 +2747,7 @@ export default function Reports() {
   const [filtroTiempo, setFiltroTiempo] = useState("hoy");
   const [searchInv, setSearchInv] = useState("");
   const [sortConfig, setSortConfig] = useState({ key: "nombre", direction: "asc" });
+  const [rankingSortKey, setRankingSortKey] = useState("ingresos");
   const [plan, setPlan] = useState("basico");
   const [mesLibro, setMesLibro] = useState(() => {
     const hoy = new Date();
@@ -2592,6 +2826,29 @@ export default function Reports() {
     { name: "Tarjeta", venta: porMetodoVentas.tarjeta || 0, recuperacion: porMetodoRecuperacion.tarjeta || 0 },
     { name: "Transferencia", venta: porMetodoVentas.transferencia || 0, recuperacion: porMetodoRecuperacion.transferencia || 0 },
   ];
+
+  // ===== RANKING DE PRODUCTOS VENDIDOS =====
+  // Cada venta ya guarda el detalle de items (v.productos[]) desde que se creó en POS.jsx;
+  // aquí solo se agrega esa información por producto para el período filtrado.
+  const rankingProductos = (() => {
+    const acumulado = {};
+    ventasNormales.forEach((v) => {
+      (v.productos || []).forEach((item) => {
+        const key = item.id || item.nombre;
+        if (!acumulado[key]) {
+          acumulado[key] = { id: key, nombre: item.nombre, cantidad: 0, ingresos: 0, ventas: 0 };
+        }
+        acumulado[key].cantidad += Number(item.cantidad) || 0;
+        acumulado[key].ingresos += Number(item.total) || 0;
+        acumulado[key].ventas += 1;
+      });
+    });
+    return Object.values(acumulado);
+  })();
+
+  const rankingOrdenado = [...rankingProductos].sort((a, b) => b[rankingSortKey] - a[rankingSortKey]);
+  const top10Ranking = rankingOrdenado.slice(0, 10).map((p) => ({ name: p.nombre, cantidad: p.cantidad, ingresos: p.ingresos }));
+  const totalUnidadesVendidas = rankingProductos.reduce((s, p) => s + p.cantidad, 0);
 
   const fiadosPendientes = fiados.filter((f) => f.estado === "pendiente" || f.estado === "parcial");
   const totalFiadoPendiente = fiadosPendientes.reduce((s, f) => s + ((f.total || 0) - (f.pagos?.reduce((p, pay) => p + (pay.monto || 0), 0) || 0)), 0);
@@ -2817,6 +3074,28 @@ export default function Reports() {
     marcarInformeVentasDescargado();
   }
 
+  async function exportarRankingPDF() {
+    const almacen = await getAlmacenInfo();
+    const doc = new jsPDF();
+    const periodoLabel = { hoy: "Hoy", semana: "Última semana", mes: "Último mes", todo: "Todo el historial" }[filtroTiempo];
+    doc.setFontSize(16);
+    doc.text(`Ranking de Productos - ${almacen.nombre}`, 14, 20);
+    doc.setFontSize(10);
+    doc.text(`Período: ${periodoLabel}`, 14, 28);
+    doc.text(`Generado: ${new Date().toLocaleDateString("es-CL")}`, 14, 34);
+    doc.text(`Unidades vendidas: ${totalUnidadesVendidas}`, 14, 40);
+
+    const body = rankingOrdenado.map((p, i) => [
+      i + 1, p.nombre, p.cantidad, formatCurrency(p.ingresos), p.ventas,
+    ]);
+    autoTable(doc, {
+      head: [["#", "Producto", "Unidades vendidas", "Ingresos", "Ventas donde aparece"]],
+      body, startY: 48, styles: { fontSize: 9 },
+      headStyles: { fillColor: [217, 119, 6] },
+    });
+    doc.save(`ranking-productos-${filtroTiempo}-${new Date().toISOString().split("T")[0]}.pdf`);
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -2835,6 +3114,7 @@ export default function Reports() {
       <div className="flex gap-1 bg-gray-100 p-1 rounded-xl mb-6 overflow-x-auto">
         {[
           { id: "ventas", label: "Ventas", icon: TrendingUp },
+          { id: "productos", label: "Ranking Productos", icon: Trophy },
           { id: "fiados", label: "Fiados", icon: Users },
           { id: "mermas", label: "Mermas", icon: AlertTriangle },
           { id: "inventario", label: "Inventario", icon: Package },
@@ -2995,6 +3275,111 @@ export default function Reports() {
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {activeTab === "productos" && (
+        <div className="space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex gap-2 flex-wrap">
+              {[
+                { value: "hoy", label: "Hoy" },
+                { value: "semana", label: "Ultima semana" },
+                { value: "mes", label: "Ultimo mes" },
+                { value: "todo", label: "Todo" },
+              ].map((f) => (
+                <button key={f.value} onClick={() => setFiltroTiempo(f.value)}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${
+                    filtroTiempo === f.value ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  }`}>{f.label}</button>
+              ))}
+            </div>
+            <button
+              onClick={exportarRankingPDF}
+              className="flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-sm font-medium transition"
+            >
+              <Download size={16} /> Descargar PDF
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+              <p className="text-sm text-gray-500">Productos distintos vendidos</p>
+              <p className="text-2xl font-bold text-gray-800">{rankingProductos.length}</p>
+            </div>
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+              <p className="text-sm text-gray-500">Unidades vendidas</p>
+              <p className="text-2xl font-bold text-blue-600">{totalUnidadesVendidas}</p>
+            </div>
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+              <p className="text-sm text-gray-500">Producto más vendido</p>
+              <p className="text-lg font-bold text-amber-600 truncate">
+                {rankingOrdenado[0]?.nombre || "—"}
+              </p>
+            </div>
+          </div>
+
+          {top10Ranking.length > 0 && (
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-semibold text-gray-800">Top 10 productos</h3>
+                <div className="flex gap-1 bg-gray-100 p-1 rounded-lg text-xs">
+                  <button onClick={() => setRankingSortKey("ingresos")}
+                    className={`px-2 py-1 rounded ${rankingSortKey === "ingresos" ? "bg-white shadow-sm font-medium" : "text-gray-500"}`}>
+                    Por ingresos
+                  </button>
+                  <button onClick={() => setRankingSortKey("cantidad")}
+                    className={`px-2 py-1 rounded ${rankingSortKey === "cantidad" ? "bg-white shadow-sm font-medium" : "text-gray-500"}`}>
+                    Por unidades
+                  </button>
+                </div>
+              </div>
+              <ResponsiveContainer width="100%" height={320}>
+                <BarChart data={top10Ranking} layout="vertical" margin={{ left: 20 }}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis type="number" tickFormatter={(v) => rankingSortKey === "ingresos" ? `$${v.toLocaleString("es-CL")}` : v} />
+                  <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 12 }} />
+                  <Tooltip formatter={(v) => rankingSortKey === "ingresos" ? formatCurrency(v) : `${v} unidades`} />
+                  <Bar dataKey={rankingSortKey} fill="#d97706" radius={[0, 4, 4, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="text-left px-4 py-3">#</th>
+                  <th className="text-left px-4 py-3">Producto</th>
+                  <th className="text-right px-4 py-3 cursor-pointer hover:bg-gray-100" onClick={() => setRankingSortKey("cantidad")}>
+                    Unidades vendidas <ArrowUpDown size={12} className="inline" />
+                  </th>
+                  <th className="text-right px-4 py-3 cursor-pointer hover:bg-gray-100" onClick={() => setRankingSortKey("ingresos")}>
+                    Ingresos <ArrowUpDown size={12} className="inline" />
+                  </th>
+                  <th className="text-right px-4 py-3">Ventas donde aparece</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {rankingOrdenado.map((p, i) => (
+                  <tr key={p.id} className="hover:bg-gray-50">
+                    <td className="px-4 py-2 text-gray-400">{i + 1}</td>
+                    <td className="px-4 py-2 font-medium">{p.nombre}</td>
+                    <td className="px-4 py-2 text-right">{p.cantidad}</td>
+                    <td className="px-4 py-2 text-right font-medium text-amber-700">{formatCurrency(p.ingresos)}</td>
+                    <td className="px-4 py-2 text-right text-gray-500">{p.ventas}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {rankingOrdenado.length === 0 && (
+              <div className="text-center py-8 text-gray-400">
+                <Trophy size={40} className="mx-auto mb-2" />
+                <p>No hay ventas en este período</p>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -3356,6 +3741,8 @@ import {
   initializeFirestore,
   persistentLocalCache,
   persistentMultipleTabManager,
+  persistentSingleTabManager,
+  memoryLocalCache,
   CACHE_SIZE_UNLIMITED
 } from "firebase/firestore";
 
@@ -3374,13 +3761,42 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 setPersistence(auth, browserLocalPersistence).catch(console.error);
 
-// Firestore con cache persistente + multi-tab desde el arranque
-const db = initializeFirestore(app, {
-  localCache: persistentLocalCache({
-    tabManager: persistentMultipleTabManager(),
-    cacheSizeBytes: CACHE_SIZE_UNLIMITED
-  })
-});
+// Firestore con cache persistente (para que la app siga funcionando sin
+// conexión) con una cadena de respaldo: si el navegador no puede abrir el
+// cache persistente con soporte multi-pestaña (esto pasa en Safari antiguo,
+// modo privado, o cuando falta la Web Locks API que Safari solo agregó en
+// iOS 15.4), se intenta con cache persistente de una sola pestaña, y si
+// tampoco es posible, se usa cache en memoria para que la app AL MENOS
+// cargue y funcione con conexión, en vez de fallar por completo sin avisar.
+// Sin este respaldo, un fallo silencioso aquí deja a getProducts() (que usa
+// una lectura única, no un listener en vivo) sin datos para mostrar apenas
+// el dispositivo pierde conexión — la app "no funciona offline" sin ningún
+// error visible.
+function crearFirestoreConRespaldo() {
+  try {
+    return initializeFirestore(app, {
+      localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager(),
+        cacheSizeBytes: CACHE_SIZE_UNLIMITED
+      })
+    });
+  } catch (err) {
+    console.warn("Cache persistente multi-pestaña no disponible, probando modo de una pestaña:", err);
+  }
+  try {
+    return initializeFirestore(app, {
+      localCache: persistentLocalCache({
+        tabManager: persistentSingleTabManager({ forceOwnership: false }),
+        cacheSizeBytes: CACHE_SIZE_UNLIMITED
+      })
+    });
+  } catch (err) {
+    console.warn("Cache persistente no disponible en este dispositivo, usando cache en memoria (sin modo offline real):", err);
+  }
+  return initializeFirestore(app, { localCache: memoryLocalCache() });
+}
+
+const db = crearFirestoreConRespaldo();
 
 export { auth, db };
 export default app;
@@ -4319,7 +4735,11 @@ import { useAuth } from "../hooks/useAuth";
 import { configService } from "../services/firestoreConfig";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { db } from "../firebase/firebase";
-import { Settings, Save, Store, FileText, MapPin, Phone, Image, Loader2 } from "lucide-react";
+import { Settings, Save, Store, FileText, MapPin, Phone, Image, Loader2, Printer, Bluetooth } from "lucide-react";
+import {
+  getPrinterConfig, setPrinterConfig, emparejarImpresora,
+  desconectarImpresora, isWebBluetoothSupported, isConnected,
+} from "../services/printerService";
 
 export default function ConfiguracionAlmacen() {
   const { almacenId, isDueño } = useAuth();
@@ -4334,6 +4754,28 @@ export default function ConfiguracionAlmacen() {
     giro: "",
     logoUrl: "",
   });
+  const [printerConfig, setPrinterConfigState] = useState(getPrinterConfig());
+  const [conectando, setConectando] = useState(false);
+  const [errorImpresora, setErrorImpresora] = useState("");
+
+  async function handleEmparejarImpresora() {
+    setConectando(true);
+    setErrorImpresora("");
+    try {
+      const nombre = await emparejarImpresora();
+      setPrinterConfigState({ habilitada: true, nombreDispositivo: nombre });
+    } catch (err) {
+      setErrorImpresora(err.message || "No se pudo conectar con la impresora");
+    } finally {
+      setConectando(false);
+    }
+  }
+
+  function handleDesconectarImpresora() {
+    desconectarImpresora();
+    setPrinterConfig({ habilitada: false, nombreDispositivo: null });
+    setPrinterConfigState({ habilitada: false, nombreDispositivo: null });
+  }
 
   useEffect(() => {
     if (almacenId) cargarConfig();
@@ -4503,6 +4945,55 @@ export default function ConfiguracionAlmacen() {
           </button>
         </div>
       </form>
+
+      <div className="mt-6 bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <h2 className="text-lg font-bold text-gray-800 mb-1 flex items-center gap-2">
+          <Printer className="w-5 h-5 text-gray-600" /> Impresora térmica (Bluetooth)
+        </h2>
+        <p className="text-sm text-gray-500 mb-4">
+          Conecta una impresora térmica de 58mm/80mm para imprimir el ticket de venta cuando el cliente lo pida.
+        </p>
+
+        {!isWebBluetoothSupported() && (
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800 mb-4">
+            Este navegador no soporta impresión Bluetooth. En iPhone no es posible por una limitación de Apple
+            (no permite Web Bluetooth en Safari); en Android, usa Chrome.
+          </div>
+        )}
+
+        {printerConfig.habilitada && printerConfig.nombreDispositivo ? (
+          <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-lg p-3">
+            <div className="flex items-center gap-2 text-green-700">
+              <Bluetooth size={18} />
+              <span className="text-sm font-medium">
+                Conectada: {printerConfig.nombreDispositivo} {isConnected() ? "" : "(reconectará al imprimir)"}
+              </span>
+            </div>
+            <button
+              onClick={handleDesconectarImpresora}
+              className="text-sm text-gray-500 hover:text-red-600"
+            >
+              Desconectar
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={handleEmparejarImpresora}
+            disabled={conectando || !isWebBluetoothSupported()}
+            className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-900 disabled:bg-gray-300 text-white rounded-lg text-sm font-medium transition"
+          >
+            {conectando ? <Loader2 size={16} className="animate-spin" /> : <Bluetooth size={16} />}
+            {conectando ? "Buscando impresora..." : "Emparejar impresora"}
+          </button>
+        )}
+        {errorImpresora && (
+          <p className="text-sm text-red-600 mt-2">{errorImpresora}</p>
+        )}
+        <p className="text-xs text-gray-400 mt-3">
+          Solo funciona con impresoras Bluetooth de bajo consumo (BLE). Si tu impresora no aparece en la lista al
+          emparejar, es probablemente Bluetooth clásico (SPP) y no es compatible con esta función.
+        </p>
+      </div>
 
       <div className="mt-6 bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-800">
         <p className="font-medium mb-1">¿Por qué es importante?</p>
@@ -5807,6 +6298,228 @@ export async function puedeCrearVendedor(almacenId) {
     };
   }
   return { permitido: true, plan, usados: actuales, limite };
+}
+````
+
+## File: src/services/printerService.js
+````javascript
+// printerService.js
+// Impresión de tickets en impresoras térmicas de 58mm/80mm vía Bluetooth (BLE),
+// usando la Web Bluetooth API del navegador y comandos ESC/POS crudos.
+//
+// LIMITACIONES IMPORTANTES (léelas antes de reportar un bug):
+// 1. Web Bluetooth SOLO funciona en Chrome/Edge para Android y en Chrome/Edge
+//    de escritorio. Safari de iPhone/iPad NO lo soporta (Apple lo bloquea en
+//    WebKit) y por lo tanto esta función NO puede imprimir desde un iPhone,
+//    sea con Safari o con la app instalada como PWA. Es una limitación del
+//    navegador, no de este código.
+// 2. Solo funciona con impresoras que soportan Bluetooth LOW ENERGY (BLE).
+//    Muchas impresoras térmicas chinas baratas usan Bluetooth Clásico (SPP),
+//    que el navegador no puede usar. Si al presionar "Emparejar impresora" no
+//    aparece tu impresora en la lista, probablemente sea Bluetooth Clásico y
+//    esta función no podrá usarla (se necesitaría una app nativa, no una web).
+// 3. La primera vez que se imprime en cada sesión del navegador, Chrome pedirá
+//    elegir el dispositivo Bluetooth (esto lo exige el navegador por seguridad,
+//    no se puede omitir). Mientras la pestaña/app siga abierta, no debería
+//    volver a pedirlo.
+
+// UUIDs de servicio/característica más comunes en impresoras térmicas BLE
+// genéricas (módulos tipo "BT" usados por marcas como Goojprt, MPT-II, POS58,
+// Rongta, y varios clones sin marca que se venden en Chile). Si tu impresora
+// no conecta con estos, prueba el modo "auto-detectar" que revisa todos los
+// servicios del dispositivo buscando una característica que acepte escritura.
+const SERVICE_UUID_CANDIDATES = [
+  "000018f0-0000-1000-8000-00805f9b34fb",
+  "49535343-fe7d-4ae5-8fa9-9fafd205e455",
+  "e7810a71-73ae-499d-8c15-faa9aef0c3f2",
+];
+
+const STORAGE_KEY = "pos_printer_config";
+
+let cachedDevice = null;
+let cachedCharacteristic = null;
+
+export function getPrinterConfig() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : { habilitada: false, nombreDispositivo: null };
+  } catch {
+    return { habilitada: false, nombreDispositivo: null };
+  }
+}
+
+export function setPrinterConfig(config) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+}
+
+export function isWebBluetoothSupported() {
+  return typeof navigator !== "undefined" && !!navigator.bluetooth;
+}
+
+export function isConnected() {
+  return !!(cachedDevice && cachedDevice.gatt && cachedDevice.gatt.connected);
+}
+
+// Busca, entre TODOS los servicios/características del dispositivo, la primera
+// característica que acepte escritura. Sirve como respaldo cuando la
+// impresora no usa ninguno de los UUIDs conocidos de arriba.
+async function encontrarCaracteristicaEscritura(server) {
+  const services = await server.getPrimaryServices();
+  for (const service of services) {
+    const chars = await service.getCharacteristics();
+    const writable = chars.find((c) => c.properties.write || c.properties.writeWithoutResponse);
+    if (writable) return writable;
+  }
+  return null;
+}
+
+async function obtenerCaracteristica(server) {
+  for (const uuid of SERVICE_UUID_CANDIDATES) {
+    try {
+      const service = await server.getPrimaryService(uuid);
+      const chars = await service.getCharacteristics();
+      const writable = chars.find((c) => c.properties.write || c.properties.writeWithoutResponse);
+      if (writable) return writable;
+    } catch {
+      // este dispositivo no tiene ese servicio, se prueba el siguiente
+    }
+  }
+  return encontrarCaracteristicaEscritura(server);
+}
+
+// Abre el selector de dispositivos Bluetooth del navegador. Debe llamarse
+// directamente desde un click del usuario (requisito de seguridad del navegador).
+export async function emparejarImpresora() {
+  if (!isWebBluetoothSupported()) {
+    throw new Error(
+      "Este navegador no soporta Bluetooth web. En iPhone no es posible (limitación de Apple); en Android usa Chrome."
+    );
+  }
+  const device = await navigator.bluetooth.requestDevice({
+    acceptAllDevices: true,
+    optionalServices: SERVICE_UUID_CANDIDATES,
+  });
+  const server = await device.gatt.connect();
+  const characteristic = await obtenerCaracteristica(server);
+  if (!characteristic) {
+    throw new Error(
+      "Se conectó al dispositivo pero no se encontró una característica de escritura. Puede que esta impresora no sea compatible con Web Bluetooth."
+    );
+  }
+  cachedDevice = device;
+  cachedCharacteristic = characteristic;
+  setPrinterConfig({ habilitada: true, nombreDispositivo: device.name || "Impresora Bluetooth" });
+  device.addEventListener("gattserverdisconnected", () => {
+    cachedCharacteristic = null;
+  });
+  return device.name || "Impresora Bluetooth";
+}
+
+async function asegurarConexion() {
+  if (isConnected() && cachedCharacteristic) return cachedCharacteristic;
+  if (cachedDevice) {
+    // Ya se emparejó antes en esta sesión: se puede reconectar sin volver a
+    // mostrar el selector.
+    const server = await cachedDevice.gatt.connect();
+    cachedCharacteristic = await obtenerCaracteristica(server);
+    if (cachedCharacteristic) return cachedCharacteristic;
+  }
+  // No hay dispositivo en memoria (recién se abrió la app/pestaña): hay que
+  // volver a pedirle al usuario que elija la impresora.
+  await emparejarImpresora();
+  return cachedCharacteristic;
+}
+
+function quitarTildes(texto) {
+  // Muchas impresoras térmicas baratas no soportan UTF-8 ni acentos/ñ
+  // correctamente. Para que el ticket se lea bien SIEMPRE, se reemplazan por
+  // su equivalente sin tilde antes de imprimir.
+  return String(texto)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\x00-\x7E]/g, (c) => (c === "\u00f1" || c === "\u00d1" ? (c === "\u00f1" ? "n" : "N") : c));
+}
+
+const ESC = 0x1b;
+const GS = 0x1d;
+
+function construirComandosTicket({ almacenNombre, fecha, vendedor, productos, total, descuento, totalSinDescuento, metodoPago }) {
+  const bytes = [];
+  const push = (arr) => bytes.push(...arr);
+  const texto = (s) => push(Array.from(new TextEncoder().encode(quitarTildes(s))));
+  const linea = (s = "") => { texto(s); push([0x0a]); };
+
+  push([ESC, 0x40]); // init
+  push([ESC, 0x61, 0x01]); // centrar
+  push([ESC, 0x45, 0x01]); // negrita ON
+  linea(almacenNombre || "Almacen");
+  push([ESC, 0x45, 0x00]); // negrita OFF
+  linea(fecha);
+  linea("--------------------------------");
+  push([ESC, 0x61, 0x00]); // alinear izquierda
+
+  productos.forEach((p) => {
+    linea(`${p.cantidad} x ${p.nombre}`);
+    const totalStr = `$${Number(p.total).toLocaleString("es-CL")}`;
+    linea(`${" ".repeat(Math.max(0, 32 - totalStr.length))}${totalStr}`);
+  });
+
+  linea("--------------------------------");
+  if (descuento) {
+    linea(`Subtotal: $${Number(totalSinDescuento).toLocaleString("es-CL")}`);
+    linea(`Descuento: -$${Number(descuento).toLocaleString("es-CL")}`);
+  }
+  push([ESC, 0x45, 0x01]);
+  linea(`TOTAL: $${Number(total).toLocaleString("es-CL")}`);
+  push([ESC, 0x45, 0x00]);
+  linea(`Pago: ${metodoPago}`);
+  if (vendedor) linea(`Atendido por: ${vendedor}`);
+  linea("");
+  push([ESC, 0x61, 0x01]);
+  linea("Gracias por su compra!");
+  push([0x0a, 0x0a, 0x0a, 0x0a]);
+  // No se envía comando de corte automático: muchas impresoras térmicas de
+  // 58mm de bajo costo no tienen cuchilla y el comando de corte queda
+  // ignorado o produce un error. Si tu impresora SÍ corta automáticamente,
+  // puedes agregar aquí: push([GS, 0x56, 0x00]);
+
+  return new Uint8Array(bytes);
+}
+
+// Envía los bytes en trozos pequeños (los módulos BLE de estas impresoras
+// suelen aceptar ~20 bytes por escritura) con una pequeña pausa entre cada
+// uno para no saturar el buffer del dispositivo.
+async function enviarPorPartes(characteristic, data) {
+  const CHUNK = 20;
+  for (let i = 0; i < data.length; i += CHUNK) {
+    const chunk = data.slice(i, i + CHUNK);
+    if (characteristic.properties.writeWithoutResponse) {
+      await characteristic.writeValueWithoutResponse(chunk);
+    } else {
+      await characteristic.writeValue(chunk);
+    }
+    await new Promise((r) => setTimeout(r, 20));
+  }
+}
+
+// receiptData: { almacenNombre, vendedor, productos:[{nombre,cantidad,total}],
+//                total, descuento, totalSinDescuento, metodoPago }
+export async function imprimirTicket(receiptData) {
+  const characteristic = await asegurarConexion();
+  if (!characteristic) throw new Error("No se pudo conectar con la impresora");
+  const datos = construirComandosTicket({
+    fecha: new Date().toLocaleString("es-CL"),
+    ...receiptData,
+  });
+  await enviarPorPartes(characteristic, datos);
+}
+
+export function desconectarImpresora() {
+  if (cachedDevice && cachedDevice.gatt && cachedDevice.gatt.connected) {
+    cachedDevice.gatt.disconnect();
+  }
+  cachedDevice = null;
+  cachedCharacteristic = null;
 }
 ````
 
