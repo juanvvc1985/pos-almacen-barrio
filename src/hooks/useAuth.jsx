@@ -225,14 +225,39 @@ export function AuthProvider({ children }) {
 
   async function findEmailByUsername(username) {
     const clean = username.toLowerCase().trim();
+
+    // 1. Buscar en usuarios que ya se han logueado en ESTE dispositivo
     const users = JSON.parse(localStorage.getItem(OFFLINE_USERS_KEY) || "{}");
     for (const uid in users) {
       if (users[uid].username === clean) return users[uid].email;
     }
-    if (navigator.onLine) {
-      const snap = await getDoc(doc(db, "publicUsernames", clean));
-      if (snap.exists()) return snap.data().email;
+
+    // 2. Buscar en cache de vendedores del almacén (se pobla al abrir /vendedores)
+    const offlineSession = getOfflineSession();
+    const almacenId = offlineSession?.userData?.almacenId;
+    if (almacenId) {
+      try {
+        const cache = JSON.parse(localStorage.getItem(`pos_vendedores_cache_${almacenId}`) || "[]");
+        const found = cache.find((v) => v.username === clean);
+        if (found) return found.email;
+      } catch { /* noop */ }
     }
+
+    // 3. Buscar online en Firestore
+    if (navigator.onLine) {
+      try {
+        const snap = await getDoc(doc(db, "publicUsernames", clean));
+        if (snap.exists()) {
+          const data = snap.data();
+          if (data.email) return data.email;
+          // Fallback: vendedores creados con la versión buggeada (sin campo email)
+          if (data.almacenId) {
+            return `vendedor.${clean}.${data.almacenId}@pos-almacen.local`;
+          }
+        }
+      } catch { /* noop */ }
+    }
+
     return null;
   }
 
@@ -269,7 +294,6 @@ export function AuthProvider({ children }) {
       }
       return result;
     } catch (err) {
-      // Intento 2: Fallback offline si falló por red
       const isNetworkError =
         err.code === "auth/network-request-failed" ||
         err.code === "auth/timeout" ||
@@ -278,17 +302,37 @@ export function AuthProvider({ children }) {
         !navigator.onLine;
 
       if (isNetworkError) {
-        const offline = (await idbGet("session").catch(() => null)) || getOfflineSession();
-        if (offline && offline.email?.toLowerCase() === email) {
+        const targetEmail = email.toLowerCase();
+
+        // Buscar en TODOS los usuarios que se han logueado en este dispositivo
+        const users = JSON.parse(localStorage.getItem(OFFLINE_USERS_KEY) || "{}");
+        let offline = null;
+        for (const uid in users) {
+          if (users[uid].email?.toLowerCase() === targetEmail) {
+            offline = { uid, ...users[uid] };
+            break;
+          }
+        }
+
+        // Si no, buscar en la sesión activa anterior
+        if (!offline) {
+          const session = (await idbGet("session").catch(() => null)) || getOfflineSession();
+          if (session && session.email?.toLowerCase() === targetEmail) {
+            offline = session;
+          }
+        }
+
+        if (offline) {
           setUser({
             uid: offline.uid,
             email: offline.email,
-            displayName: offline.displayName,
+            displayName: offline.displayName || offline.nombre,
             photoURL: offline.photoURL,
           });
-          setUserData(offline.userData);
+          setUserData(offline.userData || offline);
           return { user: offline, offline: true };
         }
+
         throw new Error("Sin conexión. Primero inicia sesión con internet al menos una vez.");
       }
       throw err;
@@ -336,8 +380,11 @@ export function AuthProvider({ children }) {
   };
 
   const logout = async () => {
-    await idbDel("session");
-    clearOfflineSession();
+    await idbDel("session");           // Borra solo la sesión activa
+    clearOfflineSession();             // Borra la sesión activa de localStorage
+    // NO borramos OFFLINE_USERS_KEY para que el login offline siga funcionando
+    // después de cerrar sesión (cualquier usuario que se haya logueado antes
+    // puede volver a entrar sin internet).
     await signOut(auth);
     setUser(null);
     setUserData(null);

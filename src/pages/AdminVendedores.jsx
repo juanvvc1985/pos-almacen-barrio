@@ -25,6 +25,13 @@ export default function AdminVendedores() {
     setLoading(true);
     const data = await usersService.getVendedores(userData.almacenId);
     setVendedores(data);
+
+    // Guardar en cache local para que los usernames se puedan resolver offline
+    localStorage.setItem(
+      `pos_vendedores_cache_${userData.almacenId}`,
+      JSON.stringify(data.map((v) => ({ username: v.username, email: v.email, nombre: v.nombre })))
+    );
+
     await cargarPlanInfo(data.length);
     setLoading(false);
   }

@@ -77,9 +77,10 @@ export const usersService = {
       createdAt: new Date().toISOString(),
     });
 
-    // 4. Registrar username público
+    // 4. Registrar username público (FIX: ahora incluye email para resolver offline)
     await setDoc(doc(db, "publicUsernames", username), {
       uid,
+      email,        // ← AGREGADO: necesario para que login encuentre el email
       almacenId,
       createdAt: new Date().toISOString(),
     });
