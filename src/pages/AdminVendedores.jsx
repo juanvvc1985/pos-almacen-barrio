@@ -152,7 +152,7 @@ export default function AdminVendedores() {
       }
 
       usersService.getVendedores(userData.almacenId).then((data) => {
-        const normalizados = data.map((v) => ({ ...v, privilegios: { ...DEFAULT_PRIVILEGIOS, ...v.privilegios } }));
+        const normalizados = data.map((v) => ({ ...v, privilegios: { ...DEFAULT_PRIVILEGOS, ...v.privilegios } }));
         setVendedores(normalizados);
         localStorage.setItem(
           `pos_vendedores_cache_${userData.almacenId}`,
@@ -285,13 +285,13 @@ export default function AdminVendedores() {
       ) : (
         <form onSubmit={handleCrear} className="mb-6 bg-white border rounded-xl p-4 shadow-sm">
           <h3 className="font-semibold text-gray-800 mb-3">Nuevo Vendedor</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <input
               type="text"
               placeholder="Nombre completo"
               value={form.nombre}
               onChange={(e) => setForm({ ...form, nombre: e.target.value })}
-              className="border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+              className="border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none w-full"
               required
             />
             <input
@@ -299,7 +299,7 @@ export default function AdminVendedores() {
               placeholder="Usuario (sin espacios)"
               value={form.username}
               onChange={(e) => setForm({ ...form, username: e.target.value })}
-              className="border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+              className="border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none w-full"
               required
             />
             <input
@@ -307,7 +307,7 @@ export default function AdminVendedores() {
               placeholder="Contraseña (mín. 6)"
               value={form.password}
               onChange={(e) => setForm({ ...form, password: e.target.value })}
-              className="border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+              className="border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none w-full"
               required
               minLength={6}
             />
@@ -343,87 +343,89 @@ export default function AdminVendedores() {
         </div>
       ) : (
         <div className="bg-white border rounded-xl shadow-sm overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b">
-              <tr>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Nombre</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Usuario</th>
-                <th className="text-center px-4 py-3 font-medium text-gray-600">Estado</th>
-                <th className="text-right px-4 py-3 font-medium text-gray-600">Acciones</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {vendedores.map((v) => (
-                <tr key={v.id} className="hover:bg-gray-50 transition">
-                  <td className="px-4 py-3 font-medium text-gray-800">{v.nombre}</td>
-                  <td className="px-4 py-3 text-gray-500">@{v.username}</td>
-                  <td className="px-4 py-3 text-center">
-                    <button
-                      onClick={() => toggleActivo(v)}
-                      disabled={saving}
-                      className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium transition ${
-                        v.activo
-                          ? "bg-green-100 text-green-700 hover:bg-green-200"
-                          : "bg-gray-100 text-gray-500 hover:bg-gray-200"
-                      }`}
-                    >
-                      {v.activo ? <UserCheck size={12} /> : <UserX size={12} />}
-                      {v.activo ? "Activo" : "Inactivo"}
-                    </button>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <button
-                        onClick={() => abrirPrivilegios(v)}
-                        disabled={saving}
-                        className="p-1.5 rounded-lg hover:bg-purple-50 text-purple-600 transition"
-                        title="Editar privilegios"
-                      >
-                        <Shield size={16} />
-                      </button>
-                      <button
-                        onClick={() => handleCambiarPassword(v)}
-                        disabled={saving}
-                        className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-600 transition"
-                        title="Cambiar contraseña"
-                      >
-                        <KeyRound size={16} />
-                      </button>
-                      <button
-                        onClick={() => handleEliminar(v)}
-                        disabled={saving}
-                        className="p-1.5 rounded-lg hover:bg-red-50 text-red-600 transition"
-                        title="Eliminar"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[500px]">
+              <thead className="bg-gray-50 border-b">
+                <tr>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600 whitespace-nowrap">Nombre</th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600 whitespace-nowrap">Usuario</th>
+                  <th className="text-center px-4 py-3 font-medium text-gray-600 whitespace-nowrap">Estado</th>
+                  <th className="text-right px-4 py-3 font-medium text-gray-600 whitespace-nowrap">Acciones</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y">
+                {vendedores.map((v) => (
+                  <tr key={v.id} className="hover:bg-gray-50 transition">
+                    <td className="px-4 py-3 font-medium text-gray-800 whitespace-nowrap">{v.nombre}</td>
+                    <td className="px-4 py-3 text-gray-500 whitespace-nowrap">@{v.username}</td>
+                    <td className="px-4 py-3 text-center">
+                      <button
+                        onClick={() => toggleActivo(v)}
+                        disabled={saving}
+                        className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium transition ${
+                          v.activo
+                            ? "bg-green-100 text-green-700 hover:bg-green-200"
+                            : "bg-gray-100 text-gray-500 hover:bg-gray-200"
+                        }`}
+                      >
+                        {v.activo ? <UserCheck size={12} /> : <UserX size={12} />}
+                        {v.activo ? "Activo" : "Inactivo"}
+                      </button>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          onClick={() => abrirPrivilegios(v)}
+                          disabled={saving}
+                          className="p-1.5 rounded-lg hover:bg-purple-50 text-purple-600 transition"
+                          title="Editar privilegios"
+                        >
+                          <Shield size={16} />
+                        </button>
+                        <button
+                          onClick={() => handleCambiarPassword(v)}
+                          disabled={saving}
+                          className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-600 transition"
+                          title="Cambiar contraseña"
+                        >
+                          <KeyRound size={16} />
+                        </button>
+                        <button
+                          onClick={() => handleEliminar(v)}
+                          disabled={saving}
+                          className="p-1.5 rounded-lg hover:bg-red-50 text-red-600 transition"
+                          title="Eliminar"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
-      {/* Modal de Privilegios */}
+      {/* Modal de Privilegios - Responsive para celular */}
       {editandoPrivilegios && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
-            <div className="flex items-center gap-2 mb-4">
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-3">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-sm max-h-[90vh] overflow-y-auto p-5">
+            <div className="flex items-center gap-2 mb-3">
               <Shield className="text-purple-600" size={20} />
-              <h3 className="text-lg font-bold text-gray-800">
+              <h3 className="text-base font-bold text-gray-800">
                 Privilegios de {editandoPrivilegios.nombre}
               </h3>
             </div>
-            <p className="text-sm text-gray-500 mb-4">
-              Activa o desactiva los permisos de este vendedor. Los cambios se aplican inmediatamente al guardar.
+            <p className="text-xs text-gray-500 mb-3">
+              Activa o desactiva los permisos de este vendedor.
             </p>
-            <div className="space-y-3">
+            <div className="space-y-2">
               {PRIVILEGIOS_DISPONIBLES.map((p) => (
                 <label
                   key={p.key}
-                  className={`flex items-start gap-3 p-3 rounded-lg border transition ${
+                  className={`flex items-start gap-3 p-2.5 rounded-lg border transition ${
                     p.locked ? "bg-gray-50 border-gray-200" : "bg-white border-gray-200 hover:border-purple-300"
                   }`}
                 >
@@ -432,10 +434,10 @@ export default function AdminVendedores() {
                     checked={!!editandoPrivilegios.privilegios?.[p.key]}
                     disabled={p.locked || saving}
                     onChange={() => togglePrivilegio(p.key)}
-                    className="mt-0.5 w-4 h-4 text-purple-600 rounded"
+                    className="mt-0.5 w-4 h-4 text-purple-600 rounded shrink-0"
                   />
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-medium text-sm text-gray-800">{p.label}</span>
                       {p.locked && (
                         <span className="text-[10px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded">
@@ -448,21 +450,21 @@ export default function AdminVendedores() {
                 </label>
               ))}
             </div>
-            <div className="flex gap-2 mt-6">
+            <div className="flex gap-2 mt-4">
               <button
                 onClick={() => setEditandoPrivilegios(null)}
                 disabled={saving}
-                className="flex-1 py-2.5 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 font-medium transition"
+                className="flex-1 py-2 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 font-medium text-sm transition"
               >
                 Cancelar
               </button>
               <button
                 onClick={guardarPrivilegios}
                 disabled={saving}
-                className="flex-1 py-2.5 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-300 text-white rounded-lg font-medium transition flex items-center justify-center gap-2"
+                className="flex-1 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-300 text-white rounded-lg font-medium text-sm transition flex items-center justify-center gap-2"
               >
-                {saving ? <Loader2 size={16} className="animate-spin" /> : <Shield size={16} />}
-                {saving ? "Guardando..." : "Guardar Privilegios"}
+                {saving ? <Loader2 size={14} className="animate-spin" /> : <Shield size={14} />}
+                {saving ? "Guardando..." : "Guardar"}
               </button>
             </div>
           </div>

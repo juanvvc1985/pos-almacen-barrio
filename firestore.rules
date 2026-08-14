@@ -19,21 +19,27 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      // Dueño: control total sobre vendedores de su almacén
-      allow read: if isAuthenticated() && userRole() == "dueño"
+      // Dueño: leer vendedores de su almacén (list = sin resource.data)
+      allow list: if isAuthenticated() && userRole() == "dueño"
+        && userAlmacenId() != null;
+
+      // Dueño: leer documento individual de vendedor (get = con resource.data)
+      allow get: if isAuthenticated() && userRole() == "dueño"
         && resource.data.almacenId == userAlmacenId()
         && resource.data.role == "vendedor";
 
+      // Dueño: crear vendedor
       allow create: if isAuthenticated() && userRole() == "dueño"
         && request.resource.data.almacenId == userAlmacenId()
         && request.resource.data.role == "vendedor";
 
+      // Dueño: actualizar o eliminar vendedor (incluye campo privilegios)
       allow update, delete: if isAuthenticated() && userRole() == "dueño"
         && resource.data.almacenId == userAlmacenId()
         && resource.data.role == "vendedor";
 
       // Vendedor: leer su propio documento
-      allow read: if isAuthenticated() && request.auth.uid == userId;
+      allow get: if isAuthenticated() && request.auth.uid == userId;
 
       // Vendedor: actualizar SOLO campos personales (NUNCA privilegios, role, almacenId, activo)
       allow update: if isAuthenticated() && request.auth.uid == userId
