@@ -39,15 +39,19 @@ public/
 src/
   components/
     BarcodeScanner.jsx
+    BetaCodesAdmin.jsx
+    CanjearCodigo.jsx
     Fiados.jsx
     InventoryAlert.jsx
     Mermas.jsx
     Navbar.jsx
     Offers.jsx
     PlanBadge.jsx
+    PlanUpgrade.jsx
     POS.jsx
     ProductManager.jsx
     Reports.jsx
+    TrialBanner.jsx
   firebase/
     config.js
     firebase.js
@@ -57,18 +61,23 @@ src/
     useTurno.js
   pages/
     AdminVendedores.jsx
+    BetaRegister.jsx
     ConfiguracionAlmacen.jsx
     Dashboard.jsx
+    LandingPage.jsx
     Login.jsx
+    PaymentPortal.jsx
     Register.jsx
     RegisterVendedor.jsx
   services/
+    betaAuth.js
     firestoreConfig.js
     firestoreFiados.js
     firestoreMermas.js
     firestoreProducts.js
     firestoreSales.js
     firestoreUsers.js
+    paymentService.js
     planLimits.js
     printerService.js
   types/
@@ -317,6 +326,347 @@ export default function BarcodeScanner({ onScan, onClose, products = [] }) {
           <p className="text-gray-500 text-xs">
             Carrito · {products.length} items
           </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+````
+
+## File: src/components/BetaCodesAdmin.jsx
+````javascript
+import { useState, useEffect } from "react";
+import { useAuth } from "../hooks/useAuth";
+import {
+  collection,
+  addDoc,
+  getDocs,
+  deleteDoc,
+  doc,
+  serverTimestamp,
+  query,
+  orderBy
+} from "firebase/firestore";
+import { db } from "../firebase/firebase";
+
+// ═══════════════════════════════════════════════════════════════
+// WHITELIST DE ADMIN: Solo estos UIDs pueden crear códigos beta
+// Para obtener tu UID: Abre la app logueado → F12 → Console →
+// console.log(JSON.parse(localStorage.getItem("pos_offline_session")).uid)
+// ═══════════════════════════════════════════════════════════════
+const ADMIN_UIDS = [
+  // "PEGA-TU-UID-AQUI", // ← Descomenta y pega tu UID real
+];
+
+function generarCodigo(longitud = 8) {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let codigo = "";
+  for (let i = 0; i < longitud; i++) {
+    codigo += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return codigo;
+}
+
+export default function BetaCodesAdmin() {
+  const { user } = useAuth();
+  const [codigos, setCodigos] = useState([]);
+  const [nuevoCodigo, setNuevoCodigo] = useState("");
+  const [dias, setDias] = useState(30);
+  const [cantidad, setCantidad] = useState(1);
+  const [cargando, setCargando] = useState(false);
+  const [mensaje, setMensaje] = useState("");
+  const [error, setError] = useState("");
+
+  const isAdmin = ADMIN_UIDS.includes(user?.uid);
+
+  useEffect(() => {
+    if (isAdmin) cargarCodigos();
+  }, [isAdmin]);
+
+  async function cargarCodigos() {
+    try {
+      const q = query(collection(db, "codigosBeta"), orderBy("creadoEn", "desc"));
+      const snap = await getDocs(q);
+      const lista = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      setCodigos(lista);
+    } catch (err) {
+      setError("Error al cargar códigos: " + err.message);
+    }
+  }
+
+  async function crearCodigo(e) {
+    e.preventDefault();
+    if (!isAdmin) {
+      setError("No tienes permisos para crear códigos beta.");
+      return;
+    }
+    setCargando(true);
+    setError("");
+    setMensaje("");
+
+    try {
+      const codigosCreados = [];
+      for (let i = 0; i < cantidad; i++) {
+        const codigo = nuevoCodigo.trim() || generarCodigo();
+        const expiresAt = Date.now() + dias * 24 * 60 * 60 * 1000;
+        await addDoc(collection(db, "codigosBeta"), {
+          codigo: codigo.toUpperCase(),
+          dias,
+          usado: false,
+          expiresAt,
+          creadoEn: serverTimestamp(),
+          creadoPor: user.uid,
+        });
+        codigosCreados.push(codigo.toUpperCase());
+      }
+      setMensaje(`✅ ${codigosCreados.length} código(s) creado(s): ${codigosCreados.join(", ")}`);
+      setNuevoCodigo("");
+      cargarCodigos();
+    } catch (err) {
+      setError("Error al crear código: " + err.message);
+    } finally {
+      setCargando(false);
+    }
+  }
+
+  async function eliminarCodigo(id) {
+    if (!window.confirm("¿Eliminar este código?")) return;
+    try {
+      await deleteDoc(doc(db, "codigosBeta", id));
+      cargarCodigos();
+      setMensaje("🗑️ Código eliminado");
+    } catch (err) {
+      setError("Error al eliminar: " + err.message);
+    }
+  }
+
+  if (!isAdmin) {
+    return (
+      <div className="max-w-2xl mx-auto p-6">
+        <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
+          <div className="text-4xl mb-3">🚫</div>
+          <h2 className="text-xl font-bold text-red-700 mb-2">Acceso Restringido</h2>
+          <p className="text-red-600">Este panel es exclusivo para administradores de Loventa.</p>
+          <p className="text-sm text-red-500 mt-2">
+            Tu UID: <code className="bg-red-100 px-2 py-1 rounded">{user?.uid || "No logueado"}</code>
+          </p>
+          <p className="text-xs text-gray-500 mt-4">
+            Si eres el creador, agrega tu UID a ADMIN_UIDS en BetaCodesAdmin.jsx
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-4xl mx-auto p-4">
+      <h1 className="text-2xl font-bold mb-6 flex items-center gap-2">🔑 Panel Admin — Códigos Beta</h1>
+
+      {mensaje && (
+        <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg mb-4">{mensaje}</div>
+      )}
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4">{error}</div>
+      )}
+
+      <div className="bg-white rounded-lg shadow p-6 mb-6">
+        <h2 className="text-lg font-semibold mb-4">Crear nuevo código</h2>
+        <form onSubmit={crearCodigo} className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="md:col-span-1">
+            <label htmlFor="codigo-input" className="block text-sm font-medium text-gray-700 mb-1">Código (opcional)</label>
+            <input id="codigo-input" name="codigo" type="text" value={nuevoCodigo}
+              onChange={(e) => setNuevoCodigo(e.target.value.toUpperCase())}
+              placeholder="Auto-generado" maxLength={12}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+          </div>
+          <div className="md:col-span-1">
+            <label htmlFor="dias-input" className="block text-sm font-medium text-gray-700 mb-1">Días Pro</label>
+            <input id="dias-input" name="dias" type="number" min={1} max={365} value={dias}
+              onChange={(e) => setDias(Number(e.target.value))}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+          </div>
+          <div className="md:col-span-1">
+            <label htmlFor="cantidad-input" className="block text-sm font-medium text-gray-700 mb-1">Cantidad</label>
+            <input id="cantidad-input" name="cantidad" type="number" min={1} max={50} value={cantidad}
+              onChange={(e) => setCantidad(Number(e.target.value))}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+          </div>
+          <div className="md:col-span-1 flex items-end">
+            <button type="submit" disabled={cargando}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed">
+              {cargando ? "Creando..." : "➕ Crear Código(s)"}
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <div className="bg-white rounded-lg shadow overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-200">
+          <h2 className="text-lg font-semibold">Códigos existentes ({codigos.length})</h2>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-4 py-3 text-left font-medium text-gray-700">Código</th>
+                <th className="px-4 py-3 text-left font-medium text-gray-700">Días</th>
+                <th className="px-4 py-3 text-left font-medium text-gray-700">Estado</th>
+                <th className="px-4 py-3 text-left font-medium text-gray-700">Usado por</th>
+                <th className="px-4 py-3 text-left font-medium text-gray-700">Expira</th>
+                <th className="px-4 py-3 text-right font-medium text-gray-700">Acción</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              {codigos.map((c) => (
+                <tr key={c.id} className={c.usado ? "bg-gray-50" : ""}>
+                  <td className="px-4 py-3 font-mono font-semibold">{c.codigo}</td>
+                  <td className="px-4 py-3">{c.dias}</td>
+                  <td className="px-4 py-3">
+                    {c.usado ? (
+                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">✅ Usado</span>
+                    ) : c.expiresAt && Date.now() > c.expiresAt ? (
+                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">⏰ Expirado</span>
+                    ) : (
+                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">🟢 Activo</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-gray-600">{c.usadoPor ? c.usadoPor.slice(0, 8) + "..." : "—"}</td>
+                  <td className="px-4 py-3 text-gray-600">{c.expiresAt ? new Date(c.expiresAt).toLocaleDateString("es-CL") : "Sin expiración"}</td>
+                  <td className="px-4 py-3 text-right">
+                    <button onClick={() => eliminarCodigo(c.id)} className="text-red-600 hover:text-red-800 text-sm font-medium">🗑️ Eliminar</button>
+                  </td>
+                </tr>
+              ))}
+              {codigos.length === 0 && (
+                <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-500">No hay códigos beta creados aún.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+````
+
+## File: src/components/CanjearCodigo.jsx
+````javascript
+import { useState } from "react";
+import { useAuth } from "../hooks/useAuth";
+import { validarCodigoBeta, usarCodigoBeta, activarProGratis } from "../services/paymentService";
+import { doc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { db } from "../firebase/firebase";
+
+export default function CanjearCodigo() {
+  const { user, refreshUser } = useAuth();
+  const [codigo, setCodigo] = useState("");
+  const [cargando, setCargando] = useState(false);
+  const [mensaje, setMensaje] = useState("");
+  const [error, setError] = useState("");
+  const [exito, setExito] = useState(false);
+
+  async function handleCanjear(e) {
+    e.preventDefault();
+    if (!codigo.trim()) {
+      setError("Ingresa un código beta.");
+      return;
+    }
+    if (!user?.uid) {
+      setError("Debes iniciar sesión para canjear un código.");
+      return;
+    }
+
+    setCargando(true);
+    setError("");
+    setMensaje("");
+    setExito(false);
+
+    try {
+      // 1. Validar código
+      const validacion = await validarCodigoBeta(codigo);
+      if (!validacion.valido) {
+        setError(validacion.mensaje);
+        setCargando(false);
+        return;
+      }
+
+      // 2. Activar Pro Gratis en el usuario
+      const dias = validacion.data.dias || 30;
+      await activarProGratis(user.uid, dias);
+
+      // 3. Marcar código como usado
+      await usarCodigoBeta(codigo, user.uid);
+
+      // 4. Actualizar metadata del usuario
+      await updateDoc(doc(db, "usuarios", user.uid), {
+        codigoBetaUsado: codigo.toUpperCase().trim(),
+        planActivadoEn: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+
+      // 5. Refrescar datos de usuario en el contexto
+      await refreshUser();
+
+      setExito(true);
+      setMensaje(`🎉 ¡Plan Pro activado por ${dias} días! Disfruta de todas las funciones.`);
+      setCodigo("");
+    } catch (err) {
+      setError("Error al canjear: " + err.message);
+    } finally {
+      setCargando(false);
+    }
+  }
+
+  return (
+    <div className="max-w-md mx-auto p-6">
+      <div className="bg-white rounded-xl shadow-lg p-6">
+        <div className="text-center mb-6">
+          <div className="text-4xl mb-2">🎁</div>
+          <h2 className="text-xl font-bold text-gray-800">Canjear Código Beta</h2>
+          <p className="text-gray-500 text-sm mt-1">Activa tu plan Pro gratis</p>
+        </div>
+
+        {exito && (
+          <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg mb-4 text-center">
+            {mensaje}
+          </div>
+        )}
+
+        {error && (
+          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-center">
+            {error}
+          </div>
+        )}
+
+        {!exito && (
+          <form onSubmit={handleCanjear} className="space-y-4">
+            <div>
+              <label htmlFor="codigo-beta" className="block text-sm font-medium text-gray-700 mb-1">
+                Código Beta
+              </label>
+              <input
+                id="codigo-beta"
+                name="codigoBeta"
+                type="text"
+                value={codigo}
+                onChange={(e) => setCodigo(e.target.value.toUpperCase())}
+                placeholder="Ej: ABC12345"
+                maxLength={12}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-center font-mono text-lg tracking-widest uppercase focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={cargando}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {cargando ? "Verificando..." : "🎁 Canjear Código"}
+            </button>
+          </form>
+        )}
+
+        <div className="mt-4 text-center text-xs text-gray-400">
+          Los códigos beta son de un solo uso y tienen fecha de expiración.
         </div>
       </div>
     </div>
@@ -863,273 +1213,92 @@ export default function Mermas() {
 
 ## File: src/components/Navbar.jsx
 ````javascript
-import { useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
-import { useOffline } from "../hooks/useOffline";
-import { salesService } from "../services/firestoreSales";
-import {
-  LogOut,
-  Menu,
-  X,
-  Wifi,
-  WifiOff,
-  RefreshCw,
-  Store,
-  BarChart3,
-  Package,
-  Users,
-  Settings,
-  HandCoins,
-  Tag,
-  AlertTriangle,
-  CheckCircle2,
-  Loader2,
-} from "lucide-react";
 
 export default function Navbar() {
-  const { isDueño, isVendedor, userData, logout, almacenId, hasPrivilege } = useAuth();
-  const { isOnline, pendingCount, syncing, getOfflineTurno, addToQueue, clearOfflineTurno } = useOffline();
+  const navigate = useNavigate();
   const location = useLocation();
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [mostrarCierreLogout, setMostrarCierreLogout] = useState(false);
-  const [resumenLogout, setResumenLogout] = useState(null);
-  const [loadingLogout, setLoadingLogout] = useState(false);
+  const { user, isDueño, logout } = useAuth();
 
-  const navLinks = [
-    { to: "/", label: "Vender", icon: Store, visible: true },
-    { to: "/productos", label: "Productos", icon: Package, visible: isDueño || hasPrivilege("productos") },
-    { to: "/fiados", label: "Fiados", icon: HandCoins, visible: true },
-    { to: "/ofertas", label: "Ofertas", icon: Tag, visible: isDueño || hasPrivilege("ofertas") },
-    { to: "/mermas", label: "Mermas", icon: AlertTriangle, visible: isDueño || hasPrivilege("mermas") },
-    { to: "/informes", label: "Informes", icon: BarChart3, visible: true },
-    { to: "/vendedores", label: "Vendedores", icon: Users, visible: isDueño },
-    { to: "/configuracion", label: "Configuración", icon: Settings, visible: isDueño },
-  ];
-
-  async function handleLogout() {
-    if (!almacenId) {
-      logout();
-      return;
-    }
-
-    setLoadingLogout(true);
-    try {
-      if (!isOnline) {
-        const offlineTurno = getOfflineTurno();
-        if (offlineTurno) {
-          const cerrado = {
-            ...offlineTurno,
-            estado: "cerrado",
-            cerradoEn: new Date().toISOString(),
-            ventas: { efectivo: 0, tarjeta: 0, transferencia: 0, fiado: 0 },
-          };
-          addToQueue({ type: "turno_cerrar", turnoId: offlineTurno.id, data: cerrado });
-          clearOfflineTurno();
-        }
-        logout();
-        return;
-      }
-
-      const turno = await salesService.getTurnoActivo(almacenId);
-      if (turno) {
-        const ventasHoy = await salesService.getTodaySales(almacenId);
-        const resumen = { efectivo: 0, tarjeta: 0, transferencia: 0, fiado: 0 };
-        ventasHoy.forEach((v) => {
-          if (resumen[v.metodoPago] !== undefined) resumen[v.metodoPago] += v.total;
-        });
-        const totalVentas = Object.values(resumen).reduce((a, b) => a + b, 0);
-        setResumenLogout({
-          ...resumen,
-          totalVentas,
-          efectivoEnCaja: (turno.montoInicial || 0) + (resumen.efectivo || 0),
-          montoInicial: turno.montoInicial || 0,
-          turnoId: turno.id,
-        });
-        setMostrarCierreLogout(true);
-      } else {
-        logout();
-      }
-    } catch (err) {
-      console.error("Error al procesar logout:", err);
-      alert("Hubo un problema al verificar el turno. Se cerrará la sesión de todas formas.");
-      logout();
-    } finally {
-      setLoadingLogout(false);
-    }
-  }
-
-  async function confirmarCierreLogout() {
-    if (!resumenLogout) return;
-    setLoadingLogout(true);
-    try {
-      await salesService.updateTurno(resumenLogout.turnoId, {
-        estado: "cerrado",
-        cerradoEn: new Date().toISOString(),
-        ventas: {
-          efectivo: resumenLogout.efectivo,
-          tarjeta: resumenLogout.tarjeta,
-          transferencia: resumenLogout.transferencia,
-          fiado: resumenLogout.fiado,
-        },
-      });
-      setMostrarCierreLogout(false);
-      setResumenLogout(null);
-      logout();
-    } catch (err) {
-      console.error("Error cerrando turno:", err);
-      alert("Error al cerrar el turno: " + (err.message || "Intenta de nuevo"));
-    } finally {
-      setLoadingLogout(false);
-    }
-  }
+  const linkClass = (path) =>
+    `px-3 py-2 rounded-lg text-sm font-medium transition ${
+      location.pathname === path
+        ? "bg-blue-600 text-white"
+        : "text-gray-700 hover:bg-gray-100"
+    }`;
 
   return (
-    <>
-      <nav className="bg-white border-b shadow-sm sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4">
-          <div className="flex items-center justify-between h-14">
-            <Link to="/" className="flex items-center gap-2">
-              <Store className="text-blue-600" size={22} />
-              <span className="font-bold text-gray-800 text-lg hidden sm:inline">
-                {userData?.nombreNegocio || "Almacén"}
-              </span>
-            </Link>
+    <nav className="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-50">
+      <div className="container mx-auto px-4 max-w-7xl">
+        <div className="flex items-center justify-between h-14">
+          {/* Logo */}
+          <button
+            onClick={() => navigate("/")}
+            className="flex items-center gap-2 font-bold text-lg text-blue-600"
+          >
+            🏪 Almacén de Barrio
+          </button>
 
-            <div className="hidden md:flex items-center gap-1">
-              {navLinks
-                .filter((l) => l.visible)
-                .map((link) => (
-                  <Link
-                    key={link.to}
-                    to={link.to}
-                    className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition ${
-                      location.pathname === link.to
-                        ? "bg-blue-50 text-blue-700"
-                        : "text-gray-600 hover:bg-gray-50"
-                    }`}
-                  >
-                    <link.icon size={16} />
-                    {link.label}
-                  </Link>
-                ))}
-            </div>
+          {/* Links principales */}
+          <div className="hidden md:flex items-center gap-1">
+            <button onClick={() => navigate("/vender")} className={linkClass("/vender")}>
+              🛒 Vender
+            </button>
+            <button onClick={() => navigate("/productos")} className={linkClass("/productos")}>
+              📦 Productos
+            </button>
+            <button onClick={() => navigate("/fiados")} className={linkClass("/fiados")}>
+              📝 Fiados
+            </button>
+            <button onClick={() => navigate("/ofertas")} className={linkClass("/ofertas")}>
+              🏷️ Ofertas
+            </button>
+            <button onClick={() => navigate("/mermas")} className={linkClass("/mermas")}>
+              🗑️ Mermas
+            </button>
+            <button onClick={() => navigate("/informes")} className={linkClass("/informes")}>
+              📊 Informes
+            </button>
 
-            <div className="flex items-center gap-2">
-              {!isOnline && (
-                <span className="hidden sm:flex items-center gap-1 text-amber-600 text-xs font-medium bg-amber-50 px-2 py-1 rounded-full">
-                  <WifiOff size={12} />
-                  Offline
-                </span>
-              )}
-              {isOnline && pendingCount > 0 && (
-                <span className="hidden sm:flex items-center gap-1 text-blue-600 text-xs font-medium bg-blue-50 px-2 py-1 rounded-full">
-                  <RefreshCw size={12} className={syncing ? "animate-spin" : ""} />
-                  {pendingCount} pendiente{pendingCount > 1 ? "s" : ""}
-                </span>
-              )}
+            {/* 🔑 Botón Códigos Beta — solo para dueños */}
+            {isDueño && (
               <button
-                onClick={handleLogout}
-                disabled={loadingLogout}
-                className="flex items-center gap-1.5 text-red-600 hover:bg-red-50 px-3 py-2 rounded-lg text-sm font-medium transition disabled:opacity-50"
+                onClick={() => navigate("/admin-beta")}
+                className={linkClass("/admin-beta")}
               >
-                {loadingLogout ? <Loader2 size={16} className="animate-spin" /> : <LogOut size={16} />}
-                <span className="hidden sm:inline">Salir</span>
+                🔑 Códigos Beta
               </button>
-              <button
-                onClick={() => setMenuOpen(!menuOpen)}
-                className="md:hidden p-2 rounded-lg hover:bg-gray-100"
-              >
-                {menuOpen ? <X size={20} /> : <Menu size={20} />}
+            )}
+
+            {isDueño && (
+              <button onClick={() => navigate("/vendedores")} className={linkClass("/vendedores")}>
+                👥 Vendedores
               </button>
-            </div>
+            )}
+            {isDueño && (
+              <button onClick={() => navigate("/configuracion")} className={linkClass("/configuracion")}>
+                ⚙️ Config
+              </button>
+            )}
+          </div>
+
+          {/* Usuario + Logout */}
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-gray-600 hidden sm:block">
+              {user?.nombre || user?.email || "Invitado"}
+              {isDueño && <span className="ml-1 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">Dueño</span>}
+            </span>
+            <button
+              onClick={logout}
+              className="text-sm text-red-600 hover:text-red-800 font-medium px-3 py-2 rounded-lg hover:bg-red-50 transition"
+            >
+              Salir
+            </button>
           </div>
         </div>
-
-        {menuOpen && (
-          <div className="md:hidden border-t bg-white">
-            {navLinks
-              .filter((l) => l.visible)
-              .map((link) => (
-                <Link
-                  key={link.to}
-                  to={link.to}
-                  onClick={() => setMenuOpen(false)}
-                  className={`flex items-center gap-2 px-4 py-3 text-sm font-medium ${
-                    location.pathname === link.to
-                      ? "bg-blue-50 text-blue-700"
-                      : "text-gray-600"
-                  }`}
-                >
-                  <link.icon size={16} />
-                  {link.label}
-                </Link>
-              ))}
-          </div>
-        )}
-      </nav>
-
-      {mostrarCierreLogout && resumenLogout && (
-        <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
-            <div className="flex items-center gap-2 mb-4">
-              <AlertTriangle className="text-amber-500" size={24} />
-              <h2 className="text-lg font-bold text-gray-800">Cerrar Turno y Salir</h2>
-            </div>
-            <p className="text-sm text-gray-500 mb-4">
-              Hay un turno abierto. Debes cerrarlo antes de salir.
-            </p>
-            <div className="bg-gray-50 rounded-lg p-4 mb-4 space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-gray-500">Monto inicial</span>
-                <span className="font-medium">${resumenLogout.montoInicial.toLocaleString("es-CL")}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">Efectivo</span>
-                <span className="font-medium text-green-700">+${resumenLogout.efectivo.toLocaleString("es-CL")}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">Tarjeta</span>
-                <span className="font-medium">${resumenLogout.tarjeta.toLocaleString("es-CL")}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">Transferencia</span>
-                <span className="font-medium">${resumenLogout.transferencia.toLocaleString("es-CL")}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">Fiado</span>
-                <span className="font-medium text-amber-600">${resumenLogout.fiado.toLocaleString("es-CL")}</span>
-              </div>
-              <div className="border-t pt-2 flex justify-between font-bold text-gray-800">
-                <span>Total ventas</span>
-                <span>${resumenLogout.totalVentas.toLocaleString("es-CL")}</span>
-              </div>
-              <div className="flex justify-between font-bold text-blue-700">
-                <span>Efectivo en caja</span>
-                <span>${resumenLogout.efectivoEnCaja.toLocaleString("es-CL")}</span>
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={confirmarCierreLogout}
-                disabled={loadingLogout}
-                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-lg font-medium transition disabled:opacity-50 flex items-center justify-center gap-2"
-              >
-                {loadingLogout ? <Loader2 size={18} className="animate-spin" /> : <CheckCircle2 size={18} />}
-                {loadingLogout ? "Cerrando..." : "Cerrar Turno y Salir"}
-              </button>
-              <button
-                onClick={() => { setMostrarCierreLogout(false); setResumenLogout(null); }}
-                disabled={loadingLogout}
-                className="px-4 py-2.5 rounded-lg border text-gray-600 hover:bg-gray-50 transition disabled:opacity-50"
-              >
-                Cancelar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
+      </div>
+    </nav>
   );
 }
 ````
@@ -1193,9 +1362,6 @@ export default function Offers() {
         enOferta: true,
         precioOferta,
         razonOferta: form.razon || null,
-        // Si se deja vacío, cantidadOferta queda null y se vende TODO el stock a precio
-        // oferta (comportamiento clásico). Si se especifica, solo esas unidades salen
-        // a precio oferta y el resto se cobra a precio normal automáticamente en el POS.
         cantidadOferta,
         cantidadOfertaVendida: 0,
       });
@@ -1417,6 +1583,245 @@ export default function PlanBadge() {
       <span className="hidden sm:flex items-center gap-1">
         <Users size={12} /> {stats.vendedores}/{limVen === Infinity ? "∞" : limVen}
       </span>
+    </div>
+  );
+}
+````
+
+## File: src/components/PlanUpgrade.jsx
+````javascript
+import { useState } from "react";
+import { useAuth } from "../hooks/useAuth";
+import { 
+  PRECIOS, formatMoney, calcularCompensacion, activarPlan 
+} from "../services/paymentService";
+import { 
+  X, Crown, Zap, ArrowRight, Check, Loader2, Calculator 
+} from "lucide-react";
+
+export default function PlanUpgrade({ onClose }) {
+  const { user, userData } = useAuth();
+  const [planDestino, setPlanDestino] = useState("pro");
+  const [periodoDestino, setPeriodoDestino] = useState("mensual");
+  const [loading, setLoading] = useState(false);
+  const [exito, setExito] = useState(false);
+  const [error, setError] = useState("");
+
+  const planActual = userData?.plan || "basico";
+  const periodoActual = userData?.planPeriodo || "mensual";
+  const fechaInicioActual = userData?.planStartedAt || new Date().toISOString();
+
+  // Calcular compensación
+  const compensacion = calcularCompensacion(
+    planActual, periodoActual, planDestino, periodoDestino, fechaInicioActual
+  );
+
+  async function handleUpgrade() {
+    if (!user || !userData?.almacenId) return;
+    setLoading(true);
+    setError("");
+
+    try {
+      // Simulación de pago de la compensación
+      await new Promise(r => setTimeout(r, 1500));
+
+      await activarPlan(user.uid, userData.almacenId, planDestino, periodoDestino, {
+        monto: compensacion.monto,
+        metodo: "simulado_upgrade",
+        transactionId: `upg_${Date.now()}`,
+      });
+
+      setExito(true);
+      setTimeout(() => {
+        window.location.reload();
+      }, 2000);
+    } catch (err) {
+      setError(err.message || "Error al procesar el upgrade.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (exito) {
+    return (
+      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl p-8 max-w-sm w-full text-center">
+          <Check className="w-14 h-14 text-green-500 mx-auto mb-3" />
+          <h3 className="text-xl font-bold text-gray-800 mb-2">¡Upgrade exitoso!</h3>
+          <p className="text-gray-600">
+            Ahora tienes el plan <strong>{PRECIOS[planDestino].label}</strong>.
+          </p>
+          <p className="text-sm text-gray-400 mt-3">Actualizando...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+        <div className="p-6 border-b border-gray-200 flex items-center justify-between">
+          <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+            <Crown className="w-5 h-5 text-purple-600" />
+            Upgrade de Plan
+          </h2>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg transition">
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-6">
+          {/* Plan actual */}
+          <div className="bg-gray-50 rounded-xl p-4">
+            <p className="text-xs text-gray-500 uppercase font-medium mb-1">Plan actual</p>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-bold text-gray-800">{PRECIOS[planActual]?.label || planActual}</p>
+                <p className="text-sm text-gray-500">
+                  {periodoActual === "anual" ? "Pago anual" : "Pago mensual"} • 
+                  Desde {new Date(fechaInicioActual).toLocaleDateString("es-CL")}
+                </p>
+              </div>
+              <span className="text-lg font-bold text-gray-800">
+                {formatMoney(PRECIOS[planActual]?.[periodoActual] || 0)}
+              </span>
+            </div>
+          </div>
+
+          {/* Flecha */}
+          <div className="flex justify-center">
+            <ArrowRight className="w-6 h-6 text-gray-400" />
+          </div>
+
+          {/* Plan destino */}
+          <div>
+            <p className="text-xs text-gray-500 uppercase font-medium mb-3">Nuevo plan</p>
+
+            {/* Selector de plan */}
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <button
+                onClick={() => setPlanDestino("pro")}
+                className={`p-3 rounded-xl border-2 text-left transition ${
+                  planDestino === "pro" 
+                    ? "border-purple-500 bg-purple-50" 
+                    : "border-gray-200 hover:border-gray-300"
+                }`}
+              >
+                <Crown className="w-5 h-5 text-purple-600 mb-1" />
+                <p className="font-bold text-sm">Plan Pro</p>
+                <p className="text-xs text-gray-500">Todo ilimitado</p>
+              </button>
+            </div>
+
+            {/* Selector de periodo */}
+            <div className="bg-gray-100 rounded-lg p-1 inline-flex w-full">
+              <button
+                onClick={() => setPeriodoDestino("mensual")}
+                className={`flex-1 py-2 rounded-md text-sm font-medium transition ${
+                  periodoDestino === "mensual" 
+                    ? "bg-white text-gray-800 shadow-sm" 
+                    : "text-gray-500"
+                }`}
+              >
+                Mensual
+              </button>
+              <button
+                onClick={() => setPeriodoDestino("anual")}
+                className={`flex-1 py-2 rounded-md text-sm font-medium transition flex items-center justify-center gap-2 ${
+                  periodoDestino === "anual" 
+                    ? "bg-white text-gray-800 shadow-sm" 
+                    : "text-gray-500"
+                }`}
+              >
+                Anual
+                <span className="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">
+                  -17%
+                </span>
+              </button>
+            </div>
+          </div>
+
+          {/* Cálculo de compensación */}
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Calculator className="w-4 h-4 text-blue-600" />
+              <p className="text-sm font-bold text-blue-800">Cálculo de compensación</p>
+            </div>
+            <p className="text-sm text-blue-700 mb-3">{compensacion.mensaje}</p>
+
+            {compensacion.prorrateo && compensacion.detalle && (
+              <div className="text-xs text-blue-600 space-y-1">
+                <div className="flex justify-between">
+                  <span>Precio nuevo ({PRECIOS[planDestino].label} {periodoDestino})</span>
+                  <span>{formatMoney(compensacion.detalle.precioNuevo)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Valor restante de tu plan actual</span>
+                  <span className="text-green-700">-{formatMoney(compensacion.detalle.valorRestante)}</span>
+                </div>
+                <div className="border-t border-blue-200 pt-1 flex justify-between font-bold">
+                  <span>Total a pagar ahora</span>
+                  <span>{formatMoney(compensacion.monto)}</span>
+                </div>
+              </div>
+            )}
+
+            {!compensacion.prorrateo && (
+              <div className="text-xs text-blue-600 space-y-1">
+                <div className="flex justify-between">
+                  <span>{PRECIOS[planDestino].label} {periodoDestino}</span>
+                  <span>{formatMoney(PRECIOS[planDestino][periodoDestino])}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>{PRECIOS[planActual].label} {periodoActual} (actual)</span>
+                  <span className="text-green-700">-{formatMoney(PRECIOS[planActual][periodoActual])}</span>
+                </div>
+                <div className="border-t border-blue-200 pt-1 flex justify-between font-bold">
+                  <span>Diferencia a pagar</span>
+                  <span>{formatMoney(compensacion.monto)}</span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Detalle del nuevo plan */}
+          <div className="border border-gray-200 rounded-xl p-4">
+            <p className="text-xs text-gray-500 uppercase font-medium mb-2">Incluye Plan Pro</p>
+            <ul className="space-y-1.5 text-sm text-gray-600">
+              <li className="flex items-center gap-2"><Check size={14} className="text-green-500" /> Productos ilimitados</li>
+              <li className="flex items-center gap-2"><Check size={14} className="text-green-500" /> Vendedores ilimitados</li>
+              <li className="flex items-center gap-2"><Check size={14} className="text-green-500" /> Reportes avanzados</li>
+              <li className="flex items-center gap-2"><Check size={14} className="text-green-500" /> Multi-sucursal</li>
+              <li className="flex items-center gap-2"><Check size={14} className="text-green-500" /> Ofertas y promociones</li>
+            </ul>
+          </div>
+
+          {error && (
+            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded-lg text-sm">
+              {error}
+            </div>
+          )}
+
+          <button
+            onClick={handleUpgrade}
+            disabled={loading || compensacion.monto === 0}
+            className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-gray-300 text-white font-bold py-3 rounded-xl transition flex items-center justify-center gap-2"
+          >
+            {loading ? (
+              <><Loader2 className="w-5 h-5 animate-spin" /> Procesando...</>
+            ) : (
+              <><Zap size={18} /> {compensacion.monto > 0 
+                ? `Pagar ${formatMoney(compensacion.monto)} y upgradear` 
+                : "Activar upgrade gratuito"}
+              </>
+            )}
+          </button>
+
+          <p className="text-xs text-gray-400 text-center">
+            El upgrade es inmediato. Se prorratea el tiempo restante de tu plan actual.
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1852,6 +2257,10 @@ export default function POS() {
       setCarrito([]);
       setAplicarDescuento(false);
       setMontoACobrar("");
+
+      // 🔥 FIX: Forzar recarga de productos desde Firestore después de vender
+      // para asegurar que el stock mostrado esté sincronizado
+      await cargarProductos();
     } catch (err) {
       console.error(err);
       alert("Error al registrar la venta");
@@ -1880,8 +2289,17 @@ export default function POS() {
     }
   }
 
+  // 🔥 FIX: Mostrar productos con stock > 0 primero, y deshabilitar los agotados
   const productosRapidos = productos
     .filter((p) => !search.trim() || p.nombre?.toLowerCase().includes(search.toLowerCase()))
+    .sort((a, b) => {
+      // Priorizar productos con stock disponible
+      const stockA = a.stock || 0;
+      const stockB = b.stock || 0;
+      if (stockA > 0 && stockB <= 0) return -1;
+      if (stockA <= 0 && stockB > 0) return 1;
+      return 0;
+    })
     .slice(0, 12);
 
   return (
@@ -2035,12 +2453,28 @@ export default function POS() {
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-              {productosRapidos.map((p) => (
+              {productosRapidos.map((p) => {
+                const sinStock = (p.stock || 0) <= 0;
+                const ofertaRestante = p.cantidadOferta != null && p.cantidadOferta > 0
+                  ? Math.max(0, p.cantidadOferta - (p.cantidadOfertaVendida || 0))
+                  : null;
+                return (
                 <button
                   key={p.id}
-                  onClick={() => agregarAlCarrito(p)}
-                  className="bg-white rounded-xl shadow-sm border border-gray-200 p-3 text-left hover:shadow-md hover:border-blue-300 transition active:scale-95"
+                  onClick={() => !sinStock && agregarAlCarrito(p)}
+                  disabled={sinStock}
+                  className={`bg-white rounded-xl shadow-sm border p-3 text-left transition active:scale-95 relative overflow-hidden ${
+                    sinStock
+                      ? "border-gray-200 opacity-60 cursor-not-allowed"
+                      : "border-gray-200 hover:shadow-md hover:border-blue-300"
+                  }`}
                 >
+                  {/* 🔥 FIX: Badge de agotado */}
+                  {sinStock && (
+                    <div className="absolute inset-0 bg-gray-100/80 flex items-center justify-center z-10">
+                      <span className="text-xs font-bold text-gray-500 bg-white px-2 py-1 rounded border border-gray-200">AGOTADO</span>
+                    </div>
+                  )}
                   <p className="font-medium text-gray-800 text-sm truncate">{p.nombre}</p>
                   {p.enOferta ? (
                     <div className="flex items-center gap-1.5 mt-1">
@@ -2052,18 +2486,25 @@ export default function POS() {
                       {formatCurrency(p.precioVenta)}
                     </p>
                   )}
-                  <p className="text-xs text-gray-400 mt-0.5">
+                  <p className={`text-xs mt-0.5 ${sinStock ? "text-red-500 font-medium" : "text-gray-400"}`}>
                     Stock: {p.stock} {p.unidad}
                   </p>
                   {p.enOferta && (
-                    <span className="inline-block mt-1 text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded">
-                      {p.cantidadOferta != null && p.cantidadOferta > 0
-                        ? `OFERTA: ${Math.max(0, p.cantidadOferta - (p.cantidadOfertaVendida || 0))} u. restantes`
+                    <span className={`inline-block mt-1 text-xs px-1.5 py-0.5 rounded ${
+                      ofertaRestante != null && ofertaRestante > 0
+                        ? "bg-red-100 text-red-700"
+                        : "bg-gray-100 text-gray-500"
+                    }`}>
+                      {ofertaRestante != null && ofertaRestante > 0
+                        ? `🔥 ${ofertaRestante} u. en oferta`
+                        : ofertaRestante === 0
+                        ? "Cupo oferta agotado"
                         : "OFERTA"}
                     </span>
                   )}
                 </button>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -2411,6 +2852,8 @@ export default function ProductManager() {
     stock: "", stockCritico: "", unidad: "unidad", categoria: "Abarrotes",
     perecedero: false, diasAlertaVencimiento: 3, enOferta: false, precioOferta: "", lotes: [],
     fechaVencimiento: "",
+    // 🔥 FIX: Preservar campos de oferta al editar
+    cantidadOferta: "", cantidadOfertaVendida: 0,
   });
 
   useEffect(() => {
@@ -2452,6 +2895,7 @@ export default function ProductManager() {
       stock: "", stockCritico: "", unidad: "unidad", categoria: "Abarrotes",
       perecedero: false, diasAlertaVencimiento: 3, enOferta: false, precioOferta: "", lotes: [],
       fechaVencimiento: "",
+      cantidadOferta: "", cantidadOfertaVendida: 0,
     });
     setEditando(null);
   }
@@ -2470,13 +2914,18 @@ export default function ProductManager() {
       enOferta: producto.enOferta || false,
       precioOferta: producto.precioOferta?.toString() || "", lotes: producto.lotes || [],
       fechaVencimiento: "",
+      // 🔥 FIX: Preservar cantidadOferta y cantidadOfertaVendida al editar
+      cantidadOferta: producto.cantidadOferta?.toString() || "",
+      cantidadOfertaVendida: producto.cantidadOfertaVendida || 0,
     });
     setEditando(producto.id);
     setMostrarForm(true);
   }
 
+  // 🔥 FIX: Validar duplicados por código de barras y preservar campos de oferta
   async function handleGuardar() {
     if (!puedeGestionar) { alert("Solo el dueño o vendedores con privilegio pueden gestionar productos"); return; }
+
     const data = {
       nombre: form.nombre.trim(), codigoBarras: form.codigoBarras.trim() || null,
       precioVenta: Number(form.precioVenta) || 0, precioCompra: Number(form.precioCompra) || 0,
@@ -2486,6 +2935,18 @@ export default function ProductManager() {
       enOferta: form.enOferta, precioOferta: form.enOferta ? Number(form.precioOferta) || 0 : null,
       lotes: form.lotes || [],
     };
+
+    // 🔥 FIX: Incluir cantidadOferta y cantidadOfertaVendida para no perderlos al editar
+    if (form.enOferta && form.cantidadOferta !== "" && form.cantidadOferta != null) {
+      const cantidadOfertaNum = Number(form.cantidadOferta);
+      if (!isNaN(cantidadOfertaNum) && cantidadOfertaNum > 0) {
+        data.cantidadOferta = cantidadOfertaNum;
+        data.cantidadOfertaVendida = Number(form.cantidadOfertaVendida) || 0;
+      }
+    } else if (!form.enOferta) {
+      data.cantidadOferta = null;
+      data.cantidadOfertaVendida = null;
+    }
 
     if (form.perecedero && form.fechaVencimiento) {
       data.lotes = [{
@@ -2497,6 +2958,16 @@ export default function ProductManager() {
     }
 
     if (!data.nombre) { alert("El nombre es obligatorio"); return; }
+
+    // 🔥 FIX: Validar duplicados por código de barras (excluyendo el producto que se está editando)
+    if (data.codigoBarras && data.codigoBarras.trim() !== "") {
+      const existente = await productsService.getProductByBarcode(almacenId, data.codigoBarras.trim());
+      if (existente && existente.id !== editando) {
+        alert(`Ya existe un producto con el código de barras "${data.codigoBarras}". Usa el producto existente o cambia el código.`);
+        return;
+      }
+    }
+
     try {
       if (editando) {
         await productsService.updateProduct(editando, data);
@@ -2698,6 +3169,15 @@ export default function ProductManager() {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="0" min="0" />
               </div>
             )}
+            {/* 🔥 FIX: Mostrar campos de cantidadOferta en modo edición si ya existen */}
+            {editando && form.enOferta && form.cantidadOferta !== "" && form.cantidadOferta != null && Number(form.cantidadOferta) > 0 && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Cantidad en oferta (ya configurada)</label>
+                <input type="number" value={form.cantidadOferta} onChange={(e) => setForm({ ...form, cantidadOferta: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="0" min="1" />
+                <p className="text-xs text-gray-400 mt-1">Vendidas: {form.cantidadOfertaVendida || 0} de {form.cantidadOferta}</p>
+              </div>
+            )}
           </div>
           <div className="flex gap-3 mt-6">
             <button onClick={() => { setMostrarForm(false); resetForm(); }}
@@ -2766,7 +3246,14 @@ export default function ProductManager() {
                           <p className="font-medium text-gray-800">{p.nombre}</p>
                           <p className="text-xs text-gray-400">{p.categoria} • {p.unidad}</p>
                           {p.codigoBarras && <p className="text-xs text-gray-400 font-mono">{p.codigoBarras}</p>}
-                          {p.enOferta && <span className="inline-block mt-1 text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded">OFERTA: {formatCurrency(p.precioOferta)}</span>}
+                          {p.enOferta && (
+                            <span className="inline-block mt-1 text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded">
+                              OFERTA: {formatCurrency(p.precioOferta)}
+                              {p.cantidadOferta != null && p.cantidadOferta > 0
+                                ? ` (${Math.max(0, p.cantidadOferta - (p.cantidadOfertaVendida || 0))} restantes)`
+                                : " (todo el stock)"}
+                            </span>
+                          )}
                         </div>
                       </td>
                       <td className="px-4 py-3 text-right">
@@ -3816,6 +4303,104 @@ function LibroVentasResumen({ mes, ventas, fiados, mermas }) {
 }
 ````
 
+## File: src/components/TrialBanner.jsx
+````javascript
+import { useState, useEffect } from "react";
+import { useAuth } from "../hooks/useAuth";
+import { verificarEstadoV2 } from "../services/paymentService";
+import { Clock, AlertTriangle, X, Crown, Zap, Gift } from "lucide-react";
+
+export default function TrialBanner() {
+  const { userData } = useAuth();
+  const [estado, setEstado] = useState(null);
+  const [cerrado, setCerrado] = useState(false);
+
+  useEffect(() => {
+    if (!userData) return;
+    const info = verificarEstadoV2(userData);
+    setEstado(info);
+  }, [userData]);
+
+  if (!estado || cerrado) return null;
+
+  // No mostrar banner si está en plan pagado
+  if (estado.estado === "basico" || estado.estado === "pro") return null;
+
+  // Banner rojo si está suspendido
+  if (estado.suspendido) {
+    return (
+      <div className="fixed bottom-4 left-4 right-4 z-50">
+        <div className="bg-red-600 text-white px-4 py-3 rounded-xl shadow-lg flex items-center gap-3">
+          <AlertTriangle size={20} />
+          <div className="flex-1">
+            <p className="font-bold text-sm">{estado.mensaje}</p>
+            <p className="text-xs text-red-100">
+              Tu periodo de prueba y plan gratuito han finalizado. Ve a Configuración → Plan para activar uno.
+            </p>
+          </div>
+          <button
+            onClick={() => setCerrado(true)}
+            className="p-1 hover:bg-red-700 rounded transition"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Banner morado para Trial Pro (últimos 5 días = urgente)
+  if (estado.estado === "trial_pro") {
+    const esUrgente = estado.diasRestantes <= 5;
+    return (
+      <div className="fixed bottom-4 left-4 right-4 z-50">
+        <div className={`${esUrgente ? "bg-amber-500" : "bg-purple-600"} text-white px-4 py-3 rounded-xl shadow-lg flex items-center gap-3`}>
+          <Crown size={18} />
+          <div className="flex-1 min-w-0">
+            <p className="font-bold text-sm truncate">{estado.mensaje}</p>
+            <p className="text-xs opacity-90">
+              Tienes acceso completo al Plan Pro. Luego vendrán 6 meses gratis.
+            </p>
+          </div>
+          <button
+            onClick={() => setCerrado(true)}
+            className="p-1 hover:bg-white/20 rounded transition shrink-0"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Banner verde para Pro Gratis (últimos 15 días = urgente)
+  if (estado.estado === "pro_gratis") {
+    const esUrgente = estado.diasRestantes <= 15;
+    return (
+      <div className="fixed bottom-4 left-4 right-4 z-50">
+        <div className={`${esUrgente ? "bg-amber-500" : "bg-green-600"} text-white px-4 py-3 rounded-xl shadow-lg flex items-center gap-3`}>
+          <Gift size={18} />
+          <div className="flex-1 min-w-0">
+            <p className="font-bold text-sm truncate">{estado.mensaje}</p>
+            <p className="text-xs opacity-90">
+              Disfruta de Plan Pro gratis como agradecimiento por ser beta tester.
+            </p>
+          </div>
+          <button
+            onClick={() => setCerrado(true)}
+            className="p-1 hover:bg-white/20 rounded transition shrink-0"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return null;
+}
+````
+
 ## File: src/firebase/config.js
 ````javascript
 // Configuración de Firebase - usa firebase.js para inicialización
@@ -3921,6 +4506,7 @@ import {
   where,
   getDocs,
 } from "firebase/firestore";
+import { verificarEstadoV2, autoUpgradeFases } from "../services/paymentService";
 
 const AuthContext = createContext(null);
 
@@ -3932,6 +4518,9 @@ export const ROLES = {
 export const PLANES = {
   BASICO: "basico",
   PRO: "pro",
+  TRIAL_PRO: "trial_pro",
+  PRO_GRATIS: "pro_gratis",
+  SUSPENDIDO: "suspendido",
 };
 
 const FIREBASE_API_KEY = "AIzaSyAQUD8KyWSPYNz73RTrdSy-jZ3Lf2QiF3c";
@@ -3994,7 +4583,7 @@ async function idbDel(key) {
   }
 }
 
-// ─── localStorage helpers (fallback) ───
+// ─── localStorage helpers ───
 function getOfflineSession() {
   try {
     return JSON.parse(localStorage.getItem(OFFLINE_SESSION_KEY));
@@ -4040,6 +4629,7 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [userData, setUserData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [suscripcionInfo, setSuscripcionInfo] = useState(null);
 
   useEffect(() => {
     let unsub = null;
@@ -4055,6 +4645,8 @@ export function AuthProvider({ children }) {
           photoURL: offline.photoURL,
         });
         setUserData(offline.userData);
+        const info = verificarEstadoV2(offline.userData);
+        setSuscripcionInfo(info);
       }
 
       unsub = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -4065,7 +4657,25 @@ export function AuthProvider({ children }) {
           try {
             const userDoc = await getDoc(doc(db, "users", firebaseUser.uid));
             if (userDoc.exists()) {
-              const data = userDoc.data();
+              let data = userDoc.data();
+
+              // 🔥 FIX: Verificar y auto-actualizar fases de suscripción
+              const estadoInfo = verificarEstadoV2(data);
+
+              if (estadoInfo.necesitaUpgrade || 
+                  (data.plan === "pro_gratis" && estadoInfo.suspendido) ||
+                  ((data.plan === "basico" || data.plan === "pro") && estadoInfo.suspendido)) {
+                try {
+                  const nuevoPlan = await autoUpgradeFases(firebaseUser.uid, data);
+                  const updatedDoc = await getDoc(doc(db, "users", firebaseUser.uid));
+                  if (updatedDoc.exists()) data = updatedDoc.data();
+                } catch (upgradeErr) {
+                  console.error("Error en auto-upgrade:", upgradeErr);
+                }
+              }
+
+              const finalInfo = verificarEstadoV2(data);
+              setSuscripcionInfo(finalInfo);
 
               if (data.passwordPending && data.role === "vendedor") {
                 try {
@@ -4093,11 +4703,17 @@ export function AuthProvider({ children }) {
               saveOfflineUser(firebaseUser.uid, data);
             } else {
               const cached = getOfflineUser(firebaseUser.uid);
-              if (cached) setUserData(cached);
+              if (cached) {
+                setUserData(cached);
+                setSuscripcionInfo(verificarEstadoV2(cached));
+              }
             }
           } catch (err) {
             const cached = getOfflineUser(firebaseUser.uid);
-            if (cached) setUserData(cached);
+            if (cached) {
+              setUserData(cached);
+              setSuscripcionInfo(verificarEstadoV2(cached));
+            }
             console.warn("Firestore offline, usando cache:", err.message);
           }
         } else {
@@ -4105,6 +4721,7 @@ export function AuthProvider({ children }) {
           if (!stillOffline) {
             setUser(null);
             setUserData(null);
+            setSuscripcionInfo(null);
           }
         }
 
@@ -4162,11 +4779,30 @@ export function AuthProvider({ children }) {
       const result = await signInWithEmailAndPassword(auth, email, password);
       const userDoc = await getDoc(doc(db, "users", result.user.uid));
       if (userDoc.exists()) {
-        const data = userDoc.data();
+        let data = userDoc.data();
+
+        const estadoInfo = verificarEstadoV2(data);
+
+        if (estadoInfo.necesitaUpgrade || 
+            (data.plan === "pro_gratis" && estadoInfo.suspendido) ||
+            ((data.plan === "basico" || data.plan === "pro") && estadoInfo.suspendido)) {
+          try {
+            await autoUpgradeFases(result.user.uid, data);
+            const updatedDoc = await getDoc(doc(db, "users", result.user.uid));
+            if (updatedDoc.exists()) data = updatedDoc.data();
+          } catch (upgradeErr) {
+            console.error("Error en auto-upgrade:", upgradeErr);
+          }
+        }
+
+        const finalInfo = verificarEstadoV2(data);
+        setSuscripcionInfo(finalInfo);
+
         if (data.activo === false) {
           await signOut(auth);
           throw new Error("Usuario desactivado. Contacta al dueño.");
         }
+
         setUserData(data);
         const session = {
           uid: result.user.uid,
@@ -4213,6 +4849,7 @@ export function AuthProvider({ children }) {
             photoURL: offline.photoURL,
           });
           setUserData(offline.userData || offline);
+          setSuscripcionInfo(verificarEstadoV2(offline.userData || offline));
           return { user: offline, offline: true };
         }
         throw new Error("Sin conexión. Primero inicia sesión con internet al menos una vez.");
@@ -4247,6 +4884,7 @@ export function AuthProvider({ children }) {
       plan: PLANES.BASICO,
     };
     setUserData(newUserData);
+    setSuscripcionInfo(verificarEstadoV2(newUserData));
     const session = {
       uid: result.user.uid,
       email: result.user.email?.toLowerCase(),
@@ -4267,13 +4905,15 @@ export function AuthProvider({ children }) {
     await signOut(auth);
     setUser(null);
     setUserData(null);
+    setSuscripcionInfo(null);
   };
 
   const isDueño = userData?.role === ROLES.DUEÑO;
   const isVendedor = userData?.role === ROLES.VENDEDOR;
   const almacenId = userData?.almacenId || null;
+  const isSuspendido = suscripcionInfo?.suspendido || false;
+  const planReal = suscripcionInfo?.planReal || null;
 
-  // ─── NUEVO: helper de privilegios ───
   const hasPrivilege = useCallback((privilege) => {
     if (isDueño) return true;
     if (!userData?.privilegios) return false;
@@ -4294,6 +4934,9 @@ export function AuthProvider({ children }) {
         almacenId,
         isAuthenticated: !!userData,
         hasPrivilege,
+        suscripcionInfo,
+        isSuspendido,
+        planReal,
       }}
     >
       {children}
@@ -4751,7 +5394,7 @@ export default function AdminVendedores() {
       }
 
       usersService.getVendedores(userData.almacenId).then((data) => {
-        const normalizados = data.map((v) => ({ ...v, privilegios: { ...DEFAULT_PRIVILEGIOS, ...v.privilegios } }));
+        const normalizados = data.map((v) => ({ ...v, privilegios: { ...DEFAULT_PRIVILEGOS, ...v.privilegios } }));
         setVendedores(normalizados);
         localStorage.setItem(
           `pos_vendedores_cache_${userData.almacenId}`,
@@ -4884,13 +5527,13 @@ export default function AdminVendedores() {
       ) : (
         <form onSubmit={handleCrear} className="mb-6 bg-white border rounded-xl p-4 shadow-sm">
           <h3 className="font-semibold text-gray-800 mb-3">Nuevo Vendedor</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <input
               type="text"
               placeholder="Nombre completo"
               value={form.nombre}
               onChange={(e) => setForm({ ...form, nombre: e.target.value })}
-              className="border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+              className="border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none w-full"
               required
             />
             <input
@@ -4898,7 +5541,7 @@ export default function AdminVendedores() {
               placeholder="Usuario (sin espacios)"
               value={form.username}
               onChange={(e) => setForm({ ...form, username: e.target.value })}
-              className="border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+              className="border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none w-full"
               required
             />
             <input
@@ -4906,7 +5549,7 @@ export default function AdminVendedores() {
               placeholder="Contraseña (mín. 6)"
               value={form.password}
               onChange={(e) => setForm({ ...form, password: e.target.value })}
-              className="border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+              className="border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none w-full"
               required
               minLength={6}
             />
@@ -4942,87 +5585,89 @@ export default function AdminVendedores() {
         </div>
       ) : (
         <div className="bg-white border rounded-xl shadow-sm overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b">
-              <tr>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Nombre</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Usuario</th>
-                <th className="text-center px-4 py-3 font-medium text-gray-600">Estado</th>
-                <th className="text-right px-4 py-3 font-medium text-gray-600">Acciones</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {vendedores.map((v) => (
-                <tr key={v.id} className="hover:bg-gray-50 transition">
-                  <td className="px-4 py-3 font-medium text-gray-800">{v.nombre}</td>
-                  <td className="px-4 py-3 text-gray-500">@{v.username}</td>
-                  <td className="px-4 py-3 text-center">
-                    <button
-                      onClick={() => toggleActivo(v)}
-                      disabled={saving}
-                      className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium transition ${
-                        v.activo
-                          ? "bg-green-100 text-green-700 hover:bg-green-200"
-                          : "bg-gray-100 text-gray-500 hover:bg-gray-200"
-                      }`}
-                    >
-                      {v.activo ? <UserCheck size={12} /> : <UserX size={12} />}
-                      {v.activo ? "Activo" : "Inactivo"}
-                    </button>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <button
-                        onClick={() => abrirPrivilegios(v)}
-                        disabled={saving}
-                        className="p-1.5 rounded-lg hover:bg-purple-50 text-purple-600 transition"
-                        title="Editar privilegios"
-                      >
-                        <Shield size={16} />
-                      </button>
-                      <button
-                        onClick={() => handleCambiarPassword(v)}
-                        disabled={saving}
-                        className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-600 transition"
-                        title="Cambiar contraseña"
-                      >
-                        <KeyRound size={16} />
-                      </button>
-                      <button
-                        onClick={() => handleEliminar(v)}
-                        disabled={saving}
-                        className="p-1.5 rounded-lg hover:bg-red-50 text-red-600 transition"
-                        title="Eliminar"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[500px]">
+              <thead className="bg-gray-50 border-b">
+                <tr>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600 whitespace-nowrap">Nombre</th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600 whitespace-nowrap">Usuario</th>
+                  <th className="text-center px-4 py-3 font-medium text-gray-600 whitespace-nowrap">Estado</th>
+                  <th className="text-right px-4 py-3 font-medium text-gray-600 whitespace-nowrap">Acciones</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y">
+                {vendedores.map((v) => (
+                  <tr key={v.id} className="hover:bg-gray-50 transition">
+                    <td className="px-4 py-3 font-medium text-gray-800 whitespace-nowrap">{v.nombre}</td>
+                    <td className="px-4 py-3 text-gray-500 whitespace-nowrap">@{v.username}</td>
+                    <td className="px-4 py-3 text-center">
+                      <button
+                        onClick={() => toggleActivo(v)}
+                        disabled={saving}
+                        className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium transition ${
+                          v.activo
+                            ? "bg-green-100 text-green-700 hover:bg-green-200"
+                            : "bg-gray-100 text-gray-500 hover:bg-gray-200"
+                        }`}
+                      >
+                        {v.activo ? <UserCheck size={12} /> : <UserX size={12} />}
+                        {v.activo ? "Activo" : "Inactivo"}
+                      </button>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          onClick={() => abrirPrivilegios(v)}
+                          disabled={saving}
+                          className="p-1.5 rounded-lg hover:bg-purple-50 text-purple-600 transition"
+                          title="Editar privilegios"
+                        >
+                          <Shield size={16} />
+                        </button>
+                        <button
+                          onClick={() => handleCambiarPassword(v)}
+                          disabled={saving}
+                          className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-600 transition"
+                          title="Cambiar contraseña"
+                        >
+                          <KeyRound size={16} />
+                        </button>
+                        <button
+                          onClick={() => handleEliminar(v)}
+                          disabled={saving}
+                          className="p-1.5 rounded-lg hover:bg-red-50 text-red-600 transition"
+                          title="Eliminar"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
-      {/* Modal de Privilegios */}
+      {/* Modal de Privilegios - Responsive para celular */}
       {editandoPrivilegios && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
-            <div className="flex items-center gap-2 mb-4">
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-3">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-sm max-h-[90vh] overflow-y-auto p-5">
+            <div className="flex items-center gap-2 mb-3">
               <Shield className="text-purple-600" size={20} />
-              <h3 className="text-lg font-bold text-gray-800">
+              <h3 className="text-base font-bold text-gray-800">
                 Privilegios de {editandoPrivilegios.nombre}
               </h3>
             </div>
-            <p className="text-sm text-gray-500 mb-4">
-              Activa o desactiva los permisos de este vendedor. Los cambios se aplican inmediatamente al guardar.
+            <p className="text-xs text-gray-500 mb-3">
+              Activa o desactiva los permisos de este vendedor.
             </p>
-            <div className="space-y-3">
+            <div className="space-y-2">
               {PRIVILEGIOS_DISPONIBLES.map((p) => (
                 <label
                   key={p.key}
-                  className={`flex items-start gap-3 p-3 rounded-lg border transition ${
+                  className={`flex items-start gap-3 p-2.5 rounded-lg border transition ${
                     p.locked ? "bg-gray-50 border-gray-200" : "bg-white border-gray-200 hover:border-purple-300"
                   }`}
                 >
@@ -5031,10 +5676,10 @@ export default function AdminVendedores() {
                     checked={!!editandoPrivilegios.privilegios?.[p.key]}
                     disabled={p.locked || saving}
                     onChange={() => togglePrivilegio(p.key)}
-                    className="mt-0.5 w-4 h-4 text-purple-600 rounded"
+                    className="mt-0.5 w-4 h-4 text-purple-600 rounded shrink-0"
                   />
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-medium text-sm text-gray-800">{p.label}</span>
                       {p.locked && (
                         <span className="text-[10px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded">
@@ -5047,26 +5692,256 @@ export default function AdminVendedores() {
                 </label>
               ))}
             </div>
-            <div className="flex gap-2 mt-6">
+            <div className="flex gap-2 mt-4">
               <button
                 onClick={() => setEditandoPrivilegios(null)}
                 disabled={saving}
-                className="flex-1 py-2.5 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 font-medium transition"
+                className="flex-1 py-2 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 font-medium text-sm transition"
               >
                 Cancelar
               </button>
               <button
                 onClick={guardarPrivilegios}
                 disabled={saving}
-                className="flex-1 py-2.5 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-300 text-white rounded-lg font-medium transition flex items-center justify-center gap-2"
+                className="flex-1 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-300 text-white rounded-lg font-medium text-sm transition flex items-center justify-center gap-2"
               >
-                {saving ? <Loader2 size={16} className="animate-spin" /> : <Shield size={16} />}
-                {saving ? "Guardando..." : "Guardar Privilegios"}
+                {saving ? <Loader2 size={14} className="animate-spin" /> : <Shield size={14} />}
+                {saving ? "Guardando..." : "Guardar"}
               </button>
             </div>
           </div>
         </div>
       )}
+    </div>
+  );
+}
+````
+
+## File: src/pages/BetaRegister.jsx
+````javascript
+import { useState } from "react";
+import { useNavigate, Link } from "react-router-dom";
+import { registerBetaDueño } from "../services/betaAuth";
+import { Store, Mail, Lock, User, Tag, Loader2, CheckCircle2, ArrowLeft } from "lucide-react";
+
+export default function BetaRegister() {
+  const navigate = useNavigate();
+  const [form, setForm] = useState({
+    nombre: "",
+    email: "",
+    password: "",
+    confirmPassword: "",
+    nombreAlmacen: "",
+    codigoBeta: "",
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [exito, setExito] = useState(false);
+
+  function handleChange(e) {
+    setForm({ ...form, [e.target.name]: e.target.value });
+    setError("");
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError("");
+
+    // Validaciones
+    if (!form.nombre.trim()) { setError("El nombre es obligatorio"); return; }
+    if (!form.email.trim() || !form.email.includes("@")) { setError("Ingresa un email válido"); return; }
+    if (form.password.length < 6) { setError("La contraseña debe tener al menos 6 caracteres"); return; }
+    if (form.password !== form.confirmPassword) { setError("Las contraseñas no coinciden"); return; }
+    if (!form.nombreAlmacen.trim()) { setError("El nombre de tu tienda es obligatorio"); return; }
+    if (!form.codigoBeta.trim()) { setError("Ingresa tu código de invitación beta"); return; }
+
+    setLoading(true);
+    try {
+      await registerBetaDueño({
+        email: form.email,
+        password: form.password,
+        nombre: form.nombre,
+        nombreAlmacen: form.nombreAlmacen,
+        codigoBeta: form.codigoBeta,
+      });
+      setExito(true);
+      setTimeout(() => {
+        navigate("/");
+      }, 3000);
+    } catch (err) {
+      setError(err.message || "Error al registrar. Intenta de nuevo.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (exito) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full text-center">
+          <CheckCircle2 className="w-16 h-16 text-green-500 mx-auto mb-4" />
+          <h2 className="text-2xl font-bold text-gray-800 mb-2">¡Registro exitoso!</h2>
+          <p className="text-gray-600 mb-4">
+            Tu cuenta y tienda han sido creadas. Tienes <strong>30 días de prueba</strong> con acceso completo.
+          </p>
+          <p className="text-sm text-gray-500">
+            Después de los 30 días, tendrás <strong>6 meses del Plan Básico gratis</strong> como agradecimiento por ser beta tester.
+          </p>
+          <p className="text-xs text-gray-400 mt-4">Redirigiendo al dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-xl p-8 max-w-lg w-full">
+        <div className="text-center mb-8">
+          <div className="w-16 h-16 bg-blue-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <Store className="w-8 h-8 text-blue-600" />
+          </div>
+          <h1 className="text-2xl font-bold text-gray-800">Registro Beta</h1>
+          <p className="text-gray-500 text-sm mt-1">
+            Únete al programa beta de POS Almacén de Barrio
+          </p>
+        </div>
+
+        {error && (
+          <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+            {error}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Tu nombre *</label>
+              <div className="relative">
+                <User className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+                <input
+                  type="text"
+                  name="nombre"
+                  value={form.nombre}
+                  onChange={handleChange}
+                  className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                  placeholder="Juan Pérez"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Email *</label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+                <input
+                  type="email"
+                  name="email"
+                  value={form.email}
+                  onChange={handleChange}
+                  className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                  placeholder="tu@email.com"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Contraseña *</label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+                <input
+                  type="password"
+                  name="password"
+                  value={form.password}
+                  onChange={handleChange}
+                  className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                  placeholder="Mínimo 6 caracteres"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Confirmar contraseña *</label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+                <input
+                  type="password"
+                  name="confirmPassword"
+                  value={form.confirmPassword}
+                  onChange={handleChange}
+                  className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                  placeholder="Repite tu contraseña"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Nombre de tu tienda / almacén *</label>
+            <div className="relative">
+              <Store className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+              <input
+                type="text"
+                name="nombreAlmacen"
+                value={form.nombreAlmacen}
+                onChange={handleChange}
+                className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                placeholder="Ej: Almacén La Esquina"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Código de invitación Beta *</label>
+            <div className="relative">
+              <Tag className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+              <input
+                type="text"
+                name="codigoBeta"
+                value={form.codigoBeta}
+                onChange={handleChange}
+                className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none uppercase"
+                placeholder="BETA-XXXX"
+              />
+            </div>
+            <p className="text-xs text-gray-400 mt-1">
+              Solicita tu código al equipo de POS Almacén de Barrio
+            </p>
+          </div>
+
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
+            <p className="font-medium mb-1">¿Qué incluye tu registro beta?</p>
+            <ul className="space-y-1 text-xs">
+              <li className="flex items-center gap-1.5">
+                <CheckCircle2 size={12} className="text-green-600" />
+                <strong>30 días</strong> de prueba con acceso completo
+              </li>
+              <li className="flex items-center gap-1.5">
+                <CheckCircle2 size={12} className="text-green-600" />
+                Luego <strong>6 meses</strong> del Plan Básico gratis
+              </li>
+              <li className="flex items-center gap-1.5">
+                <CheckCircle2 size={12} className="text-green-600" />
+                Después puedes elegir Plan Básico o Pro
+              </li>
+            </ul>
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white font-bold py-3 rounded-xl transition flex items-center justify-center gap-2"
+          >
+            {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle2 size={20} />}
+            {loading ? "Creando cuenta..." : "Crear cuenta Beta"}
+          </button>
+        </form>
+
+        <div className="mt-6 text-center space-y-2">
+          <Link to="/login" className="text-sm text-blue-600 hover:text-blue-700 flex items-center justify-center gap-1">
+            <ArrowLeft size={14} /> Ya tengo cuenta, iniciar sesión
+          </Link>
+        </div>
+      </div>
     </div>
   );
 }
@@ -5365,6 +6240,7 @@ import Fiados from "../components/Fiados";
 import Offers from "../components/Offers";
 import AdminVendedores from "./AdminVendedores";
 import ConfiguracionAlmacen from "./ConfiguracionAlmacen";
+import BetaCodesAdmin from "../components/BetaCodesAdmin";
 
 export default function Dashboard() {
   const { isDueño, hasPrivilege, loading } = useAuth();
@@ -5391,6 +6267,7 @@ export default function Dashboard() {
           <Route path="/informes" element={<Reports />} />
           <Route path="/vendedores" element={isDueño ? <AdminVendedores /> : <Navigate to="/" />} />
           <Route path="/configuracion" element={isDueño ? <ConfiguracionAlmacen /> : <Navigate to="/" />} />
+          <Route path="/admin-beta" element={isDueño ? <BetaCodesAdmin /> : <Navigate to="/" />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
@@ -5399,130 +6276,533 @@ export default function Dashboard() {
 }
 ````
 
-## File: src/pages/Login.jsx
+## File: src/pages/LandingPage.jsx
 ````javascript
-import { useState, useEffect } from "react";
-import { useNavigate, Link } from "react-router-dom";
-import { useAuth, sendPasswordReset } from "../hooks/useAuth";
-import { Store, Eye, EyeOff, Loader2, Mail, WifiOff } from "lucide-react";
+import { useState } from "react";
+import { Link } from "react-router-dom";
+import {
+  Store, WifiOff, Smartphone, BarChart3, Shield, Zap,
+  Users, Package, CreditCard, Check, ArrowRight, Menu, X,
+  Clock, Gift, Crown, Star, ChevronDown
+} from "lucide-react";
 
-const MAX_EMAIL_LEN = 100;
-const MAX_PASSWORD_LEN = 50;
-const MAX_USERNAME_LEN = 30;
+export default function LandingPage() {
+  const [menuAbierto, setMenuAbierto] = useState(false);
+  const [faqAbierta, setFaqAbierta] = useState(null);
 
-export default function Login() {
-  const [identifier, setIdentifier] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [mostrarRecuperar, setMostrarRecuperar] = useState(false);
-  const [emailRecuperar, setEmailRecuperar] = useState("");
-  const [recuperando, setRecuperando] = useState(false);
-  const [mensajeRecuperar, setMensajeRecuperar] = useState("");
-  const [nombreNegocio, setNombreNegocio] = useState("Tu Negocio");
-  const { login } = useAuth();
-  const navigate = useNavigate();
+  const caracteristicas = [
+    {
+      icon: <WifiOff className="w-8 h-8 text-blue-600" />,
+      titulo: "100% Offline",
+      desc: "Vende sin internet. Todo se guarda localmente y se sincroniza cuando vuelvas a conectar.",
+    },
+    {
+      icon: <Smartphone className="w-8 h-8 text-green-600" />,
+      titulo: "Desde tu celular",
+      desc: "No necesitas computador ni caja registradora. Tu celular es tu POS.",
+    },
+    {
+      icon: <Package className="w-8 h-8 text-purple-600" />,
+      titulo: "Control de stock",
+      desc: "Sabe exactamente qué tienes, qué se vende más y qué está por agotarse.",
+    },
+    {
+      icon: <BarChart3 className="w-8 h-8 text-orange-600" />,
+      titulo: "Reportes claros",
+      desc: "Ventas por día, producto, vendedor. Toma decisiones con datos reales.",
+    },
+    {
+      icon: <Users className="w-8 h-8 text-pink-600" />,
+      titulo: "Multi-vendedor",
+      desc: "Cada vendedor con su usuario. Controla quién puede vender, editar o ver reportes.",
+    },
+    {
+      icon: <Shield className="w-8 h-8 text-teal-600" />,
+      titulo: "Fiados seguros",
+      desc: "Registra deudas de clientes con nombre, teléfono y dirección. Nunca pierdas una cuenta.",
+    },
+  ];
 
-  useEffect(() => {
-    const saved = localStorage.getItem("pos_negocio_nombre");
-    if (saved) setNombreNegocio(saved);
-  }, []);
+  const planes = [
+    {
+      nombre: "Básico",
+      precioMensual: 5990,
+      precioAnual: 59900,
+      icon: <Zap className="w-6 h-6" />,
+      color: "blue",
+      popular: false,
+      features: [
+        "Hasta 500 productos",
+        "1 vendedor",
+        "POS 100% offline",
+        "Control de stock",
+        "Ventas y fiados",
+        "Reportes básicos",
+        "Soporte por email",
+      ],
+    },
+    {
+      nombre: "Pro",
+      precioMensual: 11990,
+      precioAnual: 119900,
+      icon: <Crown className="w-6 h-6" />,
+      color: "purple",
+      popular: true,
+      features: [
+        "Productos ilimitados",
+        "Vendedores ilimitados",
+        "POS 100% offline",
+        "Reportes avanzados",
+        "Multi-sucursal",
+        "Ofertas y promociones",
+        "Soporte prioritario",
+        "Exportar datos",
+      ],
+    },
+  ];
 
-  function sanitizeInput(value, maxLen) {
-    return value.slice(0, maxLen).replace(/[<>'"&]/g, "");
-  }
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setError("");
-
-    const cleanIdentifier = sanitizeInput(identifier, identifier.includes("@") ? MAX_EMAIL_LEN : MAX_USERNAME_LEN);
-    const cleanPassword = sanitizeInput(password, MAX_PASSWORD_LEN);
-
-    if (!cleanIdentifier.trim()) {
-      setError("Ingresa tu usuario o correo");
-      return;
-    }
-    if (cleanPassword.length < 6) {
-      setError("La contraseña debe tener al menos 6 caracteres");
-      return;
-    }
-
-    setLoading(true);
-    try {
-      await login(cleanIdentifier, cleanPassword);
-      navigate("/");
-    } catch (err) {
-      let msg = "Error al iniciar sesión";
-
-      // Errores offline específicos
-      if (err.message?.includes("Sin conexión")) {
-        msg = err.message;
-      } else if (err.message === "Usuario no encontrado") {
-        msg = "Usuario no encontrado";
-      } else if (err.code === "auth/user-not-found") {
-        msg = "Usuario no encontrado";
-      } else if (err.code === "auth/wrong-password") {
-        msg = "Contraseña incorrecta";
-      } else if (err.code === "auth/invalid-credential") {
-        msg = "Usuario o contraseña incorrectos";
-      } else if (err.code === "auth/invalid-email") {
-        msg = "Formato de usuario/correo inválido";
-      } else if (err.code === "auth/too-many-requests") {
-        msg = "Demasiados intentos. Intenta más tarde.";
-      } else if (err.code === "auth/network-request-failed") {
-        msg = "Sin conexión a internet. Si ya iniciaste sesión antes en este dispositivo, inténtalo de nuevo. Si es la primera vez, necesitas internet.";
-      } else if (err.message) {
-        // Mostrar mensaje original si no coincide con los anteriores
-        msg = err.message;
-      }
-
-      setError(msg);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  async function handleRecuperar(e) {
-    e.preventDefault();
-    setMensajeRecuperar("");
-    const email = sanitizeInput(emailRecuperar, MAX_EMAIL_LEN);
-    if (!email.includes("@")) {
-      setMensajeRecuperar("Ingresa un correo válido");
-      return;
-    }
-    setRecuperando(true);
-    try {
-      await sendPasswordReset(email);
-      setMensajeRecuperar("Te enviamos un correo para recuperar tu contraseña. Revisa tu bandeja de entrada.");
-      setEmailRecuperar("");
-    } catch (err) {
-      let msg = "Error al enviar correo";
-      if (err.code === "auth/user-not-found") msg = "No existe una cuenta con ese correo";
-      setMensajeRecuperar(msg);
-    } finally {
-      setRecuperando(false);
-    }
-  }
+  const faqs = [
+    {
+      pregunta: "¿Necesito internet para usar Loventa?",
+      respuesta: "No. Loventa funciona 100% offline. Puedes vender, agregar productos y registrar fiados sin conexión. Todo se sincroniza automáticamente cuando recuperes internet.",
+    },
+    {
+      pregunta: "¿Puedo usarlo en mi computador?",
+      respuesta: "Sí, Loventa es una aplicación web responsive. Funciona perfectamente en celulares, tablets y computadores. Solo necesitas un navegador.",
+    },
+    {
+      pregunta: "¿Qué pasa si pierdo mi celular?",
+      respuesta: "Tus datos están seguros en la nube de Firebase. Solo inicia sesión desde otro dispositivo y recuperas toda tu información al instante.",
+    },
+    {
+      pregunta: "¿Puedo tener varias tiendas?",
+      respuesta: "Sí, con el Plan Pro puedes gestionar múltiples sucursales desde una sola cuenta, con reportes consolidados y stock por tienda.",
+    },
+    {
+      pregunta: "¿Cómo funciona el programa beta?",
+      respuesta: "Si tienes un código de invitación, obtienes 30 días de prueba completa del Plan Pro + 6 meses gratis. Después eliges si quedarte con el Plan Básico o Pro.",
+    },
+  ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-600 to-blue-800 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-8">
-        <div className="text-center mb-8">
-          <div className="bg-blue-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Store className="w-8 h-8 text-blue-600" />
+    <div className="min-h-screen bg-white">
+      {/* ─── NAVBAR ─── */}
+      <nav className="fixed top-0 left-0 right-0 bg-white/90 backdrop-blur-md border-b border-gray-100 z-50">
+        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+          <Link to="/" className="flex items-center gap-2">
+            <div className="w-9 h-9 bg-gradient-to-br from-blue-600 to-purple-600 rounded-xl flex items-center justify-center">
+              <Store className="w-5 h-5 text-white" />
+            </div>
+            <span className="text-xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+              Loventa
+            </span>
+          </Link>
+
+          {/* Desktop nav */}
+          <div className="hidden md:flex items-center gap-8">
+            <a href="#caracteristicas" className="text-sm text-gray-600 hover:text-gray-900 transition">Características</a>
+            <a href="#precios" className="text-sm text-gray-600 hover:text-gray-900 transition">Precios</a>
+            <a href="#faq" className="text-sm text-gray-600 hover:text-gray-900 transition">FAQ</a>
+            <Link
+              to="/beta-registro"
+              className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-lg text-sm font-medium transition"
+            >
+              Registrarme
+            </Link>
+            <Link
+              to="/login"
+              className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+            >
+              Iniciar sesión
+            </Link>
           </div>
-          <h1 className="text-2xl font-bold text-gray-800">{nombreNegocio}</h1>
-          <p className="text-gray-500 mt-1">Inicia sesión en tu cuenta</p>
+
+          {/* Mobile menu button */}
+          <button
+            onClick={() => setMenuAbierto(!menuAbierto)}
+            className="md:hidden p-2 hover:bg-gray-100 rounded-lg"
+          >
+            {menuAbierto ? <X size={24} /> : <Menu size={24} />}
+          </button>
         </div>
 
-        {!navigator.onLine && (
-          <div className="bg-amber-50 border border-amber-200 text-amber-700 px-4 py-3 rounded-lg mb-4 text-sm flex items-center gap-2">
-            <WifiOff size={16} />
-            <span>Sin internet. Si es la primera vez en este dispositivo, necesitas conectarte una vez para guardar la sesión.</span>
+        {/* Mobile menu */}
+        {menuAbierto && (
+          <div className="md:hidden bg-white border-t border-gray-100 px-4 py-4 space-y-3">
+            <a href="#caracteristicas" onClick={() => setMenuAbierto(false)} className="block text-gray-600 py-2">Características</a>
+            <a href="#precios" onClick={() => setMenuAbierto(false)} className="block text-gray-600 py-2">Precios</a>
+            <a href="#faq" onClick={() => setMenuAbierto(false)} className="block text-gray-600 py-2">FAQ</a>
+            <Link to="/beta-registro" onClick={() => setMenuAbierto(false)} className="block bg-blue-600 text-white text-center py-2.5 rounded-lg font-medium">Registrarme</Link>
+            <Link to="/login" onClick={() => setMenuAbierto(false)} className="block text-center text-blue-600 py-2 font-medium">Iniciar sesión</Link>
           </div>
         )}
+      </nav>
+
+      {/* ─── HERO ─── */}
+      <section className="pt-32 pb-20 px-4">
+        <div className="max-w-4xl mx-auto text-center">
+          <div className="inline-flex items-center gap-2 bg-blue-50 text-blue-700 px-4 py-1.5 rounded-full text-sm font-medium mb-6">
+            <Gift size={14} />
+            Programa beta abierto — 30 días de prueba + 6 meses gratis
+          </div>
+          <h1 className="text-4xl md:text-6xl font-extrabold text-gray-900 leading-tight mb-6">
+            El POS que tu almacén
+            <span className="block bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+              de barrio necesita
+            </span>
+          </h1>
+          <p className="text-lg md:text-xl text-gray-500 max-w-2xl mx-auto mb-8">
+            Vende sin internet. Controla tu stock. Registra fiados. Todo desde tu celular.
+            <strong className="text-gray-700"> Sin computador, sin caja registradora, sin complicaciones.</strong>
+          </p>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+            <Link
+              to="/beta-registro"
+              className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-xl text-lg font-bold transition flex items-center justify-center gap-2 shadow-lg shadow-blue-200"
+            >
+              Empezar gratis <ArrowRight size={20} />
+            </Link>
+            <a
+              href="#caracteristicas"
+              className="w-full sm:w-auto bg-gray-100 hover:bg-gray-200 text-gray-700 px-8 py-4 rounded-xl text-lg font-medium transition flex items-center justify-center gap-2"
+            >
+              Ver cómo funciona
+            </a>
+          </div>
+
+          {/* Stats */}
+          <div className="grid grid-cols-3 gap-6 max-w-lg mx-auto mt-16 pt-8 border-t border-gray-100">
+            <div>
+              <p className="text-2xl md:text-3xl font-bold text-gray-800">100%</p>
+              <p className="text-sm text-gray-500">Offline</p>
+            </div>
+            <div>
+              <p className="text-2xl md:text-3xl font-bold text-gray-800">$5.990</p>
+              <p className="text-sm text-gray-500">Desde /mes</p>
+            </div>
+            <div>
+              <p className="text-2xl md:text-3xl font-bold text-gray-800">0</p>
+              <p className="text-sm text-gray-500">Complicaciones</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ─── CARACTERÍSTICAS ─── */}
+      <section id="caracteristicas" className="py-20 bg-gray-50">
+        <div className="max-w-6xl mx-auto px-4">
+          <div className="text-center mb-16">
+            <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
+              Todo lo que necesitas para vender mejor
+            </h2>
+            <p className="text-gray-500 text-lg max-w-2xl mx-auto">
+              Diseñado específicamente para almacenes de barrio, ferias libres y negocios pequeños de Chile.
+            </p>
+          </div>
+
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {caracteristicas.map((c, i) => (
+              <div key={i} className="bg-white rounded-2xl p-6 border border-gray-100 hover:shadow-lg transition group">
+                <div className="w-14 h-14 bg-gray-50 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition">
+                  {c.icon}
+                </div>
+                <h3 className="text-lg font-bold text-gray-800 mb-2">{c.titulo}</h3>
+                <p className="text-gray-500 text-sm leading-relaxed">{c.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ─── BANNER BETA ─── */}
+      <section className="py-16 bg-gradient-to-r from-blue-600 to-purple-600">
+        <div className="max-w-4xl mx-auto px-4 text-center">
+          <div className="inline-flex items-center gap-2 bg-white/20 text-white px-4 py-1.5 rounded-full text-sm font-medium mb-4">
+            <Star size={14} />
+            Programa Beta Exclusivo
+          </div>
+          <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">
+            Únete ahora y vende gratis por 6 meses y medio
+          </h2>
+          <p className="text-blue-100 text-lg mb-8 max-w-2xl mx-auto">
+            Los primeros usuarios beta obtienen acceso completo al Plan Pro por 30 días,
+            y luego 6 meses adicionales completamente gratis como agradecimiento.
+          </p>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+            <div className="bg-white/10 backdrop-blur rounded-xl p-4 text-center text-white min-w-[140px]">
+              <p className="text-3xl font-bold">30</p>
+              <p className="text-sm text-blue-100">días de prueba Pro</p>
+            </div>
+            <span className="text-white/50 text-2xl hidden sm:block">+</span>
+            <div className="bg-white/10 backdrop-blur rounded-xl p-4 text-center text-white min-w-[140px]">
+              <p className="text-3xl font-bold">6</p>
+              <p className="text-sm text-blue-100">meses gratis</p>
+            </div>
+            <span className="text-white/50 text-2xl hidden sm:block">=</span>
+            <div className="bg-white rounded-xl p-4 text-center min-w-[140px]">
+              <p className="text-3xl font-bold text-blue-600">$0</p>
+              <p className="text-sm text-gray-500">Por más de 7 meses</p>
+            </div>
+          </div>
+          <Link
+            to="/beta-registro"
+            className="inline-flex items-center gap-2 bg-white text-blue-600 px-8 py-4 rounded-xl text-lg font-bold mt-8 hover:bg-blue-50 transition shadow-xl"
+          >
+            Solicitar acceso beta <ArrowRight size={20} />
+          </Link>
+        </div>
+      </section>
+
+      {/* ─── PRECIOS ─── */}
+      <section id="precios" className="py-20">
+        <div className="max-w-4xl mx-auto px-4">
+          <div className="text-center mb-16">
+            <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
+              Precios simples, sin sorpresas
+            </h2>
+            <p className="text-gray-500 text-lg">
+              Elige el plan que se ajuste a tu negocio. Paga mensual o anual y ahorra 2 meses.
+            </p>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-6 max-w-3xl mx-auto">
+            {planes.map((plan) => (
+              <div
+                key={plan.nombre}
+                className={`relative rounded-2xl border-2 p-8 ${
+                  plan.popular
+                    ? "border-purple-500 shadow-xl shadow-purple-100"
+                    : "border-gray-200"
+                }`}
+              >
+                {plan.popular && (
+                  <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-purple-600 text-white text-sm font-bold px-4 py-1 rounded-full">
+                    Más popular
+                  </div>
+                )}
+                <div className="flex items-center gap-3 mb-4">
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                    plan.popular ? "bg-purple-100 text-purple-600" : "bg-blue-100 text-blue-600"
+                  }`}>
+                    {plan.icon}
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-gray-800">{plan.nombre}</h3>
+                    <p className="text-sm text-gray-500">
+                      {plan.popular ? "Para negocios en crecimiento" : "Para empezar"}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mb-6">
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-4xl font-bold text-gray-900">
+                      ${plan.precioMensual.toLocaleString("es-CL")}
+                    </span>
+                    <span className="text-gray-500">/mes</span>
+                  </div>
+                  <p className="text-sm text-gray-400 mt-1">
+                    o ${plan.precioAnual.toLocaleString("es-CL")}/año (ahorras 2 meses)
+                  </p>
+                </div>
+
+                <ul className="space-y-3 mb-8">
+                  {plan.features.map((f, i) => (
+                    <li key={i} className="flex items-start gap-2 text-sm text-gray-600">
+                      <Check size={16} className="text-green-500 shrink-0 mt-0.5" />
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+
+                <Link
+                  to="/beta-registro"
+                  className={`block w-full text-center py-3 rounded-xl font-bold transition ${
+                    plan.popular
+                      ? "bg-purple-600 hover:bg-purple-700 text-white"
+                      : "bg-gray-100 hover:bg-gray-200 text-gray-800"
+                  }`}
+                >
+                  {plan.popular ? "Empezar con Pro" : "Empezar con Básico"}
+                </Link>
+              </div>
+            ))}
+          </div>
+
+          <p className="text-center text-sm text-gray-400 mt-8">
+            🔒 Pago seguro. Cancela cuando quieras. Sin contratos de permanencia.
+          </p>
+        </div>
+      </section>
+
+      {/* ─── FAQ ─── */}
+      <section id="faq" className="py-20 bg-gray-50">
+        <div className="max-w-3xl mx-auto px-4">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl font-bold text-gray-900 mb-4">Preguntas frecuentes</h2>
+            <p className="text-gray-500">Todo lo que necesitas saber antes de empezar.</p>
+          </div>
+
+          <div className="space-y-3">
+            {faqs.map((faq, i) => (
+              <div key={i} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                <button
+                  onClick={() => setFaqAbierta(faqAbierta === i ? null : i)}
+                  className="w-full flex items-center justify-between p-5 text-left hover:bg-gray-50 transition"
+                >
+                  <span className="font-medium text-gray-800">{faq.pregunta}</span>
+                  <ChevronDown
+                    size={18}
+                    className={`text-gray-400 transition-transform ${faqAbierta === i ? "rotate-180" : ""}`}
+                  />
+                </button>
+                {faqAbierta === i && (
+                  <div className="px-5 pb-5 text-gray-500 text-sm leading-relaxed">
+                    {faq.respuesta}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ─── CTA FINAL ─── */}
+      <section className="py-20">
+        <div className="max-w-3xl mx-auto px-4 text-center">
+          <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
+            ¿Listo para modernizar tu almacén?
+          </h2>
+          <p className="text-gray-500 text-lg mb-8">
+            Únete al programa beta y empieza a vender mejor hoy mismo.
+            Sin tarjeta de crédito, sin compromiso.
+          </p>
+          <Link
+            to="/beta-registro"
+            className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-xl text-lg font-bold transition shadow-lg shadow-blue-200"
+          >
+            Crear cuenta gratis <ArrowRight size={20} />
+          </Link>
+          <p className="text-sm text-gray-400 mt-4">
+            Programa beta limitado. Solicita tu código de invitación.
+          </p>
+        </div>
+      </section>
+
+      {/* ─── FOOTER ─── */}
+      <footer className="bg-gray-900 text-gray-400 py-12">
+        <div className="max-w-6xl mx-auto px-4">
+          <div className="grid md:grid-cols-4 gap-8 mb-8">
+            <div className="md:col-span-2">
+              <div className="flex items-center gap-2 mb-4">
+                <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-500 rounded-lg flex items-center justify-center">
+                  <Store className="w-4 h-4 text-white" />
+                </div>
+                <span className="text-xl font-bold text-white">Loventa</span>
+              </div>
+              <p className="text-sm leading-relaxed max-w-sm">
+                El punto de venta diseñado para almacenes de barrio en Chile.
+                Vende offline, controla tu stock y haz crecer tu negocio.
+              </p>
+            </div>
+            <div>
+              <h4 className="text-white font-medium mb-3">Producto</h4>
+              <ul className="space-y-2 text-sm">
+                <li><a href="#caracteristicas" className="hover:text-white transition">Características</a></li>
+                <li><a href="#precios" className="hover:text-white transition">Precios</a></li>
+                <li><Link to="/beta-registro" className="hover:text-white transition">Programa Beta</Link></li>
+              </ul>
+            </div>
+            <div>
+              <h4 className="text-white font-medium mb-3">Cuenta</h4>
+              <ul className="space-y-2 text-sm">
+                <li><Link to="/login" className="hover:text-white transition">Iniciar sesión</Link></li>
+                <li><Link to="/beta-registro" className="hover:text-white transition">Registrarme</Link></li>
+              </ul>
+            </div>
+          </div>
+          <div className="border-t border-gray-800 pt-8 flex flex-col md:flex-row items-center justify-between gap-4">
+            <p className="text-sm">
+              © 2026 Loventa. Hecho con ❤️ en Chile.
+            </p>
+            <p className="text-xs text-gray-500">
+              POS Almacén de Barrio — Tu celular, tu caja registradora.
+            </p>
+          </div>
+        </div>
+      </footer>
+    </div>
+  );
+}
+````
+
+## File: src/pages/Login.jsx
+````javascript
+// pages/Login.jsx
+// Login accesible con id, name y htmlFor correctos
+
+import { useState } from "react";
+import { useAuth } from "../hooks/useAuth";
+import { useNavigate } from "react-router-dom";
+
+export default function Login() {
+  const { login, loginAnonimo, error: authError } = useAuth();
+  const navigate = useNavigate();
+
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [modo, setModo] = useState("login"); // "login" | "registro"
+  const [nombre, setNombre] = useState("");
+  const [nombreNegocio, setNombreNegocio] = useState("");
+  const [cargando, setCargando] = useState(false);
+  const [errorLocal, setErrorLocal] = useState("");
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setErrorLocal("");
+    setCargando(true);
+
+    try {
+      if (modo === "login") {
+        await login(email, password);
+      } else {
+        // Registro — ajusta según tu flujo real
+        await login(email, password); // o tu función de registro
+      }
+      navigate("/dashboard");
+    } catch (err) {
+      setErrorLocal(err.message || "Error al iniciar sesión");
+    } finally {
+      setCargando(false);
+    }
+  }
+
+  async function handleAnonimo() {
+    setCargando(true);
+    try {
+      await loginAnonimo();
+      navigate("/dashboard");
+    } catch (err) {
+      setErrorLocal(err.message || "Error al entrar como invitado");
+    } finally {
+      setCargando(false);
+    }
+  }
+
+  const error = errorLocal || authError;
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-100 px-4">
+      <div className="w-full max-w-md bg-white rounded-xl shadow-lg p-8">
+        <div className="text-center mb-6">
+          <div className="text-4xl mb-2">🏪</div>
+          <h1 className="text-2xl font-bold text-gray-800">
+            {modo === "login" ? "Iniciar Sesión" : "Crear Cuenta"}
+          </h1>
+          <p className="text-gray-500 text-sm mt-1">
+            Almacén de Barrio — POS
+          </p>
+        </div>
 
         {error && (
           <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">
@@ -5530,124 +6810,427 @@ export default function Login() {
           </div>
         )}
 
-        {!mostrarRecuperar ? (
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Usuario o Correo electrónico
-              </label>
-              <input
-                type="text"
-                value={identifier}
-                onChange={(e) => setIdentifier(sanitizeInput(e.target.value, MAX_EMAIL_LEN))}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
-                placeholder="juan o juan@email.com"
-                maxLength={MAX_EMAIL_LEN}
-                autoComplete="username"
-                required
-              />
-              <p className="text-xs text-gray-400 mt-1">
-                Vendedores: usa tu nombre de usuario. Dueños: usa tu correo.
-              </p>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Contraseña
-              </label>
-              <div className="relative">
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {modo === "registro" && (
+            <>
+              <div>
+                <label htmlFor="nombre" className="block text-sm font-medium text-gray-700 mb-1">
+                  Tu nombre
+                </label>
                 <input
-                  type={showPassword ? "text" : "password"}
-                  value={password}
-                  onChange={(e) => setPassword(sanitizeInput(e.target.value, MAX_PASSWORD_LEN))}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition pr-10"
-                  placeholder="••••••••"
-                  maxLength={MAX_PASSWORD_LEN}
-                  minLength={6}
-                  autoComplete="current-password"
+                  id="nombre"
+                  name="nombre"
+                  type="text"
+                  autoComplete="name"
                   required
+                  value={nombre}
+                  onChange={(e) => setNombre(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+                  placeholder="Juan Pérez"
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                >
-                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                </button>
               </div>
-            </div>
+              <div>
+                <label htmlFor="nombreNegocio" className="block text-sm font-medium text-gray-700 mb-1">
+                  Nombre del negocio
+                </label>
+                <input
+                  id="nombreNegocio"
+                  name="nombreNegocio"
+                  type="text"
+                  autoComplete="organization"
+                  required
+                  value={nombreNegocio}
+                  onChange={(e) => setNombreNegocio(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+                  placeholder="Mi Almacén"
+                />
+              </div>
+            </>
+          )}
 
+          <div>
+            <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
+              Correo electrónico
+            </label>
+            <input
+              id="email"
+              name="email"
+              type="email"
+              autoComplete="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+              placeholder="tu@email.com"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
+              Contraseña
+            </label>
+            <input
+              id="password"
+              name="password"
+              type="password"
+              autoComplete={modo === "login" ? "current-password" : "new-password"}
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+              placeholder="••••••••"
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={cargando}
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {cargando
+              ? "Cargando..."
+              : modo === "login"
+              ? "🔐 Iniciar Sesión"
+              : "✨ Crear Cuenta"}
+          </button>
+        </form>
+
+        <div className="mt-4 text-center">
+          <button
+            type="button"
+            onClick={() => {
+              setModo(modo === "login" ? "registro" : "login");
+              setErrorLocal("");
+            }}
+            className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+          >
+            {modo === "login"
+              ? "¿No tienes cuenta? Regístrate"
+              : "¿Ya tienes cuenta? Inicia sesión"}
+          </button>
+        </div>
+
+        <div className="mt-4 pt-4 border-t border-gray-200">
+          <button
+            type="button"
+            onClick={handleAnonimo}
+            disabled={cargando}
+            className="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium py-2.5 rounded-lg transition disabled:opacity-50"
+          >
+            👤 Entrar como invitado
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+````
+
+## File: src/pages/PaymentPortal.jsx
+````javascript
+import { useState, useEffect } from "react";
+import { useAuth } from "../hooks/useAuth";
+import { PRECIOS, formatMoney, activarPlan } from "../services/paymentService";
+import { useNavigate } from "react-router-dom";
+import { 
+  Crown, Zap, Check, Loader2, Calendar, CreditCard, 
+  AlertTriangle, ArrowRight, ShieldCheck, WifiOff 
+} from "lucide-react";
+
+export default function PaymentPortal() {
+  const { user, userData, logout, isSuspendido, suscripcionInfo } = useAuth();
+  const navigate = useNavigate();
+  const [planSeleccionado, setPlanSeleccionado] = useState("basico");
+  const [periodo, setPeriodo] = useState("mensual");
+  const [loading, setLoading] = useState(false);
+  const [exito, setExito] = useState(false);
+  const [error, setError] = useState("");
+
+  // Si no está suspendido, redirigir al dashboard
+  useEffect(() => {
+    if (!isSuspendido && userData?.plan && userData.plan !== "suspendido") {
+      navigate("/");
+    }
+  }, [isSuspendido, userData, navigate]);
+
+  const precioActual = PRECIOS[planSeleccionado][periodo];
+  const ahorroAnual = periodo === "anual" 
+    ? Math.round((PRECIOS[planSeleccionado].mensual * 12 - PRECIOS[planSeleccionado].anual))
+    : 0;
+
+  async function handlePagar() {
+    if (!user || !userData?.almacenId) return;
+    setLoading(true);
+    setError("");
+
+    try {
+      // 🔥 SIMULACIÓN: En producción, aquí iría Stripe/MercadoPago
+      // Se abre el checkout, el usuario paga, y al confirmar se llama activarPlan
+
+      // Simulamos 2 segundos de "procesando pago"
+      await new Promise(r => setTimeout(r, 2000));
+
+      await activarPlan(user.uid, userData.almacenId, planSeleccionado, periodo, {
+        monto: precioActual,
+        metodo: "simulado",
+        transactionId: `sim_${Date.now()}`,
+      });
+
+      setExito(true);
+      setTimeout(() => {
+        window.location.reload(); // Recargar para que useAuth detecte el nuevo plan
+      }, 2000);
+    } catch (err) {
+      setError(err.message || "Error al procesar el pago. Intenta de nuevo.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (exito) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-100 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full text-center">
+          <ShieldCheck className="w-16 h-16 text-green-500 mx-auto mb-4" />
+          <h2 className="text-2xl font-bold text-gray-800 mb-2">¡Plan activado!</h2>
+          <p className="text-gray-600">
+            Tu plan <strong>{PRECIOS[planSeleccionado].label}</strong> ha sido activado exitosamente.
+          </p>
+          <p className="text-sm text-gray-400 mt-4">Redirigiendo al dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50">
+      {/* Header */}
+      <div className="bg-white border-b border-gray-200">
+        <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Zap className="w-6 h-6 text-blue-600" />
+            <h1 className="text-xl font-bold text-gray-800">POS Almacén de Barrio</h1>
+          </div>
+          <button 
+            onClick={logout}
+            className="text-sm text-gray-500 hover:text-gray-700"
+          >
+            Cerrar sesión
+          </button>
+        </div>
+      </div>
+
+      <div className="max-w-5xl mx-auto px-4 py-12">
+        {/* Alerta de suspensión */}
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-8 flex items-start gap-3">
+          <AlertTriangle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+          <div>
+            <h3 className="font-bold text-red-800">Tu periodo de prueba ha finalizado</h3>
+            <p className="text-sm text-red-700 mt-1">
+              Gracias por ser beta tester. Tu acceso gratuito ha terminado. 
+              Activa un plan para seguir usando el sistema.
+            </p>
+          </div>
+        </div>
+
+        <div className="text-center mb-10">
+          <h2 className="text-3xl font-bold text-gray-800">Elige tu plan</h2>
+          <p className="text-gray-500 mt-2">Sin contratos. Cancela cuando quieras.</p>
+        </div>
+
+        {/* Selector de periodo */}
+        <div className="flex justify-center mb-8">
+          <div className="bg-gray-100 rounded-lg p-1 inline-flex">
             <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              onClick={() => setPeriodo("mensual")}
+              className={`px-6 py-2 rounded-md text-sm font-medium transition ${
+                periodo === "mensual" 
+                  ? "bg-white text-gray-800 shadow-sm" 
+                  : "text-gray-500 hover:text-gray-700"
+              }`}
             >
-              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : "Iniciar Sesión"}
+              Mensual
             </button>
+            <button
+              onClick={() => setPeriodo("anual")}
+              className={`px-6 py-2 rounded-md text-sm font-medium transition flex items-center gap-2 ${
+                periodo === "anual" 
+                  ? "bg-white text-gray-800 shadow-sm" 
+                  : "text-gray-500 hover:text-gray-700"
+              }`}
+            >
+              Anual
+              <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold">
+                Ahorra 2 meses
+              </span>
+            </button>
+          </div>
+        </div>
 
-            <div className="text-center">
-              <button
-                type="button"
-                onClick={() => setMostrarRecuperar(true)}
-                className="text-sm text-blue-600 hover:text-blue-700 font-medium"
-              >
-                ¿Olvidaste tu contraseña?
-              </button>
-            </div>
-          </form>
-        ) : (
-          <form onSubmit={handleRecuperar} className="space-y-4">
-            <div className="text-center mb-4">
-              <Mail className="w-10 h-10 text-blue-600 mx-auto mb-2" />
-              <h2 className="text-lg font-bold text-gray-800">Recuperar contraseña</h2>
-              <p className="text-sm text-gray-500">Ingresa tu correo de dueño y te enviaremos un enlace</p>
-            </div>
-
-            {mensajeRecuperar && (
-              <div className={`border px-4 py-3 rounded-lg text-sm ${mensajeRecuperar.includes("enviamos") ? "bg-green-50 border-green-200 text-green-700" : "bg-red-50 border-red-200 text-red-700"}`}>
-                {mensajeRecuperar}
+        {/* Cards de planes */}
+        <div className="grid md:grid-cols-2 gap-6 max-w-3xl mx-auto">
+          {/* Plan Básico */}
+          <button
+            onClick={() => setPlanSeleccionado("basico")}
+            className={`relative bg-white rounded-2xl border-2 p-6 text-left transition hover:shadow-lg ${
+              planSeleccionado === "basico" 
+                ? "border-blue-500 shadow-md" 
+                : "border-gray-200"
+            }`}
+          >
+            {planSeleccionado === "basico" && (
+              <div className="absolute -top-3 left-6 bg-blue-500 text-white text-xs font-bold px-3 py-1 rounded-full">
+                Seleccionado
               </div>
             )}
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Correo electrónico</label>
-              <input
-                type="email"
-                value={emailRecuperar}
-                onChange={(e) => setEmailRecuperar(sanitizeInput(e.target.value, MAX_EMAIL_LEN))}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                placeholder="tu@email.com"
-                required
-              />
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center">
+                <Zap className="w-5 h-5 text-blue-600" />
+              </div>
+              <div>
+                <h3 className="font-bold text-gray-800">Plan Básico</h3>
+                <p className="text-xs text-gray-500">Para almacenes de barrio</p>
+              </div>
             </div>
 
-            <button
-              type="submit"
-              disabled={recuperando}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-lg transition disabled:opacity-50 flex items-center justify-center gap-2"
-            >
-              {recuperando ? <Loader2 className="w-5 h-5 animate-spin" /> : "Enviar correo de recuperación"}
-            </button>
-
-            <div className="text-center">
-              <button
-                type="button"
-                onClick={() => { setMostrarRecuperar(false); setMensajeRecuperar(""); }}
-                className="text-sm text-gray-500 hover:text-gray-700"
-              >
-                Volver al login
-              </button>
+            <div className="mb-4">
+              <span className="text-3xl font-bold text-gray-800">{formatMoney(PRECIOS.basico[periodo])}</span>
+              <span className="text-gray-500">/{periodo === "mensual" ? "mes" : "año"}</span>
+              {periodo === "anual" && (
+                <p className="text-xs text-green-600 mt-1">
+                  Equivalente a {formatMoney(Math.round(PRECIOS.basico.anual / 12))}/mes
+                </p>
+              )}
             </div>
-          </form>
-        )}
 
-        <div className="mt-6 text-center">
-          <p className="text-sm text-gray-600">
-            ¿No tienes cuenta de dueño?{" "}
-            <Link to="/registro" className="text-blue-600 hover:text-blue-700 font-medium">
-              Regístrate aquí
-            </Link>
+            <ul className="space-y-2 text-sm text-gray-600">
+              <li className="flex items-center gap-2"><Check size={14} className="text-green-500" /> Hasta 500 productos</li>
+              <li className="flex items-center gap-2"><Check size={14} className="text-green-500" /> 1 vendedor</li>
+              <li className="flex items-center gap-2"><Check size={14} className="text-green-500" /> POS 100% offline</li>
+              <li className="flex items-center gap-2"><Check size={14} className="text-green-500" /> Ventas y fiados</li>
+              <li className="flex items-center gap-2"><Check size={14} className="text-green-500" /> Control de stock</li>
+            </ul>
+          </button>
+
+          {/* Plan Pro */}
+          <button
+            onClick={() => setPlanSeleccionado("pro")}
+            className={`relative bg-white rounded-2xl border-2 p-6 text-left transition hover:shadow-lg ${
+              planSeleccionado === "pro" 
+                ? "border-purple-500 shadow-md" 
+                : "border-gray-200"
+            }`}
+          >
+            {planSeleccionado === "pro" && (
+              <div className="absolute -top-3 left-6 bg-purple-500 text-white text-xs font-bold px-3 py-1 rounded-full">
+                Seleccionado
+              </div>
+            )}
+            <div className="absolute top-4 right-4">
+              <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-full font-medium">
+                Recomendado
+              </span>
+            </div>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 bg-purple-100 rounded-xl flex items-center justify-center">
+                <Crown className="w-5 h-5 text-purple-600" />
+              </div>
+              <div>
+                <h3 className="font-bold text-gray-800">Plan Pro</h3>
+                <p className="text-xs text-gray-500">Para negocios en crecimiento</p>
+              </div>
+            </div>
+
+            <div className="mb-4">
+              <span className="text-3xl font-bold text-gray-800">{formatMoney(PRECIOS.pro[periodo])}</span>
+              <span className="text-gray-500">/{periodo === "mensual" ? "mes" : "año"}</span>
+              {periodo === "anual" && (
+                <p className="text-xs text-green-600 mt-1">
+                  Equivalente a {formatMoney(Math.round(PRECIOS.pro.anual / 12))}/mes
+                </p>
+              )}
+            </div>
+
+            <ul className="space-y-2 text-sm text-gray-600">
+              <li className="flex items-center gap-2"><Check size={14} className="text-green-500" /> <strong>Productos ilimitados</strong></li>
+              <li className="flex items-center gap-2"><Check size={14} className="text-green-500" /> <strong>Vendedores ilimitados</strong></li>
+              <li className="flex items-center gap-2"><Check size={14} className="text-green-500" /> POS 100% offline</li>
+              <li className="flex items-center gap-2"><Check size={14} className="text-green-500" /> Reportes avanzados</li>
+              <li className="flex items-center gap-2"><Check size={14} className="text-green-500" /> Multi-sucursal</li>
+              <li className="flex items-center gap-2"><Check size={14} className="text-green-500" /> Ofertas y promociones</li>
+            </ul>
+          </button>
+        </div>
+
+        {/* Resumen de pago */}
+        <div className="max-w-md mx-auto mt-8 bg-white rounded-xl border border-gray-200 p-6">
+          <h4 className="font-bold text-gray-800 mb-4">Resumen</h4>
+          <div className="space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-gray-600">Plan</span>
+              <span className="font-medium">{PRECIOS[planSeleccionado].label}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-600">Periodo</span>
+              <span className="font-medium">{periodo === "mensual" ? "Mensual" : "Anual (12 meses)"}</span>
+            </div>
+            {ahorroAnual > 0 && (
+              <div className="flex justify-between text-green-600">
+                <span>Ahorro anual</span>
+                <span className="font-medium">{formatMoney(ahorroAnual)}</span>
+              </div>
+            )}
+            <div className="border-t pt-2 flex justify-between text-lg font-bold">
+              <span>Total a pagar</span>
+              <span>{formatMoney(precioActual)}</span>
+            </div>
+          </div>
+
+          {error && (
+            <div className="mt-4 bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded-lg text-sm">
+              {error}
+            </div>
+          )}
+
+          <button
+            onClick={handlePagar}
+            disabled={loading}
+            className="w-full mt-4 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white font-bold py-3 rounded-xl transition flex items-center justify-center gap-2"
+          >
+            {loading ? (
+              <><Loader2 className="w-5 h-5 animate-spin" /> Procesando...</>
+            ) : (
+              <><CreditCard size={18} /> Pagar {formatMoney(precioActual)}</>
+            )}
+          </button>
+
+          <p className="text-xs text-gray-400 text-center mt-3">
+            🔒 Pago seguro. En producción se conectará con Webpay o MercadoPago.
+            <br/>Por ahora es una simulación para pruebas.
           </p>
+        </div>
+
+        {/* FAQ */}
+        <div className="max-w-2xl mx-auto mt-12 text-center">
+          <h3 className="font-bold text-gray-800 mb-4">¿Tienes dudas?</h3>
+          <div className="grid sm:grid-cols-2 gap-4 text-left text-sm">
+            <div className="bg-white rounded-lg border border-gray-200 p-4">
+              <p className="font-medium text-gray-800 mb-1">¿Puedo cambiar de plan después?</p>
+              <p className="text-gray-500">Sí. Puedes upgradear de Básico a Pro pagando solo la diferencia.</p>
+            </div>
+            <div className="bg-white rounded-lg border border-gray-200 p-4">
+              <p className="font-medium text-gray-800 mb-1">¿Qué pasa si no pago?</p>
+              <p className="text-gray-500">Tu cuenta se suspende pero no se borra. Al pagar, recuperas todo.</p>
+            </div>
+            <div className="bg-white rounded-lg border border-gray-200 p-4">
+              <p className="font-medium text-gray-800 mb-1">¿Pago anual tiene descuento?</p>
+              <p className="text-gray-500">Sí. Pagas 10 meses y usas 12. Es un ahorro de 2 meses gratis.</p>
+            </div>
+            <div className="bg-white rounded-lg border border-gray-200 p-4">
+              <p className="font-medium text-gray-800 mb-1">¿Mis datos están seguros?</p>
+              <p className="text-gray-500">Sí. Toda la información se guarda en Firebase con encriptación.</p>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -6022,6 +7605,214 @@ export default function RegisterVendedor() {
 }
 ````
 
+## File: src/services/betaAuth.js
+````javascript
+import { auth, db } from "../firebase/firebase";
+import {
+  createUserWithEmailAndPassword,
+  updateProfile,
+} from "firebase/auth";
+import {
+  doc,
+  getDoc,
+  setDoc,
+  updateDoc,
+  runTransaction,
+  collection,
+  query,
+  where,
+  getDocs,
+  deleteDoc,
+} from "firebase/firestore";
+
+const ROLES = {
+  DUEÑO: "dueño",
+};
+
+function getTrialDates() {
+  const now = new Date();
+  const trialExpiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+  const proGratisUntil = new Date(trialExpiresAt.getTime() + 6 * 30 * 24 * 60 * 60 * 1000);
+  return {
+    trialStartedAt: now.toISOString(),
+    trialExpiresAt: trialExpiresAt.toISOString(),
+    proGratisUntil: proGratisUntil.toISOString(),
+  };
+}
+
+// ─── VALIDAR CÓDIGO BETA ───
+export async function validarCodigoBeta(codigo) {
+  if (!codigo || codigo.trim() === "") {
+    return { valido: false, mensaje: "Ingresa un código de invitación." };
+  }
+
+  const cleanCode = codigo.trim().toUpperCase();
+  const codeRef = doc(db, "beta_codes", cleanCode);
+  const snap = await getDoc(codeRef);
+
+  if (!snap.exists()) {
+    return { valido: false, mensaje: "Código de invitación no válido." };
+  }
+
+  const data = snap.data();
+
+  if (data.activo === false) {
+    return { valido: false, mensaje: "Este código de invitación ha sido desactivado." };
+  }
+
+  const usados = data.usados || 0;
+  const maximo = data.usosMaximos || 1;
+
+  if (usados >= maximo) {
+    return { valido: false, mensaje: "Este código ya alcanzó el límite de usos." };
+  }
+
+  return { valido: true, codigoDoc: { id: snap.id, ...data } };
+}
+
+// ─── REGISTRO BETA ───
+export async function registerBetaDueño({ email, password, nombre, nombreAlmacen, codigoBeta }) {
+  const validation = await validarCodigoBeta(codigoBeta);
+  if (!validation.valido) {
+    throw new Error(validation.mensaje);
+  }
+
+  const { trialStartedAt, trialExpiresAt, proGratisUntil } = getTrialDates();
+
+  const result = await createUserWithEmailAndPassword(auth, email.trim().toLowerCase(), password);
+  await updateProfile(result.user, { displayName: nombre });
+
+  const uid = result.user.uid;
+
+  const almacenRef = doc(collection(db, "almacenes"));
+  await setDoc(almacenRef, {
+    nombre: nombreAlmacen.trim(),
+    dueñoId: uid,
+    plan: "trial_pro",
+    trialStartedAt,
+    trialExpiresAt,
+    proGratisUntil,
+    createdAt: new Date().toISOString(),
+  });
+
+  const userData = {
+    email: email.trim().toLowerCase(),
+    nombre,
+    role: ROLES.DUEÑO,
+    almacenId: almacenRef.id,
+    plan: "trial_pro",
+    trialStartedAt,
+    trialExpiresAt,
+    proGratisUntil,
+    createdAt: new Date().toISOString(),
+  };
+  await setDoc(doc(db, "users", uid), userData);
+
+  const codeRef = doc(db, "beta_codes", codigoBeta.trim().toUpperCase());
+  await runTransaction(db, async (transaction) => {
+    const codeSnap = await transaction.get(codeRef);
+    if (!codeSnap.exists()) throw new Error("Código no encontrado");
+    const codeData = codeSnap.data();
+    const usados = (codeData.usados || 0) + 1;
+    if (usados > (codeData.usosMaximos || 1)) {
+      throw new Error("Código agotado");
+    }
+    transaction.update(codeRef, { usados, updatedAt: new Date().toISOString() });
+  });
+
+  return {
+    user: result.user,
+    userData,
+    almacenId: almacenRef.id,
+  };
+}
+
+// ═══════════════════════════════════════════════
+// 🔥 ADMIN: GESTIÓN DE CÓDIGOS BETA
+// ═══════════════════════════════════════════════
+
+/**
+ * Crea un nuevo código beta.
+ * Solo el dueño del sistema (tú) debería poder ejecutar esto.
+ */
+export async function crearCodigoBeta({ codigo, usosMaximos = 1, notas = "" }) {
+  const cleanCode = codigo.trim().toUpperCase();
+
+  // Verificar que no exista
+  const existing = await getDoc(doc(db, "beta_codes", cleanCode));
+  if (existing.exists()) {
+    throw new Error(`El código "${cleanCode}" ya existe.`);
+  }
+
+  await setDoc(doc(db, "beta_codes", cleanCode), {
+    codigo: cleanCode,
+    usosMaximos: Number(usosMaximos) || 1,
+    usados: 0,
+    activo: true,
+    notas: notas || "",
+    createdAt: new Date().toISOString(),
+  });
+
+  return { id: cleanCode, codigo: cleanCode, usosMaximos, usados: 0, activo: true };
+}
+
+/**
+ * Genera un código beta aleatorio.
+ */
+export function generarCodigoAleatorio(prefijo = "BETA") {
+  const timestamp = Date.now().toString(36).toUpperCase();
+  const random = Math.random().toString(36).substring(2, 6).toUpperCase();
+  return `${prefijo}-${timestamp}-${random}`;
+}
+
+/**
+ * Lista todos los códigos beta.
+ */
+export async function listarCodigosBeta() {
+  const snap = await getDocs(collection(db, "beta_codes"));
+  return snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => {
+    return new Date(b.createdAt || 0) - new Date(a.createdAt || 0);
+  });
+}
+
+/**
+ * Activa/desactiva un código beta.
+ */
+export async function toggleCodigoBeta(codigoId, activo) {
+  await updateDoc(doc(db, "beta_codes", codigoId), {
+    activo,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+/**
+ * Elimina un código beta.
+ */
+export async function eliminarCodigoBeta(codigoId) {
+  await deleteDoc(doc(db, "beta_codes", codigoId));
+}
+
+/**
+ * Obtiene estadísticas de uso de códigos beta.
+ */
+export async function estadisticasBeta() {
+  const codigos = await listarCodigosBeta();
+  const total = codigos.length;
+  const activos = codigos.filter(c => c.activo).length;
+  const inactivos = total - activos;
+  const usadosTotal = codigos.reduce((sum, c) => sum + (c.usados || 0), 0);
+  const disponiblesTotal = codigos.reduce((sum, c) => sum + Math.max(0, (c.usosMaximos || 0) - (c.usados || 0)), 0);
+
+  return {
+    total,
+    activos,
+    inactivos,
+    usadosTotal,
+    disponiblesTotal,
+  };
+}
+````
+
 ## File: src/services/firestoreConfig.js
 ````javascript
 import { db } from "../firebase/firebase";
@@ -6228,9 +8019,18 @@ export async function getProduct(productId) {
   return null;
 }
 
+// 🔥 FIX: Validar duplicados por código de barras antes de crear
 export async function createProduct(almacenId, productData) {
   const check = await puedeCrearProducto(almacenId);
   if (!check.permitido) throw new Error(check.mensaje);
+
+  // Si tiene código de barras, verificar que no exista otro producto con el mismo código
+  if (productData.codigoBarras && productData.codigoBarras.trim() !== "") {
+    const existente = await getProductByBarcode(almacenId, productData.codigoBarras.trim());
+    if (existente) {
+      throw new Error(`Ya existe un producto con el código de barras "${productData.codigoBarras}". Usa el producto existente o cambia el código.`);
+    }
+  }
 
   const data = {
     ...productData,
@@ -6329,6 +8129,8 @@ export async function discountStockBatch(carritoItems) {
   return results;
 }
 
+// 🔥 FIX: Si hay múltiples productos con el mismo código, devolver el que tenga stock > 0
+// para evitar vender productos duplicados con stock 0
 export async function getProductByBarcode(almacenId, barcode) {
   if (!almacenId || !barcode) return null;
   try {
@@ -6338,13 +8140,26 @@ export async function getProductByBarcode(almacenId, barcode) {
       where("codigoBarras", "==", barcode)
     );
     const snap = await getDocs(q);
-    if (!snap.empty) return { id: snap.docs[0].id, ...snap.docs[0].data() };
-    return null;
+    if (snap.empty) return null;
+
+    // Si hay múltiples resultados, priorizar el que tenga stock disponible
+    const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    if (docs.length === 1) return docs[0];
+
+    const conStock = docs.find(p => (p.stock || 0) > 0);
+    if (conStock) return conStock;
+
+    // Si ninguno tiene stock, devolver el primero (para mostrarlo como agotado)
+    return docs[0];
   } catch (err) {
     // Fallback: buscar en cache local
     const cached = getCachedProducts(almacenId);
     if (cached) {
-      return cached.find(p => p.codigoBarras === barcode) || null;
+      const matches = cached.filter(p => p.codigoBarras === barcode);
+      if (matches.length === 0) return null;
+      if (matches.length === 1) return matches[0];
+      const conStock = matches.find(p => (p.stock || 0) > 0);
+      return conStock || matches[0];
     }
     throw err;
   }
@@ -6571,6 +8386,178 @@ export const usersService = {
     });
   },
 };
+````
+
+## File: src/services/paymentService.js
+````javascript
+// services/paymentService.js
+// ─── Compatibilidad hacia atrás: usuarios antiguos sin fechas de expiración se consideran ACTIVOS ───
+
+import { doc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { db } from "../firebase/firebase";
+
+/**
+ * Verifica el estado de suscripción de un usuario.
+ * Compatibilidad: usuarios creados antes de los cambios de pago
+ * (sin trialExpiresAt, proGratisUntil ni planExpiresAt) se consideran ACTIVOS.
+ */
+export async function verificarEstadoV2(uid) {
+  const ref = doc(db, "usuarios", uid);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) {
+    return { estado: "no_encontrado", activo: false, suspendido: true, mensaje: "Usuario no encontrado" };
+  }
+
+  const u = snap.data();
+  const ahora = Date.now();
+  const plan = u.plan || "basico";
+
+  // ─── ADMIN SIEMPRE ACTIVO ───
+  if (u.role === "admin" || u.isAdmin === true) {
+    return { estado: "admin", activo: true, suspendido: false, plan: "admin", mensaje: "Admin ilimitado" };
+  }
+
+  // ─── COMPATIBILIDAD: usuarios antiguos sin fechas de expiración ───
+  const tieneFechas = u.trialExpiresAt || u.proGratisUntil || u.planExpiresAt;
+  if (!tieneFechas) {
+    // Usuario antiguo: activo con su plan actual
+    return {
+      estado: "activo_legacy",
+      activo: true,
+      suspendido: false,
+      plan: plan,
+      mensaje: "Plan activo (usuario legacy)"
+    };
+  }
+
+  // ─── TRIAL ───
+  if (plan === "trial" && u.trialExpiresAt) {
+    const activo = ahora < u.trialExpiresAt;
+    return {
+      estado: activo ? "trial_activo" : "trial_expirado",
+      activo,
+      suspendido: !activo,
+      plan: "trial",
+      mensaje: activo ? "Trial activo" : "Trial expirado"
+    };
+  }
+
+  // ─── PRO GRATIS ───
+  if (plan === "pro_gratis" && u.proGratisUntil) {
+    const activo = ahora < u.proGratisUntil;
+    return {
+      estado: activo ? "pro_gratis_activo" : "pro_gratis_expirado",
+      activo,
+      suspendido: !activo,
+      plan: "pro_gratis",
+      mensaje: activo ? "Pro gratis activo" : "Pro gratis expirado"
+    };
+  }
+
+  // ─── BÁSICO / PRO CON PLAN EXPIRADO ───
+  if ((plan === "basico" || plan === "pro") && u.planExpiresAt) {
+    const activo = ahora < u.planExpiresAt;
+    return {
+      estado: activo ? `${plan}_activo` : `${plan}_expirado`,
+      activo,
+      suspendido: !activo,
+      plan,
+      mensaje: activo ? `Plan ${plan} activo` : `Plan ${plan} expirado`
+    };
+  }
+
+  // ─── Fallback: si tiene fechas pero ninguna condición aplica, activo por defecto ───
+  return {
+    estado: "activo_fallback",
+    activo: true,
+    suspendido: false,
+    plan: plan,
+    mensaje: "Plan activo (fallback)"
+  };
+}
+
+/**
+ * Actualiza automáticamente la fase de suscripción según el estado actual.
+ */
+export async function autoUpgradeFases(uid) {
+  const estado = await verificarEstadoV2(uid);
+  const ref = doc(db, "usuarios", uid);
+
+  if (estado.estado === "trial_expirado") {
+    await updateDoc(ref, {
+      plan: "basico",
+      trialExpirado: true,
+      updatedAt: serverTimestamp()
+    });
+  }
+
+  if (estado.estado === "pro_gratis_expirado") {
+    await updateDoc(ref, {
+      plan: "basico",
+      proGratisExpirado: true,
+      updatedAt: serverTimestamp()
+    });
+  }
+
+  return estado;
+}
+
+/**
+ * Activa trial de 14 días para un nuevo usuario.
+ */
+export async function activarTrial(uid) {
+  const trialExpiresAt = Date.now() + 14 * 24 * 60 * 60 * 1000;
+  const ref = doc(db, "usuarios", uid);
+  await updateDoc(ref, {
+    plan: "trial",
+    trialExpiresAt,
+    trialIniciado: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  });
+  return trialExpiresAt;
+}
+
+/**
+ * Activa plan Pro gratis por N días (para códigos beta).
+ */
+export async function activarProGratis(uid, dias = 30) {
+  const proGratisUntil = Date.now() + dias * 24 * 60 * 60 * 1000;
+  const ref = doc(db, "usuarios", uid);
+  await updateDoc(ref, {
+    plan: "pro_gratis",
+    proGratisUntil,
+    proGratisActivado: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  });
+  return proGratisUntil;
+}
+
+/**
+ * Verifica si un código beta es válido y no ha sido usado.
+ */
+export async function validarCodigoBeta(codigo) {
+  const ref = doc(db, "codigosBeta", codigo.toUpperCase().trim());
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return { valido: false, mensaje: "Código no encontrado" };
+
+  const data = snap.data();
+  if (data.usado) return { valido: false, mensaje: "Código ya utilizado" };
+  if (data.expiresAt && Date.now() > data.expiresAt) return { valido: false, mensaje: "Código expirado" };
+
+  return { valido: true, data, mensaje: "Código válido" };
+}
+
+/**
+ * Marca un código beta como usado por un usuario.
+ */
+export async function usarCodigoBeta(codigo, uid) {
+  const ref = doc(db, "codigosBeta", codigo.toUpperCase().trim());
+  await updateDoc(ref, {
+    usado: true,
+    usadoPor: uid,
+    usadoEn: serverTimestamp()
+  });
+}
 ````
 
 ## File: src/services/planLimits.js
@@ -6973,65 +8960,32 @@ export function estadoVencimiento(fechaVencimiento, diasAlerta = 3) {
 
 ## File: src/App.jsx
 ````javascript
-import { useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { AuthProvider, useAuth } from "./hooks/useAuth";
+import { AuthProvider } from "./hooks/useAuth";
 import Login from "./pages/Login";
-import Register from "./pages/Register";
 import Dashboard from "./pages/Dashboard";
+import CanjearCodigo from "./components/CanjearCodigo";
 
-function PrivateRoute({ children, requireDueño = false }) {
-  const { isAuthenticated, isDueño, loading } = useAuth();
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-      </div>
-    );
-  }
-
-  if (!isAuthenticated) return <Navigate to="/login" replace />;
-  if (requireDueño && !isDueño) return <Navigate to="/" replace />;
-
-  return children;
-}
-
-function AppRoutes() {
-  const { userData } = useAuth();
-
-  useEffect(() => {
-    // Cambiar título de la pestaña según el negocio configurado
-    const saved = localStorage.getItem("pos_negocio_nombre");
-    if (saved) {
-      document.title = saved;
-    } else if (userData?.nombre) {
-      document.title = userData.nombre;
-    }
-  }, [userData]);
-
+function App() {
   return (
-    <Routes>
-      <Route path="/login" element={<Login />} />
-      <Route path="/registro" element={<Register />} />
-      <Route path="/*" element={
-        <PrivateRoute>
-          <Dashboard />
-        </PrivateRoute>
-      } />
-    </Routes>
+    <AuthProvider>
+      <BrowserRouter>
+        <Routes>
+          {/* Ruta pública: canjear código beta (no requiere login) */}
+          <Route path="/canjear-beta" element={<CanjearCodigo />} />
+
+          {/* Login */}
+          <Route path="/login" element={<Login />} />
+
+          {/* Dashboard con todas las rutas internas */}
+          <Route path="/*" element={<Dashboard />} />
+        </Routes>
+      </BrowserRouter>
+    </AuthProvider>
   );
 }
 
-export default function App() {
-  return (
-    <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-      <AuthProvider>
-        <AppRoutes />
-      </AuthProvider>
-    </BrowserRouter>
-  );
-}
+export default App;
 ````
 
 ## File: src/index.css
@@ -7466,17 +9420,6 @@ pause
         "source": "**",
         "destination": "/index.html"
       }
-    ],
-    "headers": [
-      {
-        "source": "/sw.js",
-        "headers": [
-          {
-            "key": "Cache-Control",
-            "value": "no-cache"
-          }
-        ]
-      }
     ]
   }
 }
@@ -7495,100 +9438,134 @@ pause
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    // ─── Funciones helpers (solo ASCII) ───
     function isAuthenticated() {
       return request.auth != null;
     }
-    function getUserData() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    function isDueno() {
+      return isAuthenticated() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data["role"] == "dueño";
     }
-    function userAlmacenId() {
-      return getUserData().almacenId;
+    function isVendedor() {
+      return isAuthenticated() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data["role"] == "vendedor";
     }
-    function userRole() {
-      return getUserData().role;
+    function belongsToAlmacen(almacenId) {
+      return isAuthenticated() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data["almacenId"] == almacenId;
     }
-    function hasPrivilege(priv) {
-      let data = getUserData();
-      return data.privilegios is map && data.privilegios[priv] == true;
+    function isDuenoOfAlmacen(almacenId) {
+      return isDueno() && belongsToAlmacen(almacenId);
+    }
+    function isSameUser(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    function isNotSuspended() {
+      return isAuthenticated() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data["plan"] != "suspendido";
     }
 
+    // ─── Beta Codes ───
+    match /beta_codes/{code} {
+      allow read: if true;
+      allow create: if isDueno();
+      allow update: if isDueno();
+      allow delete: if isDueno();
+    }
+
+    // ─── Users ───
     match /users/{userId} {
-      // Dueño: control total sobre vendedores de su almacén
-      allow read: if isAuthenticated() && userRole() == "dueño"
-        && resource.data.almacenId == userAlmacenId()
-        && resource.data.role == "vendedor";
+      allow create: if request.auth != null 
+        && request.auth.uid == userId
+        && request.resource.data["role"] == "dueño"
+        && request.resource.data.keys().hasAll(["email", "nombre", "role", "almacenId", "plan"]);
 
-      allow create: if isAuthenticated() && userRole() == "dueño"
-        && request.resource.data.almacenId == userAlmacenId()
-        && request.resource.data.role == "vendedor";
+      allow read: if isSameUser(userId) || isDueno();
 
-      allow update, delete: if isAuthenticated() && userRole() == "dueño"
-        && resource.data.almacenId == userAlmacenId()
-        && resource.data.role == "vendedor";
-
-      // Vendedor: leer su propio documento
-      allow read: if isAuthenticated() && request.auth.uid == userId;
-
-      // Vendedor: actualizar SOLO campos personales (NUNCA privilegios, role, almacenId, activo)
-      allow update: if isAuthenticated() && request.auth.uid == userId
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nombre', 'email', 'updatedAt']);
-    }
-
-    match /almacenes/{almacenId} {
-      allow read: if isAuthenticated() && userAlmacenId() == almacenId;
-      allow write: if isAuthenticated() && userRole() == "dueño" && userAlmacenId() == almacenId;
-    }
-
-    match /productos/{productId} {
-      allow read: if isAuthenticated() && resource.data.almacenId == userAlmacenId();
-
-      allow create: if isAuthenticated() && request.resource.data.almacenId == userAlmacenId()
-        && (userRole() == "dueño" || hasPrivilege('productos'));
-
-      allow update: if isAuthenticated() && resource.data.almacenId == userAlmacenId()
+      allow update: if isSameUser(userId)
         && (
-          userRole() == "dueño"
-          || hasPrivilege('productos')
-          || (userRole() == "vendedor" && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stock','updatedAt','lotes','cantidadOfertaVendida']))
+          (resource.data["plan"] == "suspendido" && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["plan", "planPeriodo", "planStartedAt", "planExpiresAt", "planActivatedAt", "suspendido", "ultimoPago", "updatedAt"]))
+          ||
+          (resource.data["plan"] != "suspendido" && (
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(["plan", "planPeriodo", "planStartedAt", "planExpiresAt", "planActivatedAt", "ultimoPago", "updatedAt", "nombre", "photoURL", "privilegios"])
+            || isDueno()
+          ))
         );
 
-      allow delete: if isAuthenticated() && userRole() == "dueño" && resource.data.almacenId == userAlmacenId();
+      allow delete: if isDueno();
     }
 
-    match /ventas/{saleId} {
-      allow read: if isAuthenticated() && resource.data.almacenId == userAlmacenId();
-      allow create: if isAuthenticated() && request.resource.data.almacenId == userAlmacenId()
-        && request.resource.data.vendedorId == request.auth.uid;
-      allow update, delete: if isAuthenticated() && userRole() == "dueño" && resource.data.almacenId == userAlmacenId();
+    // ─── Almacenes ───
+    match /almacenes/{almacenId} {
+      allow create: if request.auth != null 
+        && request.resource.data["dueñoId"] == request.auth.uid
+        && request.resource.data.keys().hasAll(["nombre", "dueñoId", "plan", "createdAt"]);
+
+      allow read: if isDuenoOfAlmacen(almacenId);
+
+      allow update: if isDuenoOfAlmacen(almacenId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["plan", "planExpiresAt", "updatedAt", "nombre"]);
+
+      allow delete: if false;
     }
 
+    // ─── Productos ───
+    match /productos/{productoId} {
+      allow read: if isAuthenticated() && belongsToAlmacen(resource.data["almacenId"]);
+      allow create: if isAuthenticated() 
+        && belongsToAlmacen(request.resource.data["almacenId"])
+        && isNotSuspended();
+      allow update: if isAuthenticated() 
+        && belongsToAlmacen(resource.data["almacenId"])
+        && isNotSuspended();
+      allow delete: if isDuenoOfAlmacen(resource.data["almacenId"]);
+    }
+
+    // ─── Ventas ───
+    match /ventas/{ventaId} {
+      allow read: if isAuthenticated() && belongsToAlmacen(resource.data["almacenId"]);
+      allow create: if isAuthenticated() 
+        && belongsToAlmacen(request.resource.data["almacenId"])
+        && isNotSuspended();
+      allow update: if isDuenoOfAlmacen(resource.data["almacenId"]);
+      allow delete: if false;
+    }
+
+    // ─── Turnos ───
     match /turnos/{turnoId} {
-      allow read, update: if isAuthenticated() && resource.data.almacenId == userAlmacenId();
-      allow create: if isAuthenticated() && request.resource.data.almacenId == userAlmacenId()
-        && request.resource.data.vendedorId == request.auth.uid;
-      allow delete: if isAuthenticated() && userRole() == "dueño" && resource.data.almacenId == userAlmacenId();
+      allow read: if isAuthenticated() && belongsToAlmacen(resource.data["almacenId"]);
+      allow create: if isAuthenticated() 
+        && belongsToAlmacen(request.resource.data["almacenId"])
+        && isNotSuspended();
+      allow update: if isAuthenticated() && belongsToAlmacen(resource.data["almacenId"]);
+      allow delete: if false;
     }
 
+    // ─── Fiados ───
     match /fiados/{fiadoId} {
-      allow read, update: if isAuthenticated() && resource.data.almacenId == userAlmacenId();
-      allow create: if isAuthenticated() && request.resource.data.almacenId == userAlmacenId()
-        && request.resource.data.vendedorId == request.auth.uid;
-      allow delete: if isAuthenticated() && userRole() == "dueño" && resource.data.almacenId == userAlmacenId();
+      allow read: if isAuthenticated() && belongsToAlmacen(resource.data["almacenId"]);
+      allow create: if isAuthenticated() 
+        && belongsToAlmacen(request.resource.data["almacenId"])
+        && isNotSuspended();
+      allow update: if isAuthenticated() && belongsToAlmacen(resource.data["almacenId"]);
+      allow delete: if isDuenoOfAlmacen(resource.data["almacenId"]);
     }
 
-    match /mermas/{mermaId} {
-      allow read, create: if isAuthenticated() && resource.data.almacenId == userAlmacenId()
-        && (userRole() == "dueño" || hasPrivilege('mermas'));
-      allow update, delete: if isAuthenticated() && userRole() == "dueño" && resource.data.almacenId == userAlmacenId();
+    // ─── Configuración de impresora ───
+    match /printerConfig/{configId} {
+      allow read: if isAuthenticated() && belongsToAlmacen(resource.data["almacenId"]);
+      allow write: if isDuenoOfAlmacen(request.resource.data["almacenId"]);
     }
 
+    // ─── Usernames públicos ───
     match /publicUsernames/{username} {
       allow read: if true;
-      allow create: if isAuthenticated()
-        && !exists(/databases/$(database)/documents/publicUsernames/$(username))
-        && request.resource.data.almacenId == userAlmacenId();
+      allow create: if isDueno();
       allow update: if false;
-      allow delete: if isAuthenticated() && userRole() == "dueño" && resource.data.almacenId == userAlmacenId();
+      allow delete: if isDueno();
+    }
+
+    // ─── Planes / Límites ───
+    match /planLimits/{docId} {
+      allow read: if true;
+      allow write: if false;
     }
   }
 }
@@ -8067,33 +10044,122 @@ Luego `npx cap sync` y vuelve a generar el APK.
 
 ## File: README.md
 ````markdown
-# FIX: Escáner no detecta códigos de barras EAN/UPC en iPhone
+# 🎁 Sistema de Códigos Beta — Loventa POS
 
-## Problema
-La foto del código de barras se procesa pero no detecta nada. El código EAN-13 (7804682632213) es perfectamente legible.
+## 📁 Estructura del paquete
 
-## Causa
-`html5-qrcode` por defecto solo escanea **QR codes**. Los códigos de barras lineales (EAN-13, UPC, CODE_128) necesitan habilitarse explícitamente mediante `Html5QrcodeSupportedFormats`.
+```
+src/
+├── services/
+│   └── paymentService.js          ← Compatibilidad legacy + funciones beta
+├── components/
+│   ├── BetaCodesAdmin.jsx         ← Panel admin para crear códigos
+│   ├── CanjearCodigo.jsx          ← Formulario para canjear códigos
+│   └── Navbar.jsx                 ← Navbar con botón "Códigos Beta"
+├── pages/
+│   ├── Dashboard.jsx              ← Rutas del dashboard (incluye /admin-beta)
+│   └── Login.jsx                  ← Login accesible (sin warnings)
+└── App.jsx                        ← Rutas principales (incluye /canjear-beta)
+```
 
-## Solución
-Se importan y configuran todos los formatos de código de barras soportados:
-- EAN_13, EAN_8
-- UPC_A, UPC_E
-- CODE_128, CODE_39, CODE_93
-- ITF
-- QR_CODE
+---
 
-Tanto en modo cámara en vivo como en modo foto, se pasan los formatos en la configuración.
+## 🚀 Instalación (1 solo paso)
 
-## Instalación
-1. Copia `BarcodeScanner.jsx` a `src/components/BarcodeScanner.jsx`
-2. En VS Code: Ctrl+K, Ctrl+S
-3. `npm run build`
-4. `npx serve dist -l 4173`
+Copia cada archivo a la ruta correspondiente en tu proyecto, **reemplazando** los existentes.
 
-## Cómo probar
-1. Toma foto al código de barras del producto
-2. El sistema ahora debería detectar el EAN-13 automáticamente
+---
+
+## 🔐 Paso obligatorio: Configurar tu UID de admin
+
+Abre `src/components/BetaCodesAdmin.jsx`, línea 18.
+
+Reemplaza esto:
+```jsx
+const ADMIN_UIDS = [
+  // "PEGA-TU-UID-AQUI",
+];
+```
+
+Por esto (con TU UID real):
+```jsx
+const ADMIN_UIDS = [
+  "tu-uid-de-firebase-aqui",
+];
+```
+
+### ¿Cómo obtener tu UID?
+1. Abre tu app en el navegador y loguéate con tu cuenta de dueño
+2. Presiona **F12** → pestaña **Console**
+3. Pega y ejecuta:
+   ```js
+   console.log(JSON.parse(localStorage.getItem("pos_offline_session")).uid)
+   ```
+4. Copia el string que aparece (ej: `"AbC123XyZ..."`)
+5. Pégalo en `ADMIN_UIDS`
+
+> ⚠️ **Sin este paso, el panel admin mostrará "Acceso Restringido" para TODOS, incluyéndote a ti.**
+
+---
+
+## 🔄 Flujo de uso
+
+### 1. Crear un código beta (como admin)
+1. Entra a tu app como dueño
+2. En el Navbar, haz clic en **🔑 Códigos Beta**
+3. Completa el formulario:
+   - **Código**: déjalo vacío para auto-generar, o escribe uno personalizado
+   - **Días Pro**: cuántos días de plan Pro gratis otorga (ej: 30)
+   - **Cantidad**: cuántos códigos crear (ej: 10)
+4. Haz clic en **➕ Crear Código(s)**
+5. El código aparece en la tabla con estado 🟢 Activo
+
+### 2. Canjear un código beta (como usuario nuevo)
+1. El usuario nuevo entra a: `https://tu-app.com/canjear-beta`
+2. Ingresa el código (ej: `ABC12345`) y haz clic en **🎁 Canjear Código**
+3. Si es válido:
+   - Su plan cambia a **pro_gratis**
+   - Tiene acceso Pro por los días configurados
+   - El código queda marcado como ✅ Usado
+4. Cuando expire, `paymentService.js` lo baja automáticamente a plan **básico**
+
+---
+
+## 🛠️ Qué arregla cada archivo
+
+| Archivo | Problema original | Solución |
+|---------|------------------|----------|
+| `paymentService.js` | Usuarios creados antes del sistema de pagos quedaban suspendidos (sin fechas de expiración) | Detecta usuarios "legacy" sin fechas y los marca como activos automáticamente |
+| `BetaCodesAdmin.jsx` | Cualquier dueño podía crear códigos beta | Solo los UIDs en `ADMIN_UIDS` pueden crear códigos. Muestra "Acceso Restringido" para el resto |
+| `CanjearCodigo.jsx` | No existía | Nuevo componente para que usuarios canjeen códigos y activen Pro gratis |
+| `Login.jsx` | Warnings de DevTools: inputs sin `id`/`name`, labels sin `htmlFor` | Todos los campos tienen atributos de accesibilidad correctos. Autocompletado del navegador funciona |
+| `Dashboard.jsx` | No tenía ruta para el panel admin | Agrega `/admin-beta` protegida por `isDueño` |
+| `Navbar.jsx` | No tenía botón para acceder al panel admin | Agrega botón **🔑 Códigos Beta** visible solo para dueños |
+| `App.jsx` | No tenía ruta pública para canjear códigos | Agrega `/canjear-beta` accesible sin login |
+
+---
+
+## ⚠️ Notas importantes
+
+- **No modifiques** `firestore.rules` para restringir `codigosBeta` por ahora. El control de acceso se hace por UID en el frontend.
+- Los códigos beta son **de un solo uso**. Una vez canjeados, no se pueden reutilizar.
+- Los códigos pueden tener **fecha de expiración**. Si expiran antes de ser usados, el usuario verá "Código expirado".
+- El plan **pro_gratis** es distinto de **pro** pagado. Cuando expire, el usuario baja a **básico**, no a **pro expirado**.
+
+---
+
+## 🆘 Si algo no funciona
+
+| Síntoma | Causa probable | Solución |
+|---------|---------------|----------|
+| "Acceso Restringido" en panel admin | No pusiste tu UID en `ADMIN_UIDS` | Sigue el paso "Configurar tu UID de admin" arriba |
+| "Error al cargar códigos" | No existe la colección `codigosBeta` en Firestore | Crea un código manualmente desde el panel, o crea la colección vacía en Firebase Console |
+| "Error al canjear: Código no encontrado" | El código no existe o tiene espacios | Verifica que el código esté escrito exactamente igual (mayúsculas) |
+| Mi cuenta sigue suspendida | `paymentService.js` no se está usando en `useAuth.jsx` | Verifica que `useAuth.jsx` importe `verificarEstadoV2` y `autoUpgradeFases` de `paymentService.js` |
+
+---
+
+Generado para Loventa POS — Almacén de Barrio v5.0
 ````
 
 ## File: tailwind.config.js
