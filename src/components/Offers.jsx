@@ -55,9 +55,6 @@ export default function Offers() {
         enOferta: true,
         precioOferta,
         razonOferta: form.razon || null,
-        // Si se deja vacío, cantidadOferta queda null y se vende TODO el stock a precio
-        // oferta (comportamiento clásico). Si se especifica, solo esas unidades salen
-        // a precio oferta y el resto se cobra a precio normal automáticamente en el POS.
         cantidadOferta,
         cantidadOfertaVendida: 0,
       });

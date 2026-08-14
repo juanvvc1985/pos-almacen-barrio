@@ -426,6 +426,10 @@ export default function POS() {
       setCarrito([]);
       setAplicarDescuento(false);
       setMontoACobrar("");
+
+      // 🔥 FIX: Forzar recarga de productos desde Firestore después de vender
+      // para asegurar que el stock mostrado esté sincronizado
+      await cargarProductos();
     } catch (err) {
       console.error(err);
       alert("Error al registrar la venta");
@@ -454,8 +458,17 @@ export default function POS() {
     }
   }
 
+  // 🔥 FIX: Mostrar productos con stock > 0 primero, y deshabilitar los agotados
   const productosRapidos = productos
     .filter((p) => !search.trim() || p.nombre?.toLowerCase().includes(search.toLowerCase()))
+    .sort((a, b) => {
+      // Priorizar productos con stock disponible
+      const stockA = a.stock || 0;
+      const stockB = b.stock || 0;
+      if (stockA > 0 && stockB <= 0) return -1;
+      if (stockA <= 0 && stockB > 0) return 1;
+      return 0;
+    })
     .slice(0, 12);
 
   return (
@@ -609,12 +622,28 @@ export default function POS() {
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-              {productosRapidos.map((p) => (
+              {productosRapidos.map((p) => {
+                const sinStock = (p.stock || 0) <= 0;
+                const ofertaRestante = p.cantidadOferta != null && p.cantidadOferta > 0
+                  ? Math.max(0, p.cantidadOferta - (p.cantidadOfertaVendida || 0))
+                  : null;
+                return (
                 <button
                   key={p.id}
-                  onClick={() => agregarAlCarrito(p)}
-                  className="bg-white rounded-xl shadow-sm border border-gray-200 p-3 text-left hover:shadow-md hover:border-blue-300 transition active:scale-95"
+                  onClick={() => !sinStock && agregarAlCarrito(p)}
+                  disabled={sinStock}
+                  className={`bg-white rounded-xl shadow-sm border p-3 text-left transition active:scale-95 relative overflow-hidden ${
+                    sinStock
+                      ? "border-gray-200 opacity-60 cursor-not-allowed"
+                      : "border-gray-200 hover:shadow-md hover:border-blue-300"
+                  }`}
                 >
+                  {/* 🔥 FIX: Badge de agotado */}
+                  {sinStock && (
+                    <div className="absolute inset-0 bg-gray-100/80 flex items-center justify-center z-10">
+                      <span className="text-xs font-bold text-gray-500 bg-white px-2 py-1 rounded border border-gray-200">AGOTADO</span>
+                    </div>
+                  )}
                   <p className="font-medium text-gray-800 text-sm truncate">{p.nombre}</p>
                   {p.enOferta ? (
                     <div className="flex items-center gap-1.5 mt-1">
@@ -626,18 +655,25 @@ export default function POS() {
                       {formatCurrency(p.precioVenta)}
                     </p>
                   )}
-                  <p className="text-xs text-gray-400 mt-0.5">
+                  <p className={`text-xs mt-0.5 ${sinStock ? "text-red-500 font-medium" : "text-gray-400"}`}>
                     Stock: {p.stock} {p.unidad}
                   </p>
                   {p.enOferta && (
-                    <span className="inline-block mt-1 text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded">
-                      {p.cantidadOferta != null && p.cantidadOferta > 0
-                        ? `OFERTA: ${Math.max(0, p.cantidadOferta - (p.cantidadOfertaVendida || 0))} u. restantes`
+                    <span className={`inline-block mt-1 text-xs px-1.5 py-0.5 rounded ${
+                      ofertaRestante != null && ofertaRestante > 0
+                        ? "bg-red-100 text-red-700"
+                        : "bg-gray-100 text-gray-500"
+                    }`}>
+                      {ofertaRestante != null && ofertaRestante > 0
+                        ? `🔥 ${ofertaRestante} u. en oferta`
+                        : ofertaRestante === 0
+                        ? "Cupo oferta agotado"
                         : "OFERTA"}
                     </span>
                   )}
                 </button>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

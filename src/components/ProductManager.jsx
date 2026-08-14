@@ -42,6 +42,8 @@ export default function ProductManager() {
     stock: "", stockCritico: "", unidad: "unidad", categoria: "Abarrotes",
     perecedero: false, diasAlertaVencimiento: 3, enOferta: false, precioOferta: "", lotes: [],
     fechaVencimiento: "",
+    // 🔥 FIX: Preservar campos de oferta al editar
+    cantidadOferta: "", cantidadOfertaVendida: 0,
   });
 
   useEffect(() => {
@@ -83,6 +85,7 @@ export default function ProductManager() {
       stock: "", stockCritico: "", unidad: "unidad", categoria: "Abarrotes",
       perecedero: false, diasAlertaVencimiento: 3, enOferta: false, precioOferta: "", lotes: [],
       fechaVencimiento: "",
+      cantidadOferta: "", cantidadOfertaVendida: 0,
     });
     setEditando(null);
   }
@@ -101,13 +104,18 @@ export default function ProductManager() {
       enOferta: producto.enOferta || false,
       precioOferta: producto.precioOferta?.toString() || "", lotes: producto.lotes || [],
       fechaVencimiento: "",
+      // 🔥 FIX: Preservar cantidadOferta y cantidadOfertaVendida al editar
+      cantidadOferta: producto.cantidadOferta?.toString() || "",
+      cantidadOfertaVendida: producto.cantidadOfertaVendida || 0,
     });
     setEditando(producto.id);
     setMostrarForm(true);
   }
 
+  // 🔥 FIX: Validar duplicados por código de barras y preservar campos de oferta
   async function handleGuardar() {
     if (!puedeGestionar) { alert("Solo el dueño o vendedores con privilegio pueden gestionar productos"); return; }
+
     const data = {
       nombre: form.nombre.trim(), codigoBarras: form.codigoBarras.trim() || null,
       precioVenta: Number(form.precioVenta) || 0, precioCompra: Number(form.precioCompra) || 0,
@@ -117,6 +125,18 @@ export default function ProductManager() {
       enOferta: form.enOferta, precioOferta: form.enOferta ? Number(form.precioOferta) || 0 : null,
       lotes: form.lotes || [],
     };
+
+    // 🔥 FIX: Incluir cantidadOferta y cantidadOfertaVendida para no perderlos al editar
+    if (form.enOferta && form.cantidadOferta !== "" && form.cantidadOferta != null) {
+      const cantidadOfertaNum = Number(form.cantidadOferta);
+      if (!isNaN(cantidadOfertaNum) && cantidadOfertaNum > 0) {
+        data.cantidadOferta = cantidadOfertaNum;
+        data.cantidadOfertaVendida = Number(form.cantidadOfertaVendida) || 0;
+      }
+    } else if (!form.enOferta) {
+      data.cantidadOferta = null;
+      data.cantidadOfertaVendida = null;
+    }
 
     if (form.perecedero && form.fechaVencimiento) {
       data.lotes = [{
@@ -128,6 +148,16 @@ export default function ProductManager() {
     }
 
     if (!data.nombre) { alert("El nombre es obligatorio"); return; }
+
+    // 🔥 FIX: Validar duplicados por código de barras (excluyendo el producto que se está editando)
+    if (data.codigoBarras && data.codigoBarras.trim() !== "") {
+      const existente = await productsService.getProductByBarcode(almacenId, data.codigoBarras.trim());
+      if (existente && existente.id !== editando) {
+        alert(`Ya existe un producto con el código de barras "${data.codigoBarras}". Usa el producto existente o cambia el código.`);
+        return;
+      }
+    }
+
     try {
       if (editando) {
         await productsService.updateProduct(editando, data);
@@ -329,6 +359,15 @@ export default function ProductManager() {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="0" min="0" />
               </div>
             )}
+            {/* 🔥 FIX: Mostrar campos de cantidadOferta en modo edición si ya existen */}
+            {editando && form.enOferta && form.cantidadOferta !== "" && form.cantidadOferta != null && Number(form.cantidadOferta) > 0 && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Cantidad en oferta (ya configurada)</label>
+                <input type="number" value={form.cantidadOferta} onChange={(e) => setForm({ ...form, cantidadOferta: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="0" min="1" />
+                <p className="text-xs text-gray-400 mt-1">Vendidas: {form.cantidadOfertaVendida || 0} de {form.cantidadOferta}</p>
+              </div>
+            )}
           </div>
           <div className="flex gap-3 mt-6">
             <button onClick={() => { setMostrarForm(false); resetForm(); }}
@@ -397,7 +436,14 @@ export default function ProductManager() {
                           <p className="font-medium text-gray-800">{p.nombre}</p>
                           <p className="text-xs text-gray-400">{p.categoria} • {p.unidad}</p>
                           {p.codigoBarras && <p className="text-xs text-gray-400 font-mono">{p.codigoBarras}</p>}
-                          {p.enOferta && <span className="inline-block mt-1 text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded">OFERTA: {formatCurrency(p.precioOferta)}</span>}
+                          {p.enOferta && (
+                            <span className="inline-block mt-1 text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded">
+                              OFERTA: {formatCurrency(p.precioOferta)}
+                              {p.cantidadOferta != null && p.cantidadOferta > 0
+                                ? ` (${Math.max(0, p.cantidadOferta - (p.cantidadOfertaVendida || 0))} restantes)`
+                                : " (todo el stock)"}
+                            </span>
+                          )}
                         </div>
                       </td>
                       <td className="px-4 py-3 text-right">

@@ -76,9 +76,18 @@ export async function getProduct(productId) {
   return null;
 }
 
+// 🔥 FIX: Validar duplicados por código de barras antes de crear
 export async function createProduct(almacenId, productData) {
   const check = await puedeCrearProducto(almacenId);
   if (!check.permitido) throw new Error(check.mensaje);
+
+  // Si tiene código de barras, verificar que no exista otro producto con el mismo código
+  if (productData.codigoBarras && productData.codigoBarras.trim() !== "") {
+    const existente = await getProductByBarcode(almacenId, productData.codigoBarras.trim());
+    if (existente) {
+      throw new Error(`Ya existe un producto con el código de barras "${productData.codigoBarras}". Usa el producto existente o cambia el código.`);
+    }
+  }
 
   const data = {
     ...productData,
@@ -177,6 +186,8 @@ export async function discountStockBatch(carritoItems) {
   return results;
 }
 
+// 🔥 FIX: Si hay múltiples productos con el mismo código, devolver el que tenga stock > 0
+// para evitar vender productos duplicados con stock 0
 export async function getProductByBarcode(almacenId, barcode) {
   if (!almacenId || !barcode) return null;
   try {
@@ -186,13 +197,26 @@ export async function getProductByBarcode(almacenId, barcode) {
       where("codigoBarras", "==", barcode)
     );
     const snap = await getDocs(q);
-    if (!snap.empty) return { id: snap.docs[0].id, ...snap.docs[0].data() };
-    return null;
+    if (snap.empty) return null;
+
+    // Si hay múltiples resultados, priorizar el que tenga stock disponible
+    const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    if (docs.length === 1) return docs[0];
+
+    const conStock = docs.find(p => (p.stock || 0) > 0);
+    if (conStock) return conStock;
+
+    // Si ninguno tiene stock, devolver el primero (para mostrarlo como agotado)
+    return docs[0];
   } catch (err) {
     // Fallback: buscar en cache local
     const cached = getCachedProducts(almacenId);
     if (cached) {
-      return cached.find(p => p.codigoBarras === barcode) || null;
+      const matches = cached.filter(p => p.codigoBarras === barcode);
+      if (matches.length === 0) return null;
+      if (matches.length === 1) return matches[0];
+      const conStock = matches.find(p => (p.stock || 0) > 0);
+      return conStock || matches[0];
     }
     throw err;
   }
