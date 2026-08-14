@@ -19,6 +19,7 @@ import {
   where,
   getDocs,
 } from "firebase/firestore";
+import { verificarEstadoV2, autoUpgradeFases } from "../services/paymentService";
 
 const AuthContext = createContext(null);
 
@@ -30,6 +31,9 @@ export const ROLES = {
 export const PLANES = {
   BASICO: "basico",
   PRO: "pro",
+  TRIAL_PRO: "trial_pro",
+  PRO_GRATIS: "pro_gratis",
+  SUSPENDIDO: "suspendido",
 };
 
 const FIREBASE_API_KEY = "AIzaSyAQUD8KyWSPYNz73RTrdSy-jZ3Lf2QiF3c";
@@ -92,7 +96,7 @@ async function idbDel(key) {
   }
 }
 
-// ─── localStorage helpers (fallback) ───
+// ─── localStorage helpers ───
 function getOfflineSession() {
   try {
     return JSON.parse(localStorage.getItem(OFFLINE_SESSION_KEY));
@@ -138,6 +142,7 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [userData, setUserData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [suscripcionInfo, setSuscripcionInfo] = useState(null);
 
   useEffect(() => {
     let unsub = null;
@@ -153,6 +158,8 @@ export function AuthProvider({ children }) {
           photoURL: offline.photoURL,
         });
         setUserData(offline.userData);
+        const info = verificarEstadoV2(offline.userData);
+        setSuscripcionInfo(info);
       }
 
       unsub = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -163,7 +170,25 @@ export function AuthProvider({ children }) {
           try {
             const userDoc = await getDoc(doc(db, "users", firebaseUser.uid));
             if (userDoc.exists()) {
-              const data = userDoc.data();
+              let data = userDoc.data();
+
+              // 🔥 FIX: Verificar y auto-actualizar fases de suscripción
+              const estadoInfo = verificarEstadoV2(data);
+
+              if (estadoInfo.necesitaUpgrade || 
+                  (data.plan === "pro_gratis" && estadoInfo.suspendido) ||
+                  ((data.plan === "basico" || data.plan === "pro") && estadoInfo.suspendido)) {
+                try {
+                  const nuevoPlan = await autoUpgradeFases(firebaseUser.uid, data);
+                  const updatedDoc = await getDoc(doc(db, "users", firebaseUser.uid));
+                  if (updatedDoc.exists()) data = updatedDoc.data();
+                } catch (upgradeErr) {
+                  console.error("Error en auto-upgrade:", upgradeErr);
+                }
+              }
+
+              const finalInfo = verificarEstadoV2(data);
+              setSuscripcionInfo(finalInfo);
 
               if (data.passwordPending && data.role === "vendedor") {
                 try {
@@ -191,11 +216,17 @@ export function AuthProvider({ children }) {
               saveOfflineUser(firebaseUser.uid, data);
             } else {
               const cached = getOfflineUser(firebaseUser.uid);
-              if (cached) setUserData(cached);
+              if (cached) {
+                setUserData(cached);
+                setSuscripcionInfo(verificarEstadoV2(cached));
+              }
             }
           } catch (err) {
             const cached = getOfflineUser(firebaseUser.uid);
-            if (cached) setUserData(cached);
+            if (cached) {
+              setUserData(cached);
+              setSuscripcionInfo(verificarEstadoV2(cached));
+            }
             console.warn("Firestore offline, usando cache:", err.message);
           }
         } else {
@@ -203,6 +234,7 @@ export function AuthProvider({ children }) {
           if (!stillOffline) {
             setUser(null);
             setUserData(null);
+            setSuscripcionInfo(null);
           }
         }
 
@@ -260,11 +292,30 @@ export function AuthProvider({ children }) {
       const result = await signInWithEmailAndPassword(auth, email, password);
       const userDoc = await getDoc(doc(db, "users", result.user.uid));
       if (userDoc.exists()) {
-        const data = userDoc.data();
+        let data = userDoc.data();
+
+        const estadoInfo = verificarEstadoV2(data);
+
+        if (estadoInfo.necesitaUpgrade || 
+            (data.plan === "pro_gratis" && estadoInfo.suspendido) ||
+            ((data.plan === "basico" || data.plan === "pro") && estadoInfo.suspendido)) {
+          try {
+            await autoUpgradeFases(result.user.uid, data);
+            const updatedDoc = await getDoc(doc(db, "users", result.user.uid));
+            if (updatedDoc.exists()) data = updatedDoc.data();
+          } catch (upgradeErr) {
+            console.error("Error en auto-upgrade:", upgradeErr);
+          }
+        }
+
+        const finalInfo = verificarEstadoV2(data);
+        setSuscripcionInfo(finalInfo);
+
         if (data.activo === false) {
           await signOut(auth);
           throw new Error("Usuario desactivado. Contacta al dueño.");
         }
+
         setUserData(data);
         const session = {
           uid: result.user.uid,
@@ -311,6 +362,7 @@ export function AuthProvider({ children }) {
             photoURL: offline.photoURL,
           });
           setUserData(offline.userData || offline);
+          setSuscripcionInfo(verificarEstadoV2(offline.userData || offline));
           return { user: offline, offline: true };
         }
         throw new Error("Sin conexión. Primero inicia sesión con internet al menos una vez.");
@@ -345,6 +397,7 @@ export function AuthProvider({ children }) {
       plan: PLANES.BASICO,
     };
     setUserData(newUserData);
+    setSuscripcionInfo(verificarEstadoV2(newUserData));
     const session = {
       uid: result.user.uid,
       email: result.user.email?.toLowerCase(),
@@ -365,13 +418,15 @@ export function AuthProvider({ children }) {
     await signOut(auth);
     setUser(null);
     setUserData(null);
+    setSuscripcionInfo(null);
   };
 
   const isDueño = userData?.role === ROLES.DUEÑO;
   const isVendedor = userData?.role === ROLES.VENDEDOR;
   const almacenId = userData?.almacenId || null;
+  const isSuspendido = suscripcionInfo?.suspendido || false;
+  const planReal = suscripcionInfo?.planReal || null;
 
-  // ─── NUEVO: helper de privilegios ───
   const hasPrivilege = useCallback((privilege) => {
     if (isDueño) return true;
     if (!userData?.privilegios) return false;
@@ -392,6 +447,9 @@ export function AuthProvider({ children }) {
         almacenId,
         isAuthenticated: !!userData,
         hasPrivilege,
+        suscripcionInfo,
+        isSuspendido,
+        planReal,
       }}
     >
       {children}
