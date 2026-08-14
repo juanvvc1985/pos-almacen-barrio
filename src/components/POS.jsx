@@ -14,7 +14,7 @@ import { db } from "../firebase/firebase";
 import {
   Search, ScanLine, Trash2, Plus, Minus, ShoppingCart,
   Package, Clock, DollarSign, CreditCard, Smartphone, User,
-  X, Check, Printer, Scale, Loader2, WifiOff
+  X, Check, Printer, Scale, Loader2, WifiOff, CheckCircle2
 } from "lucide-react";
 
 const METODO_STYLES = {
@@ -24,9 +24,6 @@ const METODO_STYLES = {
   fiado: { bg: "bg-orange-50", border: "border-orange-300", text: "text-orange-700" },
 };
 
-// Calcula cuánto de un ítem del carrito se cobra a precio oferta y cuánto a precio normal.
-// Si la oferta no tiene cantidadOferta configurada, se mantiene el comportamiento anterior
-// (todo el stock del producto se vende a precio oferta) para no romper ofertas ya creadas.
 function calcularLineaCarrito(item) {
   const cantidad = item.cantidad;
   if (!item.enOferta) {
@@ -72,6 +69,9 @@ export default function POS() {
   const [imprimiendo, setImprimiendo] = useState(false);
   const [almacenNombre, setAlmacenNombre] = useState("");
 
+  // 🔥 FIX: Estado de carga para cierre de turno (evita que se quede pegado)
+  const [closingTurno, setClosingTurno] = useState(false);
+
   useEffect(() => {
     if (!almacenId) return;
     getDoc(doc(db, "almacenes", almacenId)).then((snap) => {
@@ -112,7 +112,6 @@ export default function POS() {
     try {
       let data = await productsService.getProducts(almacenId);
 
-      // Aplicar descuentos de stock de operaciones pendientes (offline)
       const queue = JSON.parse(localStorage.getItem("pos_offline_queue") || "[]");
       const pendingDiscounts = {};
       queue.forEach(op => {
@@ -239,52 +238,72 @@ export default function POS() {
     mostrarMensaje("Turno abierto");
   }
 
+  // 🔥 FIX: handleCerrarTurno con try-catch + loading state
   async function handleCerrarTurno() {
     if (!turno) return;
+    setClosingTurno(true);
+    try {
+      if (!isOnline) {
+        const cerrado = { ...turno, estado: "cerrado", cerradoEn: new Date().toISOString() };
+        setTurno(null);
+        clearOfflineTurno();
+        addToQueue({ type: "turno_cerrar", turnoId: turno.id, data: cerrado });
+        mostrarMensaje("Turno cerrado (se sincronizará al reconectar)");
+        return;
+      }
 
-    if (!isOnline) {
-      const cerrado = { ...turno, estado: "cerrado", cerradoEn: new Date().toISOString() };
-      setTurno(null);
-      clearOfflineTurno();
-      addToQueue({ type: "turno_cerrar", turnoId: turno.id, data: cerrado });
-      mostrarMensaje("Turno cerrado (se sincronizará al reconectar)");
-      return;
+      const ventasHoy = await salesService.getTodaySales(almacenId);
+      const resumen = { efectivo: 0, tarjeta: 0, transferencia: 0, fiado: 0 };
+      ventasHoy.forEach((v) => {
+        if (resumen[v.metodoPago] !== undefined) resumen[v.metodoPago] += v.total;
+      });
+      const totalVentas = Object.values(resumen).reduce((a, b) => a + b, 0);
+      const efectivoEnCaja = (turno.montoInicial || 0) + (resumen.efectivo || 0);
+
+      setResumenCierre({
+        ...resumen,
+        totalVentas,
+        efectivoEnCaja,
+        montoInicial: turno.montoInicial || 0,
+      });
+      setMostrarCerrarTurno(true);
+    } catch (err) {
+      console.error("Error al cargar resumen del turno:", err);
+      alert("Error al cargar resumen: " + (err.message || "Verifica tu conexión e intenta de nuevo."));
+    } finally {
+      setClosingTurno(false);
     }
-
-    const ventasHoy = await salesService.getTodaySales(almacenId);
-    const resumen = { efectivo: 0, tarjeta: 0, transferencia: 0, fiado: 0 };
-    ventasHoy.forEach((v) => {
-      if (resumen[v.metodoPago] !== undefined) resumen[v.metodoPago] += v.total;
-    });
-    const totalVentas = Object.values(resumen).reduce((a, b) => a + b, 0);
-    const efectivoEnCaja = (turno.montoInicial || 0) + (resumen.efectivo || 0);
-
-    setResumenCierre({
-      ...resumen,
-      totalVentas,
-      efectivoEnCaja,
-      montoInicial: turno.montoInicial || 0,
-    });
-    setMostrarCerrarTurno(true);
   }
 
+  // 🔥 FIX: confirmarCerrarTurno con try-catch + loading state
   async function confirmarCerrarTurno() {
     if (!turno || !resumenCierre) return;
-    await salesService.updateTurno(turno.id, {
-      estado: "cerrado",
-      cerradoEn: new Date().toISOString(),
-      ventas: {
-        efectivo: resumenCierre.efectivo,
-        tarjeta: resumenCierre.tarjeta,
-        transferencia: resumenCierre.transferencia,
-        fiado: resumenCierre.fiado,
-      },
-    });
-    setTurno(null);
-    clearOfflineTurno();
-    setMostrarCerrarTurno(false);
-    setResumenCierre(null);
-    mostrarMensaje("Turno cerrado");
+    setClosingTurno(true);
+    try {
+      await salesService.updateTurno(turno.id, {
+        estado: "cerrado",
+        cerradoEn: new Date().toISOString(),
+        ventas: {
+          efectivo: resumenCierre.efectivo,
+          tarjeta: resumenCierre.tarjeta,
+          transferencia: resumenCierre.transferencia,
+          fiado: resumenCierre.fiado,
+        },
+      });
+      setTurno(null);
+      clearOfflineTurno();
+      setMostrarCerrarTurno(false);
+      setResumenCierre(null);
+      mostrarMensaje("Turno cerrado correctamente");
+    } catch (err) {
+      console.error("Error al cerrar turno:", err);
+      alert("Error al cerrar el turno: " + (err.message || "Verifica tu conexión. Si persiste, recarga la página."));
+      // 🔥 FIX: No dejar el modal abierto infinitamente
+      setMostrarCerrarTurno(false);
+      setResumenCierre(null);
+    } finally {
+      setClosingTurno(false);
+    }
   }
 
   async function handleVender() {
@@ -296,7 +315,6 @@ export default function POS() {
 
     setLoading(true);
     try {
-      // 1. Verificar stock disponible
       for (const item of carrito) {
         const prod = productos.find(p => p.id === item.id);
         if (!prod || (prod.stock || 0) < item.cantidad) {
@@ -306,7 +324,6 @@ export default function POS() {
         }
       }
 
-      // 2. Descontar stock en Firestore (online) o solo local (offline)
       const itemsParaDescontar = carrito.map((c) => ({ id: c.id, cantidad: c.cantidad }));
 
       if (isOnline) {
@@ -319,8 +336,6 @@ export default function POS() {
         }
       }
 
-      // 3. Actualizar stock en estado local (para que se vea inmediato) y descontar
-      //    las unidades vendidas a precio oferta del cupo de cada oferta con límite.
       const actualizacionesOferta = [];
       for (const item of carrito) {
         const prod = productos.find(p => p.id === item.id);
@@ -513,8 +528,18 @@ export default function POS() {
               <button onClick={() => setMostrarCerrarTurno(false)} className="flex-1 py-2 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50">
                 Cancelar
               </button>
-              <button onClick={confirmarCerrarTurno} className="flex-1 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 flex items-center justify-center gap-2">
-                <Check size={16} /> Cerrar y Guardar
+              {/* 🔥 FIX: Botón con loading state y disabled */}
+              <button
+                onClick={confirmarCerrarTurno}
+                disabled={closingTurno}
+                className="flex-1 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 flex items-center justify-center gap-2 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {closingTurno ? (
+                  <Loader2 size={16} className="animate-spin" />
+                ) : (
+                  <CheckCircle2 size={16} />
+                )}
+                {closingTurno ? "Cerrando..." : "Cerrar y Guardar"}
               </button>
             </div>
           </div>
@@ -539,9 +564,10 @@ export default function POS() {
         {turno ? (
           <button
             onClick={handleCerrarTurno}
-            className="bg-red-100 hover:bg-red-200 text-red-700 px-4 py-2 rounded-lg text-sm font-medium transition"
+            disabled={closingTurno}
+            className="bg-red-100 hover:bg-red-200 text-red-700 px-4 py-2 rounded-lg text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Cerrar Turno
+            {closingTurno ? "Cargando..." : "Cerrar Turno"}
           </button>
         ) : (
           <button
