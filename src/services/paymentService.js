@@ -1,262 +1,168 @@
+// services/paymentService.js
+// ─── Compatibilidad hacia atrás: usuarios antiguos sin fechas de expiración se consideran ACTIVOS ───
+
+import { doc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "../firebase/firebase";
-import { doc, getDoc, updateDoc, setDoc, serverTimestamp } from "firebase/firestore";
 
-// ─── PRECIOS ───
-export const PRECIOS = {
-  basico: {
-    mensual: 5990,
-    anual: 59900,   // paga 10 meses, usa 12
-    label: "Básico",
-    descripcion: "Hasta 500 productos, 1 vendedor, POS offline",
-  },
-  pro: {
-    mensual: 11990,
-    anual: 119900,  // paga 10 meses, usa 12
-    label: "Pro",
-    descripcion: "Productos ilimitados, vendedores ilimitados, reportes avanzados, multi-sucursal",
-  },
-};
-
-// ─── FECHAS ───
-function addDays(date, days) {
-  const result = new Date(date);
-  result.setDate(result.getDate() + days);
-  return result;
-}
-
-function addMonths(date, months) {
-  const result = new Date(date);
-  result.setMonth(result.getMonth() + months);
-  return result;
-}
-
-// ─── CALCULAR PRÓXIMA FECHA DE RENOVACIÓN ───
-export function calcularProximaRenovacion(fechaInicio, periodo) {
-  const inicio = new Date(fechaInicio);
-  if (periodo === "anual") {
-    return addMonths(inicio, 12);
-  }
-  return addMonths(inicio, 1);
-}
-
-// ─── CALCULAR COMPENSACIÓN DE UPGRADE ───
 /**
- * Calcula cuánto debe pagar un usuario que quiere upgradear de plan.
- * 
- * Escenarios:
- * 1. Básico mensual → Pro mensual: paga diferencia mensual ($6.000) desde YA
- * 2. Básico anual → Pro anual: paga diferencia anual ($60.000) desde YA  
- * 3. Básico mensual → Pro anual: paga Pro anual completo ($119.900) - lo pagado prorrateado
- * 4. A mitad de ciclo: se calcula prorrateo simple
+ * Verifica el estado de suscripción de un usuario.
+ * Compatibilidad: usuarios creados antes de los cambios de pago
+ * (sin trialExpiresAt, proGratisUntil ni planExpiresAt) se consideran ACTIVOS.
  */
-export function calcularCompensacion(planActual, periodoActual, planNuevo, periodoNuevo, fechaInicioActual) {
-  const precioActual = PRECIOS[planActual][periodoActual];
-  const precioNuevo = PRECIOS[planNuevo][periodoNuevo];
+export async function verificarEstadoV2(uid) {
+  const ref = doc(db, "usuarios", uid);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) {
+    return { estado: "no_encontrado", activo: false, suspendido: true, mensaje: "Usuario no encontrado" };
+  }
 
-  // Si es upgrade dentro del mismo periodo (mensual→mensual o anual→anual)
-  if (periodoActual === periodoNuevo) {
-    const diferencia = precioNuevo - precioActual;
+  const u = snap.data();
+  const ahora = Date.now();
+  const plan = u.plan || "basico";
+
+  // ─── ADMIN SIEMPRE ACTIVO ───
+  if (u.role === "admin" || u.isAdmin === true) {
+    return { estado: "admin", activo: true, suspendido: false, plan: "admin", mensaje: "Admin ilimitado" };
+  }
+
+  // ─── COMPATIBILIDAD: usuarios antiguos sin fechas de expiración ───
+  const tieneFechas = u.trialExpiresAt || u.proGratisUntil || u.planExpiresAt;
+  if (!tieneFechas) {
+    // Usuario antiguo: activo con su plan actual
     return {
-      tipo: "diferencia",
-      monto: Math.max(0, diferencia),
-      mensaje: diferencia > 0 
-        ? `Paga la diferencia: ${formatMoney(diferencia)} ${periodoNuevo === "mensual" ? "/mes" : "al año"}`
-        : "Sin costo adicional",
-      prorrateo: false,
+      estado: "activo_legacy",
+      activo: true,
+      suspendido: false,
+      plan: plan,
+      mensaje: "Plan activo (usuario legacy)"
     };
   }
 
-  // Si cambia de periodo (mensual→anual o anual→mensual)
-  // Calcular días transcurridos del ciclo actual
-  const hoy = new Date();
-  const inicio = new Date(fechaInicioActual);
-  const diasTotales = periodoActual === "anual" ? 365 : 30;
-  const msTranscurridos = hoy - inicio;
-  const diasTranscurridos = Math.max(0, Math.floor(msTranscurridos / (1000 * 60 * 60 * 24)));
-  const diasRestantes = Math.max(0, diasTotales - diasTranscurridos);
+  // ─── TRIAL ───
+  if (plan === "trial" && u.trialExpiresAt) {
+    const activo = ahora < u.trialExpiresAt;
+    return {
+      estado: activo ? "trial_activo" : "trial_expirado",
+      activo,
+      suspendido: !activo,
+      plan: "trial",
+      mensaje: activo ? "Trial activo" : "Trial expirado"
+    };
+  }
 
-  // Valor restante del plan actual (prorrateo simple)
-  const valorRestante = Math.round((precioActual / diasTotales) * diasRestantes);
+  // ─── PRO GRATIS ───
+  if (plan === "pro_gratis" && u.proGratisUntil) {
+    const activo = ahora < u.proGratisUntil;
+    return {
+      estado: activo ? "pro_gratis_activo" : "pro_gratis_expirado",
+      activo,
+      suspendido: !activo,
+      plan: "pro_gratis",
+      mensaje: activo ? "Pro gratis activo" : "Pro gratis expirado"
+    };
+  }
 
-  // Debe pagar: precio nuevo - valor restante
-  const montoAPagar = Math.max(0, precioNuevo - valorRestante);
-
-  return {
-    tipo: "prorrateo",
-    monto: montoAPagar,
-    mensaje: `Cambio de plan: pagas ${formatMoney(montoAPagar)} (se descuentan ${formatMoney(valorRestante)} de tu plan actual)`,
-    prorrateo: true,
-    detalle: {
-      precioNuevo,
-      valorRestante,
-      diasRestantes,
-    },
-  };
-}
-
-// ─── FORMATEAR DINERO ───
-export function formatMoney(valor) {
-  return new Intl.NumberFormat("es-CL", {
-    style: "currency",
-    currency: "CLP",
-    minimumFractionDigits: 0,
-  }).format(valor);
-}
-
-// ─── ACTIVAR PLAN (simulado - luego conectas Stripe/MercadoPago) ───
-/**
- * Activa un plan para un usuario.
- * En producción, esto se llamaría DESPUÉS de confirmar el pago con la pasarela.
- */
-export async function activarPlan(uid, almacenId, plan, periodo, datosPago = {}) {
-  const ahora = new Date();
-  const planStartedAt = ahora.toISOString();
-  const planExpiresAt = calcularProximaRenovacion(ahora, periodo).toISOString();
-
-  const userUpdates = {
-    plan,
-    planPeriodo: periodo,
-    planStartedAt,
-    planExpiresAt,
-    planActivatedAt: ahora.toISOString(),
-    suspendido: false,
-    updatedAt: ahora.toISOString(),
-    ultimoPago: {
+  // ─── BÁSICO / PRO CON PLAN EXPIRADO ───
+  if ((plan === "basico" || plan === "pro") && u.planExpiresAt) {
+    const activo = ahora < u.planExpiresAt;
+    return {
+      estado: activo ? `${plan}_activo` : `${plan}_expirado`,
+      activo,
+      suspendido: !activo,
       plan,
-      periodo,
-      monto: datosPago.monto || PRECIOS[plan][periodo],
-      fecha: ahora.toISOString(),
-      metodo: datosPago.metodo || "pendiente",
-      transactionId: datosPago.transactionId || null,
-    },
-  };
-
-  const almacenUpdates = {
-    plan,
-    planExpiresAt,
-    updatedAt: ahora.toISOString(),
-  };
-
-  await updateDoc(doc(db, "users", uid), userUpdates);
-  await updateDoc(doc(db, "almacenes", almacenId), almacenUpdates);
-
-  return { success: true, plan, periodo, planExpiresAt };
-}
-
-// ─── VERIFICAR ESTADO DE SUSCRIPCIÓN V2 (reemplaza a betaAuth) ───
-export function verificarEstadoV2(userData) {
-  const ahora = new Date();
-  const plan = userData?.plan || "suspendido";
-  const trialExpiresAt = userData?.trialExpiresAt ? new Date(userData.trialExpiresAt) : null;
-  const proGratisUntil = userData?.proGratisUntil ? new Date(userData.proGratisUntil) : null;
-  const planExpiresAt = userData?.planExpiresAt ? new Date(userData.planExpiresAt) : null;
-
-  const msPorDia = 1000 * 60 * 60 * 24;
-
-  // Fase 1: Trial Pro (30 días)
-  if (plan === "trial_pro" && trialExpiresAt && ahora < trialExpiresAt) {
-    const diasRestantes = Math.max(0, Math.ceil((trialExpiresAt - ahora) / msPorDia));
-    return {
-      estado: "trial_pro",
-      activo: true,
-      diasRestantes,
-      mensaje: `Periodo de prueba PRO: ${diasRestantes} días restantes`,
-      planReal: "pro",
-      suspendido: false,
+      mensaje: activo ? `Plan ${plan} activo` : `Plan ${plan} expirado`
     };
   }
 
-  // Fase 2: Pro Gratis (6 meses después del trial)
-  if ((plan === "trial_pro" || plan === "pro_gratis") && proGratisUntil && ahora < proGratisUntil) {
-    const diasRestantes = Math.max(0, Math.ceil((proGratisUntil - ahora) / msPorDia));
-    return {
-      estado: "pro_gratis",
-      activo: true,
-      diasRestantes,
-      mensaje: `Plan Pro gratis (beta): ${diasRestantes} días restantes`,
-      planReal: "pro",
-      suspendido: false,
-      necesitaUpgrade: plan === "trial_pro", // Marcar para auto-upgrade
-    };
-  }
-
-  // Fase 3: Plan pagado (básico o pro)
-  if ((plan === "basico" || plan === "pro") && planExpiresAt && ahora < planExpiresAt) {
-    const diasRestantes = Math.max(0, Math.ceil((planExpiresAt - ahora) / msPorDia));
-    return {
-      estado: plan,
-      activo: true,
-      diasRestantes,
-      mensaje: `Plan ${PRECIOS[plan].label} activo. Renueva en ${diasRestantes} días.`,
-      planReal: plan,
-      suspendido: false,
-    };
-  }
-
-  // Fase 4: Suspendido
+  // ─── Fallback: si tiene fechas pero ninguna condición aplica, activo por defecto ───
   return {
-    estado: "suspendido",
-    activo: false,
-    diasRestantes: 0,
-    mensaje: "Tu plan ha finalizado. Activa un plan para continuar.",
-    planReal: null,
-    suspendido: true,
+    estado: "activo_fallback",
+    activo: true,
+    suspendido: false,
+    plan: plan,
+    mensaje: "Plan activo (fallback)"
   };
 }
 
-// ─── AUTO-UPGRADE ENTRE FASES ───
-export async function autoUpgradeFases(uid, userData) {
-  const ahora = new Date();
-  const plan = userData?.plan;
-  const trialExpiresAt = userData?.trialExpiresAt ? new Date(userData.trialExpiresAt) : null;
-  const proGratisUntil = userData?.proGratisUntil ? new Date(userData.proGratisUntil) : null;
+/**
+ * Actualiza automáticamente la fase de suscripción según el estado actual.
+ */
+export async function autoUpgradeFases(uid) {
+  const estado = await verificarEstadoV2(uid);
+  const ref = doc(db, "usuarios", uid);
 
-  // Trial Pro expiró → pasar a Pro Gratis
-  if (plan === "trial_pro" && trialExpiresAt && ahora >= trialExpiresAt) {
-    if (proGratisUntil && ahora < proGratisUntil) {
-      await updateDoc(doc(db, "users", uid), {
-        plan: "pro_gratis",
-        faseUpgradedAt: ahora.toISOString(),
-        updatedAt: ahora.toISOString(),
-      });
-      await updateDoc(doc(db, "almacenes", userData.almacenId), {
-        plan: "pro_gratis",
-        updatedAt: ahora.toISOString(),
-      });
-      return "pro_gratis";
-    }
-  }
-
-  // Pro Gratis expiró → suspender
-  if (plan === "pro_gratis" && proGratisUntil && ahora >= proGratisUntil) {
-    await updateDoc(doc(db, "users", uid), {
-      plan: "suspendido",
-      suspendedAt: ahora.toISOString(),
-      updatedAt: ahora.toISOString(),
+  if (estado.estado === "trial_expirado") {
+    await updateDoc(ref, {
+      plan: "basico",
+      trialExpirado: true,
+      updatedAt: serverTimestamp()
     });
-    await updateDoc(doc(db, "almacenes", userData.almacenId), {
-      plan: "suspendido",
-      updatedAt: ahora.toISOString(),
+  }
+
+  if (estado.estado === "pro_gratis_expirado") {
+    await updateDoc(ref, {
+      plan: "basico",
+      proGratisExpirado: true,
+      updatedAt: serverTimestamp()
     });
-    return "suspendido";
   }
 
-  // Plan pagado expiró → suspender
-  if ((plan === "basico" || plan === "pro") && userData?.planExpiresAt) {
-    const exp = new Date(userData.planExpiresAt);
-    if (ahora >= exp) {
-      await updateDoc(doc(db, "users", uid), {
-        plan: "suspendido",
-        suspendedAt: ahora.toISOString(),
-        updatedAt: ahora.toISOString(),
-      });
-      await updateDoc(doc(db, "almacenes", userData.almacenId), {
-        plan: "suspendido",
-        updatedAt: ahora.toISOString(),
-      });
-      return "suspendido";
-    }
-  }
+  return estado;
+}
 
-  return plan;
+/**
+ * Activa trial de 14 días para un nuevo usuario.
+ */
+export async function activarTrial(uid) {
+  const trialExpiresAt = Date.now() + 14 * 24 * 60 * 60 * 1000;
+  const ref = doc(db, "usuarios", uid);
+  await updateDoc(ref, {
+    plan: "trial",
+    trialExpiresAt,
+    trialIniciado: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  });
+  return trialExpiresAt;
+}
+
+/**
+ * Activa plan Pro gratis por N días (para códigos beta).
+ */
+export async function activarProGratis(uid, dias = 30) {
+  const proGratisUntil = Date.now() + dias * 24 * 60 * 60 * 1000;
+  const ref = doc(db, "usuarios", uid);
+  await updateDoc(ref, {
+    plan: "pro_gratis",
+    proGratisUntil,
+    proGratisActivado: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  });
+  return proGratisUntil;
+}
+
+/**
+ * Verifica si un código beta es válido y no ha sido usado.
+ */
+export async function validarCodigoBeta(codigo) {
+  const ref = doc(db, "codigosBeta", codigo.toUpperCase().trim());
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return { valido: false, mensaje: "Código no encontrado" };
+
+  const data = snap.data();
+  if (data.usado) return { valido: false, mensaje: "Código ya utilizado" };
+  if (data.expiresAt && Date.now() > data.expiresAt) return { valido: false, mensaje: "Código expirado" };
+
+  return { valido: true, data, mensaje: "Código válido" };
+}
+
+/**
+ * Marca un código beta como usado por un usuario.
+ */
+export async function usarCodigoBeta(codigo, uid) {
+  const ref = doc(db, "codigosBeta", codigo.toUpperCase().trim());
+  await updateDoc(ref, {
+    usado: true,
+    usadoPor: uid,
+    usadoEn: serverTimestamp()
+  });
 }

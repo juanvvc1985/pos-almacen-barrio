@@ -9,6 +9,7 @@ import Fiados from "../components/Fiados";
 import Offers from "../components/Offers";
 import AdminVendedores from "./AdminVendedores";
 import ConfiguracionAlmacen from "./ConfiguracionAlmacen";
+import BetaCodesAdmin from "../components/BetaCodesAdmin";
 
 export default function Dashboard() {
   const { isDueño, hasPrivilege, loading } = useAuth();
@@ -35,6 +36,7 @@ export default function Dashboard() {
           <Route path="/informes" element={<Reports />} />
           <Route path="/vendedores" element={isDueño ? <AdminVendedores /> : <Navigate to="/" />} />
           <Route path="/configuracion" element={isDueño ? <ConfiguracionAlmacen /> : <Navigate to="/" />} />
+          <Route path="/admin-beta" element={isDueño ? <BetaCodesAdmin /> : <Navigate to="/" />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
