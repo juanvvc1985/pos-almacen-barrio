@@ -888,7 +888,7 @@ import {
 } from "lucide-react";
 
 export default function Navbar() {
-  const { isDueño, isVendedor, userData, logout, almacenId } = useAuth();
+  const { isDueño, isVendedor, userData, logout, almacenId, hasPrivilege } = useAuth();
   const { isOnline, pendingCount, syncing, getOfflineTurno, addToQueue, clearOfflineTurno } = useOffline();
   const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -898,10 +898,10 @@ export default function Navbar() {
 
   const navLinks = [
     { to: "/", label: "Vender", icon: Store, visible: true },
-    { to: "/productos", label: "Productos", icon: Package, visible: isDueño },
+    { to: "/productos", label: "Productos", icon: Package, visible: isDueño || hasPrivilege("productos") },
     { to: "/fiados", label: "Fiados", icon: HandCoins, visible: true },
-    { to: "/ofertas", label: "Ofertas", icon: Tag, visible: isDueño },
-    { to: "/mermas", label: "Mermas", icon: AlertTriangle, visible: isDueño },
+    { to: "/ofertas", label: "Ofertas", icon: Tag, visible: isDueño || hasPrivilege("ofertas") },
+    { to: "/mermas", label: "Mermas", icon: AlertTriangle, visible: isDueño || hasPrivilege("mermas") },
     { to: "/informes", label: "Informes", icon: BarChart3, visible: true },
     { to: "/vendedores", label: "Vendedores", icon: Users, visible: isDueño },
     { to: "/configuracion", label: "Configuración", icon: Settings, visible: isDueño },
@@ -915,7 +915,6 @@ export default function Navbar() {
 
     setLoadingLogout(true);
     try {
-      // FIX: Si estamos offline, cerrar turno local antes de salir
       if (!isOnline) {
         const offlineTurno = getOfflineTurno();
         if (offlineTurno) {
@@ -932,7 +931,6 @@ export default function Navbar() {
         return;
       }
 
-      // Online: flujo normal con try-catch
       const turno = await salesService.getTurnoActivo(almacenId);
       if (turno) {
         const ventasHoy = await salesService.getTodaySales(almacenId);
@@ -1071,7 +1069,6 @@ export default function Navbar() {
         )}
       </nav>
 
-      {/* Modal cierre de turno al logout */}
       {mostrarCierreLogout && resumenLogout && (
         <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
@@ -2395,7 +2392,8 @@ function generateId() {
 }
 
 export default function ProductManager() {
-  const { almacenId, isDueño } = useAuth();
+  const { almacenId, isDueño, hasPrivilege } = useAuth();
+  const puedeGestionar = isDueño || hasPrivilege("productos");
   const [productos, setProductos] = useState([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -2459,7 +2457,7 @@ export default function ProductManager() {
   }
 
   function handleEditar(producto) {
-    if (!isDueño) return;
+    if (!puedeGestionar) return;
     setForm({
       nombre: producto.nombre || "", codigoBarras: producto.codigoBarras || "",
       precioVenta: producto.precioVenta?.toString() || "",
@@ -2478,6 +2476,7 @@ export default function ProductManager() {
   }
 
   async function handleGuardar() {
+    if (!puedeGestionar) { alert("Solo el dueño o vendedores con privilegio pueden gestionar productos"); return; }
     const data = {
       nombre: form.nombre.trim(), codigoBarras: form.codigoBarras.trim() || null,
       precioVenta: Number(form.precioVenta) || 0, precioCompra: Number(form.precioCompra) || 0,
@@ -2500,7 +2499,6 @@ export default function ProductManager() {
     if (!data.nombre) { alert("El nombre es obligatorio"); return; }
     try {
       if (editando) {
-        if (!isDueño) { alert("Solo el dueño puede editar productos"); return; }
         await productsService.updateProduct(editando, data);
       } else {
         await productsService.createProduct(almacenId, data);
@@ -2512,7 +2510,7 @@ export default function ProductManager() {
   }
 
   async function handleEliminar(id) {
-    if (!isDueño) return;
+    if (!puedeGestionar) return;
     if (!confirm("¿Eliminar este producto permanentemente?")) return;
     await productsService.deleteProduct(id);
     await cargarProductos();
@@ -2786,7 +2784,7 @@ export default function ProductManager() {
                         <div className="flex items-center justify-end gap-1">
                           <button onClick={() => handleAgregarStock(p)}
                             className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg transition" title="Agregar stock"><Plus size={16} /></button>
-                          {isDueño && (
+                          {puedeGestionar && (
                             <>
                               <button onClick={() => handleEditar(p)}
                                 className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition" title="Editar"><Edit2 size={16} /></button>
@@ -3902,7 +3900,7 @@ export default app;
 
 ## File: src/hooks/useAuth.jsx
 ````javascript
-import { createContext, useContext, useState, useEffect } from "react";
+import { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { auth, db } from "../firebase/firebase";
 import {
   onAuthStateChanged,
@@ -4048,7 +4046,6 @@ export function AuthProvider({ children }) {
     let mounted = true;
 
     async function init() {
-      // 1. Restaurar sesión offline lo más rápido posible
       const offline = (await idbGet("session").catch(() => null)) || getOfflineSession();
       if (mounted && offline?.userData) {
         setUser({
@@ -4060,7 +4057,6 @@ export function AuthProvider({ children }) {
         setUserData(offline.userData);
       }
 
-      // 2. Escuchar Firebase Auth (puede confirmar o invalidar)
       unsub = onAuthStateChanged(auth, async (firebaseUser) => {
         if (!mounted) return;
 
@@ -4096,18 +4092,15 @@ export function AuthProvider({ children }) {
               saveOfflineSession(firebaseUser, data);
               saveOfflineUser(firebaseUser.uid, data);
             } else {
-              // Documento no existe: usar cache si hay
               const cached = getOfflineUser(firebaseUser.uid);
               if (cached) setUserData(cached);
             }
           } catch (err) {
-            // Fallo de red (offline): mantener cache
             const cached = getOfflineUser(firebaseUser.uid);
             if (cached) setUserData(cached);
             console.warn("Firestore offline, usando cache:", err.message);
           }
         } else {
-          // Firebase dice que no hay usuario
           const stillOffline = (await idbGet("session").catch(() => null)) || getOfflineSession();
           if (!stillOffline) {
             setUser(null);
@@ -4129,14 +4122,10 @@ export function AuthProvider({ children }) {
 
   async function findEmailByUsername(username) {
     const clean = username.toLowerCase().trim();
-
-    // 1. Buscar en usuarios que ya se han logueado en ESTE dispositivo
     const users = JSON.parse(localStorage.getItem(OFFLINE_USERS_KEY) || "{}");
     for (const uid in users) {
       if (users[uid].username === clean) return users[uid].email;
     }
-
-    // 2. Buscar en cache de vendedores del almacén (se pobla al abrir /vendedores)
     const offlineSession = getOfflineSession();
     const almacenId = offlineSession?.userData?.almacenId;
     if (almacenId) {
@@ -4146,22 +4135,18 @@ export function AuthProvider({ children }) {
         if (found) return found.email;
       } catch { /* noop */ }
     }
-
-    // 3. Buscar online en Firestore
     if (navigator.onLine) {
       try {
         const snap = await getDoc(doc(db, "publicUsernames", clean));
         if (snap.exists()) {
           const data = snap.data();
           if (data.email) return data.email;
-          // Fallback: vendedores creados con la versión buggeada (sin campo email)
           if (data.almacenId) {
             return `vendedor.${clean}.${data.almacenId}@pos-almacen.local`;
           }
         }
       } catch { /* noop */ }
     }
-
     return null;
   }
 
@@ -4173,7 +4158,6 @@ export function AuthProvider({ children }) {
       email = foundEmail.toLowerCase();
     }
 
-    // Intento 1: Firebase Auth (por si hay internet lenta o intermitente)
     try {
       const result = await signInWithEmailAndPassword(auth, email, password);
       const userDoc = await getDoc(doc(db, "users", result.user.uid));
@@ -4207,8 +4191,6 @@ export function AuthProvider({ children }) {
 
       if (isNetworkError) {
         const targetEmail = email.toLowerCase();
-
-        // Buscar en TODOS los usuarios que se han logueado en este dispositivo
         const users = JSON.parse(localStorage.getItem(OFFLINE_USERS_KEY) || "{}");
         let offline = null;
         for (const uid in users) {
@@ -4217,15 +4199,12 @@ export function AuthProvider({ children }) {
             break;
           }
         }
-
-        // Si no, buscar en la sesión activa anterior
         if (!offline) {
           const session = (await idbGet("session").catch(() => null)) || getOfflineSession();
           if (session && session.email?.toLowerCase() === targetEmail) {
             offline = session;
           }
         }
-
         if (offline) {
           setUser({
             uid: offline.uid,
@@ -4236,7 +4215,6 @@ export function AuthProvider({ children }) {
           setUserData(offline.userData || offline);
           return { user: offline, offline: true };
         }
-
         throw new Error("Sin conexión. Primero inicia sesión con internet al menos una vez.");
       }
       throw err;
@@ -4284,11 +4262,8 @@ export function AuthProvider({ children }) {
   };
 
   const logout = async () => {
-    await idbDel("session");           // Borra solo la sesión activa
-    clearOfflineSession();             // Borra la sesión activa de localStorage
-    // NO borramos OFFLINE_USERS_KEY para que el login offline siga funcionando
-    // después de cerrar sesión (cualquier usuario que se haya logueado antes
-    // puede volver a entrar sin internet).
+    await idbDel("session");
+    clearOfflineSession();
     await signOut(auth);
     setUser(null);
     setUserData(null);
@@ -4297,6 +4272,13 @@ export function AuthProvider({ children }) {
   const isDueño = userData?.role === ROLES.DUEÑO;
   const isVendedor = userData?.role === ROLES.VENDEDOR;
   const almacenId = userData?.almacenId || null;
+
+  // ─── NUEVO: helper de privilegios ───
+  const hasPrivilege = useCallback((privilege) => {
+    if (isDueño) return true;
+    if (!userData?.privilegios) return false;
+    return !!userData.privilegios[privilege];
+  }, [isDueño, userData]);
 
   return (
     <AuthContext.Provider
@@ -4311,6 +4293,7 @@ export function AuthProvider({ children }) {
         isVendedor,
         almacenId,
         isAuthenticated: !!userData,
+        hasPrivilege,
       }}
     >
       {children}
@@ -4618,7 +4601,25 @@ import { useState, useEffect } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { usersService } from "../services/firestoreUsers";
 import { getPlan, LIMITES } from "../services/planLimits";
-import { Plus, Trash2, RefreshCw, UserCheck, UserX, KeyRound, Loader2, AlertTriangle } from "lucide-react";
+import { Plus, Trash2, RefreshCw, UserCheck, UserX, KeyRound, Loader2, AlertTriangle, Shield } from "lucide-react";
+
+const PRIVILEGIOS_DISPONIBLES = [
+  { key: "productos", label: "Productos", desc: "Crear, editar y eliminar productos" },
+  { key: "mermas", label: "Mermas", desc: "Registrar y eliminar mermas" },
+  { key: "ofertas", label: "Ofertas", desc: "Crear y quitar ofertas especiales" },
+  { key: "fiados", label: "Fiados", desc: "Gestionar fiados (siempre activo)", locked: true },
+  { key: "informes", label: "Informes", desc: "Ver informes y estadísticas (siempre activo)", locked: true },
+];
+
+const DEFAULT_PRIVILEGIOS = {
+  productos: false,
+  mermas: false,
+  ofertas: false,
+  fiados: true,
+  informes: true,
+  configuracion: false,
+  vendedores: false,
+};
 
 export default function AdminVendedores() {
   const { userData } = useAuth();
@@ -4629,6 +4630,7 @@ export default function AdminVendedores() {
   const [form, setForm] = useState({ nombre: "", username: "", password: "" });
   const [planInfo, setPlanInfo] = useState(null);
   const [error, setError] = useState("");
+  const [editandoPrivilegios, setEditandoPrivilegios] = useState(null);
 
   useEffect(() => {
     if (userData?.almacenId) cargarTodo();
@@ -4638,40 +4640,38 @@ export default function AdminVendedores() {
     setLoading(true);
     setError("");
     try {
-      // 🔥 OPTIMIZACIÓN: Paralelizar vendedores + plan en vez de secuencial
       const [data, plan] = await Promise.all([
         usersService.getVendedores(userData.almacenId),
         getPlan(userData.almacenId),
       ]);
 
-      setVendedores(data);
+      const normalizados = data.map((v) => ({
+        ...v,
+        privilegios: { ...DEFAULT_PRIVILEGIOS, ...v.privilegios },
+      }));
 
-      // Cache local para offline
+      setVendedores(normalizados);
+
       localStorage.setItem(
         `pos_vendedores_cache_${userData.almacenId}`,
-        JSON.stringify({
-          vendedores: data,
-          timestamp: Date.now(),
-        })
+        JSON.stringify({ vendedores: normalizados, timestamp: Date.now() })
       );
 
-      // Calcular plan localmente sin contar de nuevo en Firestore
       const limite = LIMITES[plan]?.vendedores ?? LIMITES.basico.vendedores;
       setPlanInfo({
         plan,
-        usados: data.length,
+        usados: normalizados.length,
         limite: limite === Infinity ? "∞" : limite,
-        permitido: limite === Infinity || data.length < limite,
+        permitido: limite === Infinity || normalizados.length < limite,
       });
     } catch (err) {
       console.error("Error cargando vendedores:", err);
       setError("Error al cargar vendedores. Intenta recargar.");
-      // Fallback a cache local si existe
       const cache = localStorage.getItem(`pos_vendedores_cache_${userData.almacenId}`);
       if (cache) {
         try {
           const parsed = JSON.parse(cache);
-          setVendedores(parsed.vendedores || []);
+          setVendedores((parsed.vendedores || []).map((v) => ({ ...v, privilegios: { ...DEFAULT_PRIVILEGIOS, ...v.privilegios } })));
         } catch {}
       }
     } finally {
@@ -4693,7 +4693,6 @@ export default function AdminVendedores() {
         password: form.password,
       });
 
-      // 🔥 OPTIMIZACIÓN: Actualizar estado local inmediatamente sin recargar todo
       const nuevoVendedor = {
         id: result.uid,
         nombre: form.nombre.trim(),
@@ -4702,13 +4701,13 @@ export default function AdminVendedores() {
         activo: true,
         role: "vendedor",
         almacenId: userData.almacenId,
+        privilegios: { ...DEFAULT_PRIVILEGIOS },
       };
       const nuevaLista = [...vendedores, nuevoVendedor];
       setVendedores(nuevaLista);
       setMostrarForm(false);
       setForm({ nombre: "", username: "", password: "" });
 
-      // Actualizar planInfo localmente
       if (planInfo) {
         const limite = planInfo.limite === "∞" ? Infinity : parseInt(planInfo.limite);
         setPlanInfo({
@@ -4718,12 +4717,12 @@ export default function AdminVendedores() {
         });
       }
 
-      // Recargar en background para sincronizar con Firestore (sin bloquear UI)
       usersService.getVendedores(userData.almacenId).then((data) => {
-        setVendedores(data);
+        const normalizados = data.map((v) => ({ ...v, privilegios: { ...DEFAULT_PRIVILEGIOS, ...v.privilegios } }));
+        setVendedores(normalizados);
         localStorage.setItem(
           `pos_vendedores_cache_${userData.almacenId}`,
-          JSON.stringify({ vendedores: data, timestamp: Date.now() })
+          JSON.stringify({ vendedores: normalizados, timestamp: Date.now() })
         );
       }).catch(() => {});
     } catch (err) {
@@ -4739,12 +4738,9 @@ export default function AdminVendedores() {
     setSaving(true);
     try {
       await usersService.deleteVendedor(vendedor.id, vendedor.username);
-
-      // 🔥 OPTIMIZACIÓN: Remover del estado local inmediatamente
       const nuevaLista = vendedores.filter((v) => v.id !== vendedor.id);
       setVendedores(nuevaLista);
 
-      // Actualizar planInfo localmente
       if (planInfo) {
         const limite = planInfo.limite === "∞" ? Infinity : parseInt(planInfo.limite);
         setPlanInfo({
@@ -4754,17 +4750,16 @@ export default function AdminVendedores() {
         });
       }
 
-      // Recargar en background
       usersService.getVendedores(userData.almacenId).then((data) => {
-        setVendedores(data);
+        const normalizados = data.map((v) => ({ ...v, privilegios: { ...DEFAULT_PRIVILEGIOS, ...v.privilegios } }));
+        setVendedores(normalizados);
         localStorage.setItem(
           `pos_vendedores_cache_${userData.almacenId}`,
-          JSON.stringify({ vendedores: data, timestamp: Date.now() })
+          JSON.stringify({ vendedores: normalizados, timestamp: Date.now() })
         );
       }).catch(() => {});
     } catch (err) {
       setError(err.message || "Error al eliminar vendedor");
-      // Si falló, recargar para sincronizar estado
       cargarTodo();
     } finally {
       setSaving(false);
@@ -4775,8 +4770,6 @@ export default function AdminVendedores() {
     setSaving(true);
     try {
       await usersService.updateVendedor(vendedor.id, { activo: !vendedor.activo });
-
-      // 🔥 OPTIMIZACIÓN: Toggle local inmediato sin recargar
       setVendedores((prev) =>
         prev.map((v) => (v.id === vendedor.id ? { ...v, activo: !v.activo } : v))
       );
@@ -4800,6 +4793,45 @@ export default function AdminVendedores() {
       alert("Contraseña actualizada");
     } catch (err) {
       setError(err.message || "Error al cambiar contraseña");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function abrirPrivilegios(vendedor) {
+    setEditandoPrivilegios({
+      ...vendedor,
+      privilegios: { ...DEFAULT_PRIVILEGIOS, ...vendedor.privilegios },
+    });
+  }
+
+  function togglePrivilegio(key) {
+    setEditandoPrivilegios((prev) => ({
+      ...prev,
+      privilegios: {
+        ...prev.privilegios,
+        [key]: !prev.privilegios?.[key],
+      },
+    }));
+  }
+
+  async function guardarPrivilegios() {
+    if (!editandoPrivilegios) return;
+    setSaving(true);
+    try {
+      await usersService.updateVendedor(editandoPrivilegios.id, {
+        privilegios: editandoPrivilegios.privilegios,
+      });
+      setVendedores((prev) =>
+        prev.map((v) =>
+          v.id === editandoPrivilegios.id
+            ? { ...v, privilegios: editandoPrivilegios.privilegios }
+            : v
+        )
+      );
+      setEditandoPrivilegios(null);
+    } catch (err) {
+      setError(err.message || "Error al guardar privilegios");
     } finally {
       setSaving(false);
     }
@@ -4941,6 +4973,14 @@ export default function AdminVendedores() {
                   <td className="px-4 py-3 text-right">
                     <div className="flex items-center justify-end gap-2">
                       <button
+                        onClick={() => abrirPrivilegios(v)}
+                        disabled={saving}
+                        className="p-1.5 rounded-lg hover:bg-purple-50 text-purple-600 transition"
+                        title="Editar privilegios"
+                      >
+                        <Shield size={16} />
+                      </button>
+                      <button
                         onClick={() => handleCambiarPassword(v)}
                         disabled={saving}
                         className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-600 transition"
@@ -4962,6 +5002,69 @@ export default function AdminVendedores() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Modal de Privilegios */}
+      {editandoPrivilegios && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <Shield className="text-purple-600" size={20} />
+              <h3 className="text-lg font-bold text-gray-800">
+                Privilegios de {editandoPrivilegios.nombre}
+              </h3>
+            </div>
+            <p className="text-sm text-gray-500 mb-4">
+              Activa o desactiva los permisos de este vendedor. Los cambios se aplican inmediatamente al guardar.
+            </p>
+            <div className="space-y-3">
+              {PRIVILEGIOS_DISPONIBLES.map((p) => (
+                <label
+                  key={p.key}
+                  className={`flex items-start gap-3 p-3 rounded-lg border transition ${
+                    p.locked ? "bg-gray-50 border-gray-200" : "bg-white border-gray-200 hover:border-purple-300"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={!!editandoPrivilegios.privilegios?.[p.key]}
+                    disabled={p.locked || saving}
+                    onChange={() => togglePrivilegio(p.key)}
+                    className="mt-0.5 w-4 h-4 text-purple-600 rounded"
+                  />
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-sm text-gray-800">{p.label}</span>
+                      {p.locked && (
+                        <span className="text-[10px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded">
+                          Siempre activo
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-500">{p.desc}</p>
+                  </div>
+                </label>
+              ))}
+            </div>
+            <div className="flex gap-2 mt-6">
+              <button
+                onClick={() => setEditandoPrivilegios(null)}
+                disabled={saving}
+                className="flex-1 py-2.5 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 font-medium transition"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={guardarPrivilegios}
+                disabled={saving}
+                className="flex-1 py-2.5 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-300 text-white rounded-lg font-medium transition flex items-center justify-center gap-2"
+              >
+                {saving ? <Loader2 size={16} className="animate-spin" /> : <Shield size={16} />}
+                {saving ? "Guardando..." : "Guardar Privilegios"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -5264,7 +5367,7 @@ import AdminVendedores from "./AdminVendedores";
 import ConfiguracionAlmacen from "./ConfiguracionAlmacen";
 
 export default function Dashboard() {
-  const { isDueño, loading } = useAuth();
+  const { isDueño, hasPrivilege, loading } = useAuth();
 
   if (loading) {
     return (
@@ -5281,17 +5384,13 @@ export default function Dashboard() {
         <Routes>
           <Route path="/" element={<POS />} />
           <Route path="/vender" element={<POS />} />
-          <Route path="/productos" element={<ProductManager />} />
+          <Route path="/productos" element={isDueño || hasPrivilege("productos") ? <ProductManager /> : <Navigate to="/" />} />
           <Route path="/fiados" element={<Fiados />} />
-          {isDueño && (
-            <>
-              <Route path="/ofertas" element={<Offers />} />
-              <Route path="/mermas" element={<Mermas />} />
-              <Route path="/informes" element={<Reports />} />
-              <Route path="/vendedores" element={<AdminVendedores />} />
-              <Route path="/configuracion" element={<ConfiguracionAlmacen />} />
-            </>
-          )}
+          <Route path="/ofertas" element={isDueño || hasPrivilege("ofertas") ? <Offers /> : <Navigate to="/" />} />
+          <Route path="/mermas" element={isDueño || hasPrivilege("mermas") ? <Mermas /> : <Navigate to="/" />} />
+          <Route path="/informes" element={<Reports />} />
+          <Route path="/vendedores" element={isDueño ? <AdminVendedores /> : <Navigate to="/" />} />
+          <Route path="/configuracion" element={isDueño ? <ConfiguracionAlmacen /> : <Navigate to="/" />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
@@ -6371,7 +6470,6 @@ export const usersService = {
 
     const email = `vendedor.${username}.${almacenId}@pos-almacen.local`;
 
-    // 1. Intentar crear usuario en Firebase Auth
     let res = await fetch(
       `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${API_KEY}`,
       {
@@ -6382,7 +6480,6 @@ export const usersService = {
     );
     let data = await res.json();
 
-    // 2. Si EMAIL_EXISTS, intentar recuperar el UID haciendo login
     if (!res.ok && data.error?.message === "EMAIL_EXISTS") {
       const loginRes = await fetch(
         `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${API_KEY}`,
@@ -6404,8 +6501,6 @@ export const usersService = {
         }
         throw new Error(loginData.error?.message || "Error al verificar usuario existente");
       }
-
-      // Login exitoso = reutilizar UID existente
       data = loginData;
     } else if (!res.ok) {
       if (data.error?.message === "WEAK_PASSWORD") {
@@ -6416,7 +6511,6 @@ export const usersService = {
 
     const uid = data.localId;
 
-    // 3. Crear documento en Firestore
     await setDoc(doc(db, "users", uid), {
       uid,
       nombre,
@@ -6425,13 +6519,21 @@ export const usersService = {
       role: "vendedor",
       almacenId,
       activo: true,
+      privilegios: {
+        productos: false,
+        mermas: false,
+        ofertas: false,
+        fiados: true,
+        informes: true,
+        configuracion: false,
+        vendedores: false,
+      },
       createdAt: new Date().toISOString(),
     });
 
-    // 4. Registrar username público (FIX: ahora incluye email para resolver offline)
     await setDoc(doc(db, "publicUsernames", username), {
       uid,
-      email,        // ← AGREGADO: necesario para que login encuentre el email
+      email,
       almacenId,
       createdAt: new Date().toISOString(),
     });
@@ -6462,8 +6564,6 @@ export const usersService = {
   },
 
   async cambiarPasswordVendedor(uid, nuevaPassword) {
-    // Guardamos la nueva contraseña en el documento del vendedor
-    // El hook useAuth la aplicará automáticamente al siguiente login del vendedor
     const ref = doc(db, "users", uid);
     await updateDoc(ref, {
       passwordPending: nuevaPassword,
@@ -7407,11 +7507,31 @@ service cloud.firestore {
     function userRole() {
       return getUserData().role;
     }
+    function hasPrivilege(priv) {
+      let data = getUserData();
+      return data.privilegios is map && data.privilegios[priv] == true;
+    }
 
     match /users/{userId} {
-      allow read, write: if isAuthenticated() && request.auth.uid == userId;
-      allow read: if isAuthenticated() && userRole() == "dueño" && resource.data.almacenId == userAlmacenId();
-      allow update: if isAuthenticated() && userRole() == "dueño" && resource.data.almacenId == userAlmacenId() && resource.data.role == "vendedor";
+      // Dueño: control total sobre vendedores de su almacén
+      allow read: if isAuthenticated() && userRole() == "dueño"
+        && resource.data.almacenId == userAlmacenId()
+        && resource.data.role == "vendedor";
+
+      allow create: if isAuthenticated() && userRole() == "dueño"
+        && request.resource.data.almacenId == userAlmacenId()
+        && request.resource.data.role == "vendedor";
+
+      allow update, delete: if isAuthenticated() && userRole() == "dueño"
+        && resource.data.almacenId == userAlmacenId()
+        && resource.data.role == "vendedor";
+
+      // Vendedor: leer su propio documento
+      allow read: if isAuthenticated() && request.auth.uid == userId;
+
+      // Vendedor: actualizar SOLO campos personales (NUNCA privilegios, role, almacenId, activo)
+      allow update: if isAuthenticated() && request.auth.uid == userId
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nombre', 'email', 'updatedAt']);
     }
 
     match /almacenes/{almacenId} {
@@ -7421,37 +7541,54 @@ service cloud.firestore {
 
     match /productos/{productId} {
       allow read: if isAuthenticated() && resource.data.almacenId == userAlmacenId();
-      allow create: if isAuthenticated() && userRole() == "dueño" && request.resource.data.almacenId == userAlmacenId();
-      allow update: if isAuthenticated() && resource.data.almacenId == userAlmacenId() && 
-        (userRole() == "dueño" || 
-          (userRole() == "vendedor" && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stock','updatedAt','lotes'])));
+
+      allow create: if isAuthenticated() && request.resource.data.almacenId == userAlmacenId()
+        && (userRole() == "dueño" || hasPrivilege('productos'));
+
+      allow update: if isAuthenticated() && resource.data.almacenId == userAlmacenId()
+        && (
+          userRole() == "dueño"
+          || hasPrivilege('productos')
+          || (userRole() == "vendedor" && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stock','updatedAt','lotes','cantidadOfertaVendida']))
+        );
+
       allow delete: if isAuthenticated() && userRole() == "dueño" && resource.data.almacenId == userAlmacenId();
     }
 
     match /ventas/{saleId} {
       allow read: if isAuthenticated() && resource.data.almacenId == userAlmacenId();
-      allow create: if isAuthenticated() && request.resource.data.almacenId == userAlmacenId();
+      allow create: if isAuthenticated() && request.resource.data.almacenId == userAlmacenId()
+        && request.resource.data.vendedorId == request.auth.uid;
       allow update, delete: if isAuthenticated() && userRole() == "dueño" && resource.data.almacenId == userAlmacenId();
     }
 
     match /turnos/{turnoId} {
-      allow read, create, update: if isAuthenticated() && resource.data.almacenId == userAlmacenId();
+      allow read, update: if isAuthenticated() && resource.data.almacenId == userAlmacenId();
+      allow create: if isAuthenticated() && request.resource.data.almacenId == userAlmacenId()
+        && request.resource.data.vendedorId == request.auth.uid;
       allow delete: if isAuthenticated() && userRole() == "dueño" && resource.data.almacenId == userAlmacenId();
     }
 
     match /fiados/{fiadoId} {
-      allow read, create, update: if isAuthenticated() && resource.data.almacenId == userAlmacenId();
+      allow read, update: if isAuthenticated() && resource.data.almacenId == userAlmacenId();
+      allow create: if isAuthenticated() && request.resource.data.almacenId == userAlmacenId()
+        && request.resource.data.vendedorId == request.auth.uid;
       allow delete: if isAuthenticated() && userRole() == "dueño" && resource.data.almacenId == userAlmacenId();
     }
 
     match /mermas/{mermaId} {
-      allow read, write: if isAuthenticated() && userRole() == "dueño" && resource.data.almacenId == userAlmacenId();
-      allow create: if isAuthenticated() && userRole() == "dueño" && request.resource.data.almacenId == userAlmacenId();
+      allow read, create: if isAuthenticated() && resource.data.almacenId == userAlmacenId()
+        && (userRole() == "dueño" || hasPrivilege('mermas'));
+      allow update, delete: if isAuthenticated() && userRole() == "dueño" && resource.data.almacenId == userAlmacenId();
     }
 
     match /publicUsernames/{username} {
       allow read: if true;
-      allow write: if isAuthenticated();
+      allow create: if isAuthenticated()
+        && !exists(/databases/$(database)/documents/publicUsernames/$(username))
+        && request.resource.data.almacenId == userAlmacenId();
+      allow update: if false;
+      allow delete: if isAuthenticated() && userRole() == "dueño" && resource.data.almacenId == userAlmacenId();
     }
   }
 }
