@@ -1,12 +1,13 @@
 import { useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { AuthProvider, useAuth } from "./hooks/useAuth";
-import Login from "./pages/Login";
-import Register from "./pages/Register";
-import BetaRegister from "./pages/BetaRegister";
-import PaymentPortal from "./pages/PaymentPortal";
-import Dashboard from "./pages/Dashboard";
-import TrialBanner from "./components/TrialBanner";
+import { AuthProvider, useAuth } from "./hooks/useAuth.jsx";
+import LandingPage from "./pages/LandingPage.jsx";
+import Login from "./pages/Login.jsx";
+import Register from "./pages/Register.jsx";
+import BetaRegister from "./pages/BetaRegister.jsx";
+import PaymentPortal from "./pages/PaymentPortal.jsx";
+import Dashboard from "./pages/Dashboard.jsx";
+import TrialBanner from "./components/TrialBanner.jsx";
 
 function PrivateRoute({ children, requireDueño = false }) {
   const { isAuthenticated, isDueño, loading, isSuspendido } = useAuth();
@@ -45,17 +46,30 @@ function AppRoutes() {
 
   return (
     <Routes>
+      {/* Rutas públicas */}
+      <Route path="/" element={
+        isAuthenticated && !isSuspendido ? <Navigate to="/dashboard" replace /> : <LandingPage />
+      } />
       <Route path="/login" element={
-        isAuthenticated && !isSuspendido ? <Navigate to="/" replace /> : <Login />
+        isAuthenticated && !isSuspendido ? <Navigate to="/dashboard" replace /> : <Login />
       } />
       <Route path="/registro" element={
-        isAuthenticated && !isSuspendido ? <Navigate to="/" replace /> : <Register />
+        isAuthenticated && !isSuspendido ? <Navigate to="/dashboard" replace /> : <Register />
       } />
       <Route path="/beta-registro" element={
-        isAuthenticated && !isSuspendido ? <Navigate to="/" replace /> : <BetaRegister />
+        isAuthenticated && !isSuspendido ? <Navigate to="/dashboard" replace /> : <BetaRegister />
       } />
+
+      {/* Portal de pago (accesible logueado pero suspendido) */}
       <Route path="/pago" element={
         isAuthenticated ? <PaymentPortal /> : <Navigate to="/login" replace />
+      } />
+
+      {/* Dashboard protegido */}
+      <Route path="/dashboard/*" element={
+        <PrivateRoute>
+          <Dashboard />
+        </PrivateRoute>
       } />
       <Route path="/*" element={
         <PrivateRoute>

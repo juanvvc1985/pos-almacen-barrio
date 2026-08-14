@@ -10,18 +10,20 @@ import {
   updateDoc,
   runTransaction,
   collection,
+  query,
+  where,
+  getDocs,
+  deleteDoc,
 } from "firebase/firestore";
 
 const ROLES = {
   DUEÑO: "dueño",
 };
 
-// 🔥 FIX: Trial Pro = 30 días con acceso completo a Pro
-// Luego 6 meses Pro gratis
 function getTrialDates() {
   const now = new Date();
-  const trialExpiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000); // +30 días
-  const proGratisUntil = new Date(trialExpiresAt.getTime() + 6 * 30 * 24 * 60 * 60 * 1000); // +6 meses
+  const trialExpiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+  const proGratisUntil = new Date(trialExpiresAt.getTime() + 6 * 30 * 24 * 60 * 60 * 1000);
   return {
     trialStartedAt: now.toISOString(),
     trialExpiresAt: trialExpiresAt.toISOString(),
@@ -29,9 +31,7 @@ function getTrialDates() {
   };
 }
 
-/**
- * Valida un código beta contra Firestore.
- */
+// ─── VALIDAR CÓDIGO BETA ───
 export async function validarCodigoBeta(codigo) {
   if (!codigo || codigo.trim() === "") {
     return { valido: false, mensaje: "Ingresa un código de invitación." };
@@ -61,10 +61,7 @@ export async function validarCodigoBeta(codigo) {
   return { valido: true, codigoDoc: { id: snap.id, ...data } };
 }
 
-/**
- * Registra un dueño con código beta.
- * 🔥 FIX: Trial Pro (acceso completo a Pro por 30 días)
- */
+// ─── REGISTRO BETA ───
 export async function registerBetaDueño({ email, password, nombre, nombreAlmacen, codigoBeta }) {
   const validation = await validarCodigoBeta(codigoBeta);
   if (!validation.valido) {
@@ -73,13 +70,11 @@ export async function registerBetaDueño({ email, password, nombre, nombreAlmace
 
   const { trialStartedAt, trialExpiresAt, proGratisUntil } = getTrialDates();
 
-  // 1. Crear usuario en Firebase Auth
   const result = await createUserWithEmailAndPassword(auth, email.trim().toLowerCase(), password);
   await updateProfile(result.user, { displayName: nombre });
 
   const uid = result.user.uid;
 
-  // 2. Crear almacén con plan trial_pro
   const almacenRef = doc(collection(db, "almacenes"));
   await setDoc(almacenRef, {
     nombre: nombreAlmacen.trim(),
@@ -91,7 +86,6 @@ export async function registerBetaDueño({ email, password, nombre, nombreAlmace
     createdAt: new Date().toISOString(),
   });
 
-  // 3. Crear documento de usuario
   const userData = {
     email: email.trim().toLowerCase(),
     nombre,
@@ -105,7 +99,6 @@ export async function registerBetaDueño({ email, password, nombre, nombreAlmace
   };
   await setDoc(doc(db, "users", uid), userData);
 
-  // 4. Marcar código como usado
   const codeRef = doc(db, "beta_codes", codigoBeta.trim().toUpperCase());
   await runTransaction(db, async (transaction) => {
     const codeSnap = await transaction.get(codeRef);
@@ -122,5 +115,90 @@ export async function registerBetaDueño({ email, password, nombre, nombreAlmace
     user: result.user,
     userData,
     almacenId: almacenRef.id,
+  };
+}
+
+// ═══════════════════════════════════════════════
+// 🔥 ADMIN: GESTIÓN DE CÓDIGOS BETA
+// ═══════════════════════════════════════════════
+
+/**
+ * Crea un nuevo código beta.
+ * Solo el dueño del sistema (tú) debería poder ejecutar esto.
+ */
+export async function crearCodigoBeta({ codigo, usosMaximos = 1, notas = "" }) {
+  const cleanCode = codigo.trim().toUpperCase();
+
+  // Verificar que no exista
+  const existing = await getDoc(doc(db, "beta_codes", cleanCode));
+  if (existing.exists()) {
+    throw new Error(`El código "${cleanCode}" ya existe.`);
+  }
+
+  await setDoc(doc(db, "beta_codes", cleanCode), {
+    codigo: cleanCode,
+    usosMaximos: Number(usosMaximos) || 1,
+    usados: 0,
+    activo: true,
+    notas: notas || "",
+    createdAt: new Date().toISOString(),
+  });
+
+  return { id: cleanCode, codigo: cleanCode, usosMaximos, usados: 0, activo: true };
+}
+
+/**
+ * Genera un código beta aleatorio.
+ */
+export function generarCodigoAleatorio(prefijo = "BETA") {
+  const timestamp = Date.now().toString(36).toUpperCase();
+  const random = Math.random().toString(36).substring(2, 6).toUpperCase();
+  return `${prefijo}-${timestamp}-${random}`;
+}
+
+/**
+ * Lista todos los códigos beta.
+ */
+export async function listarCodigosBeta() {
+  const snap = await getDocs(collection(db, "beta_codes"));
+  return snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => {
+    return new Date(b.createdAt || 0) - new Date(a.createdAt || 0);
+  });
+}
+
+/**
+ * Activa/desactiva un código beta.
+ */
+export async function toggleCodigoBeta(codigoId, activo) {
+  await updateDoc(doc(db, "beta_codes", codigoId), {
+    activo,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+/**
+ * Elimina un código beta.
+ */
+export async function eliminarCodigoBeta(codigoId) {
+  await deleteDoc(doc(db, "beta_codes", codigoId));
+}
+
+/**
+ * Obtiene estadísticas de uso de códigos beta.
+ */
+export async function estadisticasBeta() {
+  const codigos = await listarCodigosBeta();
+  const total = codigos.length;
+  const activos = codigos.filter(c => c.activo).length;
+  const inactivos = total - activos;
+  const usadosTotal = codigos.reduce((sum, c) => sum + (c.usados || 0), 0);
+  const disponiblesTotal = codigos.reduce((sum, c) => sum + Math.max(0, (c.usosMaximos || 0) - (c.usados || 0)), 0);
+
+  return {
+    total,
+    activos,
+    inactivos,
+    usadosTotal,
+    disponiblesTotal,
   };
 }
