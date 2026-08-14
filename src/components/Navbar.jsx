@@ -9,7 +9,7 @@ import {
   X,
   Wifi,
   WifiOff,
-  CloudSync,
+  RefreshCw,
   Store,
   BarChart3,
   Package,
@@ -50,7 +50,7 @@ export default function Navbar() {
 
     setLoadingLogout(true);
     try {
-      // 🔥 FIX: Si estamos offline, cerrar turno local antes de salir
+      // FIX: Si estamos offline, cerrar turno local antes de salir
       if (!isOnline) {
         const offlineTurno = getOfflineTurno();
         if (offlineTurno) {
@@ -89,7 +89,6 @@ export default function Navbar() {
       }
     } catch (err) {
       console.error("Error al procesar logout:", err);
-      // 🔥 FIX: Nunca dejar al usuario pegado. Forzar logout si algo falla.
       alert("Hubo un problema al verificar el turno. Se cerrará la sesión de todas formas.");
       logout();
     } finally {
@@ -162,7 +161,7 @@ export default function Navbar() {
               )}
               {isOnline && pendingCount > 0 && (
                 <span className="hidden sm:flex items-center gap-1 text-blue-600 text-xs font-medium bg-blue-50 px-2 py-1 rounded-full">
-                  <CloudSync size={12} className={syncing ? "animate-spin" : ""} />
+                  <RefreshCw size={12} className={syncing ? "animate-spin" : ""} />
                   {pendingCount} pendiente{pendingCount > 1 ? "s" : ""}
                 </span>
               )}
