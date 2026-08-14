@@ -863,52 +863,48 @@ export default function Mermas() {
 
 ## File: src/components/Navbar.jsx
 ````javascript
+import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useOffline } from "../hooks/useOffline";
 import { salesService } from "../services/firestoreSales";
-import { formatCurrency } from "../utils/format";
-import PlanBadge from "../components/PlanBadge";
-import { 
-  ShoppingCart, Package, BarChart3, AlertTriangle, 
-  Users, Tag, LogOut, Menu, X, UserPlus, Settings,
-  Wifi, WifiOff, RefreshCw, Store
+import {
+  LogOut,
+  Menu,
+  X,
+  Wifi,
+  WifiOff,
+  RefreshCw,
+  Store,
+  BarChart3,
+  Package,
+  Users,
+  Settings,
+  HandCoins,
+  Tag,
+  AlertTriangle,
+  CheckCircle2,
+  Loader2,
 } from "lucide-react";
-import { useState, useEffect } from "react";
-import { configService } from "../services/firestoreConfig";
 
 export default function Navbar() {
   const { isDueño, isVendedor, userData, logout, almacenId } = useAuth();
-  const { isOnline, pendingCount, syncing } = useOffline();
+  const { isOnline, pendingCount, syncing, getOfflineTurno, addToQueue, clearOfflineTurno } = useOffline();
+  const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
   const [mostrarCierreLogout, setMostrarCierreLogout] = useState(false);
   const [resumenLogout, setResumenLogout] = useState(null);
-  const [nombreNegocio, setNombreNegocio] = useState("Negocio");
-  const location = useLocation();
+  const [loadingLogout, setLoadingLogout] = useState(false);
 
-  useEffect(() => {
-    if (!almacenId) return;
-    // Cargar nombre del negocio
-    configService.getAlmacenData(almacenId).then(data => {
-      if (data) {
-        const nombre = data.nombreFiscal || data.nombre || "Negocio";
-        setNombreNegocio(nombre);
-        localStorage.setItem("pos_negocio_nombre", nombre);
-      }
-    });
-  }, [almacenId]);
-
-  const isActive = (path) => location.pathname === path;
-
-  const navItems = [
-    { path: "/vender", label: "Vender", icon: ShoppingCart, show: true },
-    { path: "/productos", label: "Productos", icon: Package, show: true },
-    { path: "/fiados", label: "Fiados", icon: Users, show: true },
-    { path: "/ofertas", label: "Ofertas", icon: Tag, show: isDueño },
-    { path: "/mermas", label: "Mermas", icon: AlertTriangle, show: isDueño },
-    { path: "/informes", label: "Informes", icon: BarChart3, show: isDueño },
-    { path: "/vendedores", label: "Vendedores", icon: UserPlus, show: isDueño },
-    { path: "/configuracion", label: "Configuración", icon: Settings, show: isDueño },
+  const navLinks = [
+    { to: "/", label: "Vender", icon: Store, visible: true },
+    { to: "/productos", label: "Productos", icon: Package, visible: isDueño },
+    { to: "/fiados", label: "Fiados", icon: HandCoins, visible: true },
+    { to: "/ofertas", label: "Ofertas", icon: Tag, visible: isDueño },
+    { to: "/mermas", label: "Mermas", icon: AlertTriangle, visible: isDueño },
+    { to: "/informes", label: "Informes", icon: BarChart3, visible: true },
+    { to: "/vendedores", label: "Vendedores", icon: Users, visible: isDueño },
+    { to: "/configuracion", label: "Configuración", icon: Settings, visible: isDueño },
   ];
 
   async function handleLogout() {
@@ -916,145 +912,221 @@ export default function Navbar() {
       logout();
       return;
     }
-    const turno = await salesService.getTurnoActivo(almacenId);
-    if (turno) {
-      const ventasHoy = await salesService.getTodaySales(almacenId);
-      const resumen = { efectivo: 0, tarjeta: 0, transferencia: 0, fiado: 0 };
-      ventasHoy.forEach((v) => {
-        if (resumen[v.metodoPago] !== undefined) resumen[v.metodoPago] += v.total;
-      });
-      const totalVentas = Object.values(resumen).reduce((a, b) => a + b, 0);
-      setResumenLogout({
-        ...resumen,
-        totalVentas,
-        efectivoEnCaja: (turno.montoInicial || 0) + (resumen.efectivo || 0),
-        montoInicial: turno.montoInicial || 0,
-        turnoId: turno.id,
-      });
-      setMostrarCierreLogout(true);
-    } else {
+
+    setLoadingLogout(true);
+    try {
+      // FIX: Si estamos offline, cerrar turno local antes de salir
+      if (!isOnline) {
+        const offlineTurno = getOfflineTurno();
+        if (offlineTurno) {
+          const cerrado = {
+            ...offlineTurno,
+            estado: "cerrado",
+            cerradoEn: new Date().toISOString(),
+            ventas: { efectivo: 0, tarjeta: 0, transferencia: 0, fiado: 0 },
+          };
+          addToQueue({ type: "turno_cerrar", turnoId: offlineTurno.id, data: cerrado });
+          clearOfflineTurno();
+        }
+        logout();
+        return;
+      }
+
+      // Online: flujo normal con try-catch
+      const turno = await salesService.getTurnoActivo(almacenId);
+      if (turno) {
+        const ventasHoy = await salesService.getTodaySales(almacenId);
+        const resumen = { efectivo: 0, tarjeta: 0, transferencia: 0, fiado: 0 };
+        ventasHoy.forEach((v) => {
+          if (resumen[v.metodoPago] !== undefined) resumen[v.metodoPago] += v.total;
+        });
+        const totalVentas = Object.values(resumen).reduce((a, b) => a + b, 0);
+        setResumenLogout({
+          ...resumen,
+          totalVentas,
+          efectivoEnCaja: (turno.montoInicial || 0) + (resumen.efectivo || 0),
+          montoInicial: turno.montoInicial || 0,
+          turnoId: turno.id,
+        });
+        setMostrarCierreLogout(true);
+      } else {
+        logout();
+      }
+    } catch (err) {
+      console.error("Error al procesar logout:", err);
+      alert("Hubo un problema al verificar el turno. Se cerrará la sesión de todas formas.");
       logout();
+    } finally {
+      setLoadingLogout(false);
     }
   }
 
-  async function confirmarCerrarYLogout() {
+  async function confirmarCierreLogout() {
     if (!resumenLogout) return;
-    await salesService.updateTurno(resumenLogout.turnoId, {
-      estado: "cerrado",
-      cerradoEn: new Date().toISOString(),
-      ventas: {
-        efectivo: resumenLogout.efectivo,
-        tarjeta: resumenLogout.tarjeta,
-        transferencia: resumenLogout.transferencia,
-        fiado: resumenLogout.fiado,
-      },
-    });
-    setMostrarCierreLogout(false);
-    setResumenLogout(null);
-    logout();
+    setLoadingLogout(true);
+    try {
+      await salesService.updateTurno(resumenLogout.turnoId, {
+        estado: "cerrado",
+        cerradoEn: new Date().toISOString(),
+        ventas: {
+          efectivo: resumenLogout.efectivo,
+          tarjeta: resumenLogout.tarjeta,
+          transferencia: resumenLogout.transferencia,
+          fiado: resumenLogout.fiado,
+        },
+      });
+      setMostrarCierreLogout(false);
+      setResumenLogout(null);
+      logout();
+    } catch (err) {
+      console.error("Error cerrando turno:", err);
+      alert("Error al cerrar el turno: " + (err.message || "Intenta de nuevo"));
+    } finally {
+      setLoadingLogout(false);
+    }
   }
 
   return (
     <>
-      {!isOnline && (
-        <div className="bg-amber-500 text-white text-xs text-center py-1 px-4 font-medium flex items-center justify-center gap-2">
-          <WifiOff size={14} />
-          Sin conexión a internet. Trabajando en modo offline.
-          {pendingCount > 0 && <span>• {pendingCount} operaciones pendientes</span>}
-        </div>
-      )}
-      {isOnline && pendingCount > 0 && (
-        <div className="bg-blue-500 text-white text-xs text-center py-1 px-4 font-medium flex items-center justify-center gap-2">
-          <RefreshCw size={14} className={syncing ? "animate-spin" : ""} />
-          {syncing ? "Sincronizando..." : `Hay ${pendingCount} operación(es) pendiente(s) de sincronizar`}
-        </div>
-      )}
-
-      <nav className="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-50">
-        <div className="container mx-auto px-4 max-w-7xl">
-          <div className="flex items-center justify-between h-16">
-            <Link to="/" className="font-bold text-xl text-blue-600 flex items-center gap-2">
-              <Store size={20} />
-              <span className="truncate max-w-[140px] sm:max-w-xs">{nombreNegocio}</span>
-              {isOnline ? (
-                <Wifi size={14} className="text-green-500 shrink-0" />
-              ) : (
-                <WifiOff size={14} className="text-amber-500 shrink-0" />
-              )}
-            </Link>
-            <div className="hidden md:flex items-center space-x-1">
-              {navItems.filter(i => i.show).map((item) => (
-                <Link key={item.path} to={item.path}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition ${
-                    isActive(item.path) ? "bg-blue-50 text-blue-700" : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
-                  }`}>
-                  <item.icon size={18} /> {item.label}
-                </Link>
-              ))}
-            </div>
-            <div className="hidden md:flex items-center gap-4">
-              <PlanBadge />
-              <span className="text-sm text-gray-500">
-                {userData?.nombre} • {isDueño ? "Dueño" : "Vendedor"}
+      <nav className="bg-white border-b shadow-sm sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-4">
+          <div className="flex items-center justify-between h-14">
+            <Link to="/" className="flex items-center gap-2">
+              <Store className="text-blue-600" size={22} />
+              <span className="font-bold text-gray-800 text-lg hidden sm:inline">
+                {userData?.nombreNegocio || "Almacén"}
               </span>
-              <button onClick={handleLogout}
-                className="flex items-center gap-2 text-gray-500 hover:text-red-600 transition text-sm">
-                <LogOut size={18} /> Salir
+            </Link>
+
+            <div className="hidden md:flex items-center gap-1">
+              {navLinks
+                .filter((l) => l.visible)
+                .map((link) => (
+                  <Link
+                    key={link.to}
+                    to={link.to}
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition ${
+                      location.pathname === link.to
+                        ? "bg-blue-50 text-blue-700"
+                        : "text-gray-600 hover:bg-gray-50"
+                    }`}
+                  >
+                    <link.icon size={16} />
+                    {link.label}
+                  </Link>
+                ))}
+            </div>
+
+            <div className="flex items-center gap-2">
+              {!isOnline && (
+                <span className="hidden sm:flex items-center gap-1 text-amber-600 text-xs font-medium bg-amber-50 px-2 py-1 rounded-full">
+                  <WifiOff size={12} />
+                  Offline
+                </span>
+              )}
+              {isOnline && pendingCount > 0 && (
+                <span className="hidden sm:flex items-center gap-1 text-blue-600 text-xs font-medium bg-blue-50 px-2 py-1 rounded-full">
+                  <RefreshCw size={12} className={syncing ? "animate-spin" : ""} />
+                  {pendingCount} pendiente{pendingCount > 1 ? "s" : ""}
+                </span>
+              )}
+              <button
+                onClick={handleLogout}
+                disabled={loadingLogout}
+                className="flex items-center gap-1.5 text-red-600 hover:bg-red-50 px-3 py-2 rounded-lg text-sm font-medium transition disabled:opacity-50"
+              >
+                {loadingLogout ? <Loader2 size={16} className="animate-spin" /> : <LogOut size={16} />}
+                <span className="hidden sm:inline">Salir</span>
+              </button>
+              <button
+                onClick={() => setMenuOpen(!menuOpen)}
+                className="md:hidden p-2 rounded-lg hover:bg-gray-100"
+              >
+                {menuOpen ? <X size={20} /> : <Menu size={20} />}
               </button>
             </div>
-            <button onClick={() => setMenuOpen(!menuOpen)}
-              className="md:hidden p-2 rounded-lg hover:bg-gray-100">
-              {menuOpen ? <X size={24} /> : <Menu size={24} />}
-            </button>
           </div>
         </div>
+
         {menuOpen && (
-          <div className="md:hidden border-t border-gray-200 bg-white">
-            <div className="px-4 py-2 space-y-1">
-              {navItems.filter(i => i.show).map((item) => (
-                <Link key={item.path} to={item.path} onClick={() => setMenuOpen(false)}
-                  className={`flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium ${
-                    isActive(item.path) ? "bg-blue-50 text-blue-700" : "text-gray-600 hover:bg-gray-50"
-                  }`}>
-                  <item.icon size={18} /> {item.label}
+          <div className="md:hidden border-t bg-white">
+            {navLinks
+              .filter((l) => l.visible)
+              .map((link) => (
+                <Link
+                  key={link.to}
+                  to={link.to}
+                  onClick={() => setMenuOpen(false)}
+                  className={`flex items-center gap-2 px-4 py-3 text-sm font-medium ${
+                    location.pathname === link.to
+                      ? "bg-blue-50 text-blue-700"
+                      : "text-gray-600"
+                  }`}
+                >
+                  <link.icon size={16} />
+                  {link.label}
                 </Link>
               ))}
-              <div className="border-t border-gray-100 pt-2 mt-2">
-                <div className="px-3 py-2 text-sm text-gray-500">
-                  {userData?.nombre} • {isDueño ? "Dueño" : "Vendedor"}
-                </div>
-                <button onClick={() => { handleLogout(); setMenuOpen(false); }}
-                  className="flex items-center gap-3 px-3 py-3 text-red-600 text-sm font-medium w-full">
-                  <LogOut size={18} /> Cerrar sesión
-                </button>
-              </div>
-            </div>
           </div>
         )}
       </nav>
 
+      {/* Modal cierre de turno al logout */}
       {mostrarCierreLogout && resumenLogout && (
         <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl p-6 w-full max-w-sm">
-            <h3 className="font-bold text-gray-800 mb-1">Hay un turno activo</h3>
-            <p className="text-sm text-gray-500 mb-4">Cuadra la caja antes de salir</p>
-            <div className="space-y-2 text-sm mb-4">
-              <div className="flex justify-between"><span className="text-gray-500">Efectivo inicial:</span><span className="font-medium">{formatCurrency(resumenLogout.montoInicial)}</span></div>
-              <div className="flex justify-between"><span className="text-gray-500">Ventas efectivo:</span><span className="font-medium text-green-600">{formatCurrency(resumenLogout.efectivo)}</span></div>
-              <div className="flex justify-between"><span className="text-gray-500">Ventas tarjeta:</span><span className="font-medium text-blue-600">{formatCurrency(resumenLogout.tarjeta)}</span></div>
-              <div className="flex justify-between"><span className="text-gray-500">Transferencias:</span><span className="font-medium text-purple-600">{formatCurrency(resumenLogout.transferencia)}</span></div>
-              <div className="flex justify-between"><span className="text-gray-500">Fiados:</span><span className="font-medium text-orange-600">{formatCurrency(resumenLogout.fiado)}</span></div>
-              <div className="border-t pt-2 flex justify-between text-base font-bold"><span>Total ventas:</span><span>{formatCurrency(resumenLogout.totalVentas)}</span></div>
-              <div className="flex justify-between text-base font-bold text-green-700 bg-green-50 px-3 py-2 rounded-lg">
-                <span>Efectivo en caja:</span><span>{formatCurrency(resumenLogout.efectivoEnCaja)}</span>
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <AlertTriangle className="text-amber-500" size={24} />
+              <h2 className="text-lg font-bold text-gray-800">Cerrar Turno y Salir</h2>
+            </div>
+            <p className="text-sm text-gray-500 mb-4">
+              Hay un turno abierto. Debes cerrarlo antes de salir.
+            </p>
+            <div className="bg-gray-50 rounded-lg p-4 mb-4 space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-gray-500">Monto inicial</span>
+                <span className="font-medium">${resumenLogout.montoInicial.toLocaleString("es-CL")}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Efectivo</span>
+                <span className="font-medium text-green-700">+${resumenLogout.efectivo.toLocaleString("es-CL")}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Tarjeta</span>
+                <span className="font-medium">${resumenLogout.tarjeta.toLocaleString("es-CL")}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Transferencia</span>
+                <span className="font-medium">${resumenLogout.transferencia.toLocaleString("es-CL")}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Fiado</span>
+                <span className="font-medium text-amber-600">${resumenLogout.fiado.toLocaleString("es-CL")}</span>
+              </div>
+              <div className="border-t pt-2 flex justify-between font-bold text-gray-800">
+                <span>Total ventas</span>
+                <span>${resumenLogout.totalVentas.toLocaleString("es-CL")}</span>
+              </div>
+              <div className="flex justify-between font-bold text-blue-700">
+                <span>Efectivo en caja</span>
+                <span>${resumenLogout.efectivoEnCaja.toLocaleString("es-CL")}</span>
               </div>
             </div>
             <div className="flex gap-2">
-              <button onClick={() => setMostrarCierreLogout(false)} className="flex-1 py-2 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50">
-                Cancelar
+              <button
+                onClick={confirmarCierreLogout}
+                disabled={loadingLogout}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-lg font-medium transition disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {loadingLogout ? <Loader2 size={18} className="animate-spin" /> : <CheckCircle2 size={18} />}
+                {loadingLogout ? "Cerrando..." : "Cerrar Turno y Salir"}
               </button>
-              <button onClick={confirmarCerrarYLogout} className="flex-1 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 flex items-center justify-center gap-2">
-                <LogOut size={16} /> Cerrar todo
+              <button
+                onClick={() => { setMostrarCierreLogout(false); setResumenLogout(null); }}
+                disabled={loadingLogout}
+                className="px-4 py-2.5 rounded-lg border text-gray-600 hover:bg-gray-50 transition disabled:opacity-50"
+              >
+                Cancelar
               </button>
             </div>
           </div>
@@ -1371,7 +1443,7 @@ import { db } from "../firebase/firebase";
 import {
   Search, ScanLine, Trash2, Plus, Minus, ShoppingCart,
   Package, Clock, DollarSign, CreditCard, Smartphone, User,
-  X, Check, Printer, Scale, Loader2, WifiOff
+  X, Check, Printer, Scale, Loader2, WifiOff, CheckCircle2
 } from "lucide-react";
 
 const METODO_STYLES = {
@@ -1381,9 +1453,6 @@ const METODO_STYLES = {
   fiado: { bg: "bg-orange-50", border: "border-orange-300", text: "text-orange-700" },
 };
 
-// Calcula cuánto de un ítem del carrito se cobra a precio oferta y cuánto a precio normal.
-// Si la oferta no tiene cantidadOferta configurada, se mantiene el comportamiento anterior
-// (todo el stock del producto se vende a precio oferta) para no romper ofertas ya creadas.
 function calcularLineaCarrito(item) {
   const cantidad = item.cantidad;
   if (!item.enOferta) {
@@ -1429,6 +1498,9 @@ export default function POS() {
   const [imprimiendo, setImprimiendo] = useState(false);
   const [almacenNombre, setAlmacenNombre] = useState("");
 
+  // 🔥 FIX: Estado de carga para cierre de turno (evita que se quede pegado)
+  const [closingTurno, setClosingTurno] = useState(false);
+
   useEffect(() => {
     if (!almacenId) return;
     getDoc(doc(db, "almacenes", almacenId)).then((snap) => {
@@ -1469,7 +1541,6 @@ export default function POS() {
     try {
       let data = await productsService.getProducts(almacenId);
 
-      // Aplicar descuentos de stock de operaciones pendientes (offline)
       const queue = JSON.parse(localStorage.getItem("pos_offline_queue") || "[]");
       const pendingDiscounts = {};
       queue.forEach(op => {
@@ -1596,52 +1667,72 @@ export default function POS() {
     mostrarMensaje("Turno abierto");
   }
 
+  // 🔥 FIX: handleCerrarTurno con try-catch + loading state
   async function handleCerrarTurno() {
     if (!turno) return;
+    setClosingTurno(true);
+    try {
+      if (!isOnline) {
+        const cerrado = { ...turno, estado: "cerrado", cerradoEn: new Date().toISOString() };
+        setTurno(null);
+        clearOfflineTurno();
+        addToQueue({ type: "turno_cerrar", turnoId: turno.id, data: cerrado });
+        mostrarMensaje("Turno cerrado (se sincronizará al reconectar)");
+        return;
+      }
 
-    if (!isOnline) {
-      const cerrado = { ...turno, estado: "cerrado", cerradoEn: new Date().toISOString() };
-      setTurno(null);
-      clearOfflineTurno();
-      addToQueue({ type: "turno_cerrar", turnoId: turno.id, data: cerrado });
-      mostrarMensaje("Turno cerrado (se sincronizará al reconectar)");
-      return;
+      const ventasHoy = await salesService.getTodaySales(almacenId);
+      const resumen = { efectivo: 0, tarjeta: 0, transferencia: 0, fiado: 0 };
+      ventasHoy.forEach((v) => {
+        if (resumen[v.metodoPago] !== undefined) resumen[v.metodoPago] += v.total;
+      });
+      const totalVentas = Object.values(resumen).reduce((a, b) => a + b, 0);
+      const efectivoEnCaja = (turno.montoInicial || 0) + (resumen.efectivo || 0);
+
+      setResumenCierre({
+        ...resumen,
+        totalVentas,
+        efectivoEnCaja,
+        montoInicial: turno.montoInicial || 0,
+      });
+      setMostrarCerrarTurno(true);
+    } catch (err) {
+      console.error("Error al cargar resumen del turno:", err);
+      alert("Error al cargar resumen: " + (err.message || "Verifica tu conexión e intenta de nuevo."));
+    } finally {
+      setClosingTurno(false);
     }
-
-    const ventasHoy = await salesService.getTodaySales(almacenId);
-    const resumen = { efectivo: 0, tarjeta: 0, transferencia: 0, fiado: 0 };
-    ventasHoy.forEach((v) => {
-      if (resumen[v.metodoPago] !== undefined) resumen[v.metodoPago] += v.total;
-    });
-    const totalVentas = Object.values(resumen).reduce((a, b) => a + b, 0);
-    const efectivoEnCaja = (turno.montoInicial || 0) + (resumen.efectivo || 0);
-
-    setResumenCierre({
-      ...resumen,
-      totalVentas,
-      efectivoEnCaja,
-      montoInicial: turno.montoInicial || 0,
-    });
-    setMostrarCerrarTurno(true);
   }
 
+  // 🔥 FIX: confirmarCerrarTurno con try-catch + loading state
   async function confirmarCerrarTurno() {
     if (!turno || !resumenCierre) return;
-    await salesService.updateTurno(turno.id, {
-      estado: "cerrado",
-      cerradoEn: new Date().toISOString(),
-      ventas: {
-        efectivo: resumenCierre.efectivo,
-        tarjeta: resumenCierre.tarjeta,
-        transferencia: resumenCierre.transferencia,
-        fiado: resumenCierre.fiado,
-      },
-    });
-    setTurno(null);
-    clearOfflineTurno();
-    setMostrarCerrarTurno(false);
-    setResumenCierre(null);
-    mostrarMensaje("Turno cerrado");
+    setClosingTurno(true);
+    try {
+      await salesService.updateTurno(turno.id, {
+        estado: "cerrado",
+        cerradoEn: new Date().toISOString(),
+        ventas: {
+          efectivo: resumenCierre.efectivo,
+          tarjeta: resumenCierre.tarjeta,
+          transferencia: resumenCierre.transferencia,
+          fiado: resumenCierre.fiado,
+        },
+      });
+      setTurno(null);
+      clearOfflineTurno();
+      setMostrarCerrarTurno(false);
+      setResumenCierre(null);
+      mostrarMensaje("Turno cerrado correctamente");
+    } catch (err) {
+      console.error("Error al cerrar turno:", err);
+      alert("Error al cerrar el turno: " + (err.message || "Verifica tu conexión. Si persiste, recarga la página."));
+      // 🔥 FIX: No dejar el modal abierto infinitamente
+      setMostrarCerrarTurno(false);
+      setResumenCierre(null);
+    } finally {
+      setClosingTurno(false);
+    }
   }
 
   async function handleVender() {
@@ -1653,7 +1744,6 @@ export default function POS() {
 
     setLoading(true);
     try {
-      // 1. Verificar stock disponible
       for (const item of carrito) {
         const prod = productos.find(p => p.id === item.id);
         if (!prod || (prod.stock || 0) < item.cantidad) {
@@ -1663,7 +1753,6 @@ export default function POS() {
         }
       }
 
-      // 2. Descontar stock en Firestore (online) o solo local (offline)
       const itemsParaDescontar = carrito.map((c) => ({ id: c.id, cantidad: c.cantidad }));
 
       if (isOnline) {
@@ -1676,8 +1765,6 @@ export default function POS() {
         }
       }
 
-      // 3. Actualizar stock en estado local (para que se vea inmediato) y descontar
-      //    las unidades vendidas a precio oferta del cupo de cada oferta con límite.
       const actualizacionesOferta = [];
       for (const item of carrito) {
         const prod = productos.find(p => p.id === item.id);
@@ -1870,8 +1957,18 @@ export default function POS() {
               <button onClick={() => setMostrarCerrarTurno(false)} className="flex-1 py-2 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50">
                 Cancelar
               </button>
-              <button onClick={confirmarCerrarTurno} className="flex-1 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 flex items-center justify-center gap-2">
-                <Check size={16} /> Cerrar y Guardar
+              {/* 🔥 FIX: Botón con loading state y disabled */}
+              <button
+                onClick={confirmarCerrarTurno}
+                disabled={closingTurno}
+                className="flex-1 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 flex items-center justify-center gap-2 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {closingTurno ? (
+                  <Loader2 size={16} className="animate-spin" />
+                ) : (
+                  <CheckCircle2 size={16} />
+                )}
+                {closingTurno ? "Cerrando..." : "Cerrar y Guardar"}
               </button>
             </div>
           </div>
@@ -1896,9 +1993,10 @@ export default function POS() {
         {turno ? (
           <button
             onClick={handleCerrarTurno}
-            className="bg-red-100 hover:bg-red-200 text-red-700 px-4 py-2 rounded-lg text-sm font-medium transition"
+            disabled={closingTurno}
+            className="bg-red-100 hover:bg-red-200 text-red-700 px-4 py-2 rounded-lg text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Cerrar Turno
+            {closingTurno ? "Cargando..." : "Cerrar Turno"}
           </button>
         ) : (
           <button
@@ -4031,14 +4129,39 @@ export function AuthProvider({ children }) {
 
   async function findEmailByUsername(username) {
     const clean = username.toLowerCase().trim();
+
+    // 1. Buscar en usuarios que ya se han logueado en ESTE dispositivo
     const users = JSON.parse(localStorage.getItem(OFFLINE_USERS_KEY) || "{}");
     for (const uid in users) {
       if (users[uid].username === clean) return users[uid].email;
     }
-    if (navigator.onLine) {
-      const snap = await getDoc(doc(db, "publicUsernames", clean));
-      if (snap.exists()) return snap.data().email;
+
+    // 2. Buscar en cache de vendedores del almacén (se pobla al abrir /vendedores)
+    const offlineSession = getOfflineSession();
+    const almacenId = offlineSession?.userData?.almacenId;
+    if (almacenId) {
+      try {
+        const cache = JSON.parse(localStorage.getItem(`pos_vendedores_cache_${almacenId}`) || "[]");
+        const found = cache.find((v) => v.username === clean);
+        if (found) return found.email;
+      } catch { /* noop */ }
     }
+
+    // 3. Buscar online en Firestore
+    if (navigator.onLine) {
+      try {
+        const snap = await getDoc(doc(db, "publicUsernames", clean));
+        if (snap.exists()) {
+          const data = snap.data();
+          if (data.email) return data.email;
+          // Fallback: vendedores creados con la versión buggeada (sin campo email)
+          if (data.almacenId) {
+            return `vendedor.${clean}.${data.almacenId}@pos-almacen.local`;
+          }
+        }
+      } catch { /* noop */ }
+    }
+
     return null;
   }
 
@@ -4075,7 +4198,6 @@ export function AuthProvider({ children }) {
       }
       return result;
     } catch (err) {
-      // Intento 2: Fallback offline si falló por red
       const isNetworkError =
         err.code === "auth/network-request-failed" ||
         err.code === "auth/timeout" ||
@@ -4084,17 +4206,37 @@ export function AuthProvider({ children }) {
         !navigator.onLine;
 
       if (isNetworkError) {
-        const offline = (await idbGet("session").catch(() => null)) || getOfflineSession();
-        if (offline && offline.email?.toLowerCase() === email) {
+        const targetEmail = email.toLowerCase();
+
+        // Buscar en TODOS los usuarios que se han logueado en este dispositivo
+        const users = JSON.parse(localStorage.getItem(OFFLINE_USERS_KEY) || "{}");
+        let offline = null;
+        for (const uid in users) {
+          if (users[uid].email?.toLowerCase() === targetEmail) {
+            offline = { uid, ...users[uid] };
+            break;
+          }
+        }
+
+        // Si no, buscar en la sesión activa anterior
+        if (!offline) {
+          const session = (await idbGet("session").catch(() => null)) || getOfflineSession();
+          if (session && session.email?.toLowerCase() === targetEmail) {
+            offline = session;
+          }
+        }
+
+        if (offline) {
           setUser({
             uid: offline.uid,
             email: offline.email,
-            displayName: offline.displayName,
+            displayName: offline.displayName || offline.nombre,
             photoURL: offline.photoURL,
           });
-          setUserData(offline.userData);
+          setUserData(offline.userData || offline);
           return { user: offline, offline: true };
         }
+
         throw new Error("Sin conexión. Primero inicia sesión con internet al menos una vez.");
       }
       throw err;
@@ -4142,8 +4284,11 @@ export function AuthProvider({ children }) {
   };
 
   const logout = async () => {
-    await idbDel("session");
-    clearOfflineSession();
+    await idbDel("session");           // Borra solo la sesión activa
+    clearOfflineSession();             // Borra la sesión activa de localStorage
+    // NO borramos OFFLINE_USERS_KEY para que el login offline siga funcionando
+    // después de cerrar sesión (cualquier usuario que se haya logueado antes
+    // puede volver a entrar sin internet).
     await signOut(auth);
     setUser(null);
     setUserData(null);
@@ -4472,255 +4617,351 @@ export function useTurno(almacenId, vendedorId) {
 import { useState, useEffect } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { usersService } from "../services/firestoreUsers";
-import { puedeCrearVendedor, LIMITES } from "../services/planLimits";
-import { UserPlus, Trash2, UserCheck, UserX, Loader2, Crown, AlertTriangle, KeyRound } from "lucide-react";
+import { getPlan, LIMITES } from "../services/planLimits";
+import { Plus, Trash2, RefreshCw, UserCheck, UserX, KeyRound, Loader2, AlertTriangle } from "lucide-react";
 
 export default function AdminVendedores() {
   const { userData } = useAuth();
   const [vendedores, setVendedores] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [mostrarForm, setMostrarForm] = useState(false);
-  const [form, setForm] = useState({ username: "", password: "", nombre: "" });
+  const [form, setForm] = useState({ nombre: "", username: "", password: "" });
+  const [planInfo, setPlanInfo] = useState(null);
   const [error, setError] = useState("");
-  const [planInfo, setPlanInfo] = useState({ plan: "basico", usados: 0, limite: 1, permitido: true });
-  const [cambiandoPwd, setCambiandoPwd] = useState(null);
-  const [nuevaPwd, setNuevaPwd] = useState("");
 
   useEffect(() => {
-    if (userData?.almacenId) {
-      cargarTodo();
-    }
-  }, [userData]);
+    if (userData?.almacenId) cargarTodo();
+  }, [userData?.almacenId]);
 
   async function cargarTodo() {
     setLoading(true);
-    const data = await usersService.getVendedores(userData.almacenId);
-    setVendedores(data);
-    await cargarPlanInfo(data.length);
-    setLoading(false);
-  }
+    setError("");
+    try {
+      // 🔥 OPTIMIZACIÓN: Paralelizar vendedores + plan en vez de secuencial
+      const [data, plan] = await Promise.all([
+        usersService.getVendedores(userData.almacenId),
+        getPlan(userData.almacenId),
+      ]);
 
-  async function cargarPlanInfo(cantidadActual = null) {
-    const r = await puedeCrearVendedor(userData.almacenId);
-    setPlanInfo({
-      plan: r.plan || "basico",
-      usados: r.usados ?? cantidadActual ?? vendedores.length,
-      limite: r.limite ?? LIMITES.basico.vendedores,
-      permitido: r.permitido,
-    });
+      setVendedores(data);
+
+      // Cache local para offline
+      localStorage.setItem(
+        `pos_vendedores_cache_${userData.almacenId}`,
+        JSON.stringify({
+          vendedores: data,
+          timestamp: Date.now(),
+        })
+      );
+
+      // Calcular plan localmente sin contar de nuevo en Firestore
+      const limite = LIMITES[plan]?.vendedores ?? LIMITES.basico.vendedores;
+      setPlanInfo({
+        plan,
+        usados: data.length,
+        limite: limite === Infinity ? "∞" : limite,
+        permitido: limite === Infinity || data.length < limite,
+      });
+    } catch (err) {
+      console.error("Error cargando vendedores:", err);
+      setError("Error al cargar vendedores. Intenta recargar.");
+      // Fallback a cache local si existe
+      const cache = localStorage.getItem(`pos_vendedores_cache_${userData.almacenId}`);
+      if (cache) {
+        try {
+          const parsed = JSON.parse(cache);
+          setVendedores(parsed.vendedores || []);
+        } catch {}
+      }
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function handleCrear(e) {
     e.preventDefault();
+    if (!form.nombre.trim() || !form.username.trim() || !form.password.trim()) return;
+
+    setSaving(true);
     setError("");
     try {
-      await usersService.createVendedor({
-        username: form.username.trim(),
-        password: form.password,
-        nombre: form.nombre.trim(),
+      const result = await usersService.createVendedor({
         almacenId: userData.almacenId,
+        nombre: form.nombre.trim(),
+        username: form.username.trim().toLowerCase(),
+        password: form.password,
       });
-      setForm({ username: "", password: "", nombre: "" });
+
+      // 🔥 OPTIMIZACIÓN: Actualizar estado local inmediatamente sin recargar todo
+      const nuevoVendedor = {
+        id: result.uid,
+        nombre: form.nombre.trim(),
+        username: form.username.trim().toLowerCase(),
+        email: result.email,
+        activo: true,
+        role: "vendedor",
+        almacenId: userData.almacenId,
+      };
+      const nuevaLista = [...vendedores, nuevoVendedor];
+      setVendedores(nuevaLista);
       setMostrarForm(false);
-      await cargarTodo();
+      setForm({ nombre: "", username: "", password: "" });
+
+      // Actualizar planInfo localmente
+      if (planInfo) {
+        const limite = planInfo.limite === "∞" ? Infinity : parseInt(planInfo.limite);
+        setPlanInfo({
+          ...planInfo,
+          usados: nuevaLista.length,
+          permitido: limite === Infinity || nuevaLista.length < limite,
+        });
+      }
+
+      // Recargar en background para sincronizar con Firestore (sin bloquear UI)
+      usersService.getVendedores(userData.almacenId).then((data) => {
+        setVendedores(data);
+        localStorage.setItem(
+          `pos_vendedores_cache_${userData.almacenId}`,
+          JSON.stringify({ vendedores: data, timestamp: Date.now() })
+        );
+      }).catch(() => {});
     } catch (err) {
       setError(err.message || "Error al crear vendedor");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleEliminar(vendedor) {
+    if (!confirm(`¿Eliminar vendedor "${vendedor.nombre}"? Esta acción no se puede deshacer.`)) return;
+
+    setSaving(true);
+    try {
+      await usersService.deleteVendedor(vendedor.id, vendedor.username);
+
+      // 🔥 OPTIMIZACIÓN: Remover del estado local inmediatamente
+      const nuevaLista = vendedores.filter((v) => v.id !== vendedor.id);
+      setVendedores(nuevaLista);
+
+      // Actualizar planInfo localmente
+      if (planInfo) {
+        const limite = planInfo.limite === "∞" ? Infinity : parseInt(planInfo.limite);
+        setPlanInfo({
+          ...planInfo,
+          usados: nuevaLista.length,
+          permitido: limite === Infinity || nuevaLista.length < limite,
+        });
+      }
+
+      // Recargar en background
+      usersService.getVendedores(userData.almacenId).then((data) => {
+        setVendedores(data);
+        localStorage.setItem(
+          `pos_vendedores_cache_${userData.almacenId}`,
+          JSON.stringify({ vendedores: data, timestamp: Date.now() })
+        );
+      }).catch(() => {});
+    } catch (err) {
+      setError(err.message || "Error al eliminar vendedor");
+      // Si falló, recargar para sincronizar estado
+      cargarTodo();
+    } finally {
+      setSaving(false);
     }
   }
 
   async function toggleActivo(vendedor) {
-    await usersService.updateVendedor(vendedor.id, { activo: !vendedor.activo });
-    await cargarTodo();
-  }
-
-  async function handleEliminar(vendedor) {
-    if (!confirm(`¿Eliminar permanentemente a ${vendedor.nombre}?\n\nEsta acción no se puede deshacer.`)) return;
+    setSaving(true);
     try {
-      await usersService.deleteVendedor(vendedor.id, vendedor.username);
-      await cargarTodo();
+      await usersService.updateVendedor(vendedor.id, { activo: !vendedor.activo });
+
+      // 🔥 OPTIMIZACIÓN: Toggle local inmediato sin recargar
+      setVendedores((prev) =>
+        prev.map((v) => (v.id === vendedor.id ? { ...v, activo: !v.activo } : v))
+      );
     } catch (err) {
-      alert("Error al eliminar: " + (err.message || "Verifica las reglas de Firestore"));
-      console.error(err);
+      setError(err.message || "Error al cambiar estado");
+      cargarTodo();
+    } finally {
+      setSaving(false);
     }
   }
 
   async function handleCambiarPassword(vendedor) {
-    if (!nuevaPwd || nuevaPwd.length < 6) {
+    const nueva = prompt(`Nueva contraseña para ${vendedor.nombre}:`);
+    if (!nueva || nueva.length < 6) {
       alert("La contraseña debe tener al menos 6 caracteres");
       return;
     }
+    setSaving(true);
     try {
-      await usersService.cambiarPasswordVendedor(vendedor.id, nuevaPwd);
-      setCambiandoPwd(null);
-      setNuevaPwd("");
-      alert(`Contraseña de ${vendedor.nombre} actualizada. El cambio se aplicará la próxima vez que inicie sesión.`);
-      await cargarTodo();
+      await usersService.cambiarPasswordVendedor(vendedor.id, nueva);
+      alert("Contraseña actualizada");
     } catch (err) {
-      alert("Error al cambiar contraseña: " + err.message);
+      setError(err.message || "Error al cambiar contraseña");
+    } finally {
+      setSaving(false);
     }
   }
 
-  const alLimite = planInfo.usados >= planInfo.limite && planInfo.limite !== Infinity;
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-      </div>
-    );
-  }
-
   return (
-    <div>
+    <div className="p-4 max-w-4xl mx-auto">
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-          <UserPlus className="w-6 h-6 text-blue-600" /> Vendedores
-        </h1>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-800">👥 Vendedores</h1>
+          {planInfo && (
+            <p className="text-sm text-gray-500 mt-1">
+              Plan <span className="font-semibold capitalize">{planInfo.plan}</span> ·{" "}
+              {planInfo.usados} / {planInfo.limite} vendedores
+            </p>
+          )}
+        </div>
         <button
-          onClick={() => setMostrarForm(!mostrarForm)}
-          disabled={alLimite}
-          className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2"
+          onClick={cargarTodo}
+          disabled={loading}
+          className="p-2 rounded-lg hover:bg-gray-100 transition"
+          title="Recargar"
         >
-          <UserPlus size={18} /> Nuevo Vendedor
+          <RefreshCw size={20} className={loading ? "animate-spin text-blue-600" : "text-gray-600"} />
         </button>
       </div>
 
-      <div className={`flex items-center justify-between mb-4 p-3 rounded-lg border text-sm ${
-        planInfo.plan === "pro"
-          ? "bg-purple-50 border-purple-200 text-purple-700"
-          : "bg-gray-50 border-gray-200 text-gray-600"
-      }`}>
-        <div className="flex items-center gap-2">
-          <Crown size={16} />
-          <span className="font-medium">Plan {planInfo.plan.toUpperCase()}</span>
-          <span>• Vendedores: {planInfo.usados} / {planInfo.limite === Infinity ? "∞" : planInfo.limite}</span>
-        </div>
-        {planInfo.plan === "basico" && (
-          <span className="text-xs bg-white px-2 py-1 rounded border border-gray-200">
-            Upgrade a Pro para vendedores ilimitados
-          </span>
-        )}
-      </div>
-
-      {alLimite && (
-        <div className="bg-orange-50 border border-orange-200 text-orange-700 px-4 py-3 rounded-lg mb-4 text-sm flex items-center gap-2">
+      {error && (
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-red-700 text-sm">
           <AlertTriangle size={16} />
-          Has alcanzado el límite de vendedores de tu plan. Elimina uno o actualiza a Pro.
+          {error}
         </div>
       )}
 
-      {mostrarForm && (
-        <form onSubmit={handleCrear} className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
-          <h2 className="text-lg font-bold text-gray-800 mb-4">Crear Vendedor</h2>
-          {error && <div className="bg-red-50 text-red-700 px-4 py-2 rounded-lg mb-4 text-sm">{error}</div>}
-          <div className="grid md:grid-cols-3 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Nombre</label>
-              <input type="text" value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" required />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Usuario (login)</label>
-              <input type="text" value={form.username}
-                onChange={(e) => setForm({ ...form, username: e.target.value.toLowerCase().replace(/\s/g, "") })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" required />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Contraseña</label>
-              <input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" required minLength={6} />
-            </div>
+      {!mostrarForm ? (
+        <button
+          onClick={() => {
+            if (!planInfo?.permitido) {
+              alert("Has alcanzado el límite de vendedores de tu plan. Actualiza a Pro para agregar más.");
+              return;
+            }
+            setMostrarForm(true);
+          }}
+          disabled={saving}
+          className="mb-4 flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition disabled:opacity-50"
+        >
+          <Plus size={18} />
+          Agregar Vendedor
+        </button>
+      ) : (
+        <form onSubmit={handleCrear} className="mb-6 bg-white border rounded-xl p-4 shadow-sm">
+          <h3 className="font-semibold text-gray-800 mb-3">Nuevo Vendedor</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <input
+              type="text"
+              placeholder="Nombre completo"
+              value={form.nombre}
+              onChange={(e) => setForm({ ...form, nombre: e.target.value })}
+              className="border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+              required
+            />
+            <input
+              type="text"
+              placeholder="Usuario (sin espacios)"
+              value={form.username}
+              onChange={(e) => setForm({ ...form, username: e.target.value })}
+              className="border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+              required
+            />
+            <input
+              type="password"
+              placeholder="Contraseña (mín. 6)"
+              value={form.password}
+              onChange={(e) => setForm({ ...form, password: e.target.value })}
+              className="border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+              required
+              minLength={6}
+            />
           </div>
-          <div className="flex gap-3 mt-4">
-            <button type="button" onClick={() => setMostrarForm(false)} className="px-4 py-2 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50">
-              Cancelar
+          <div className="flex gap-2 mt-3">
+            <button
+              type="submit"
+              disabled={saving}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition disabled:opacity-50 flex items-center gap-2"
+            >
+              {saving ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
+              {saving ? "Creando..." : "Crear Vendedor"}
             </button>
-            <button type="submit" className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition">
-              Crear Vendedor
+            <button
+              type="button"
+              onClick={() => { setMostrarForm(false); setForm({ nombre: "", username: "", password: "" }); }}
+              className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium transition"
+            >
+              Cancelar
             </button>
           </div>
         </form>
       )}
 
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-50 border-b border-gray-200">
-            <tr>
-              <th className="text-left px-4 py-3">Nombre</th>
-              <th className="text-left px-4 py-3">Usuario</th>
-              <th className="text-left px-4 py-3">Estado</th>
-              <th className="text-right px-4 py-3">Acciones</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {vendedores.map((v) => (
-              <tr key={v.id} className="hover:bg-gray-50">
-                <td className="px-4 py-3 font-medium text-gray-800">{v.nombre}</td>
-                <td className="px-4 py-3 text-gray-600">{v.username}</td>
-                <td className="px-4 py-3">
-                  <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${v.activo ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-600"}`}>
-                    {v.activo ? <UserCheck size={12} /> : <UserX size={12} />}
-                    {v.activo ? "Activo" : "Inactivo"}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-right">
-                  <div className="flex items-center justify-end gap-2">
-                    <button onClick={() => toggleActivo(v)}
-                      className={`p-1.5 rounded-lg transition ${v.activo ? "text-amber-600 hover:bg-amber-50" : "text-green-600 hover:bg-green-50"}`}
-                      title={v.activo ? "Desactivar" : "Activar"}>
-                      {v.activo ? <UserX size={16} /> : <UserCheck size={16} />}
-                    </button>
-                    <button onClick={() => setCambiandoPwd(v)}
-                      className="p-1.5 text-blue-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition"
-                      title="Cambiar contraseña">
-                      <KeyRound size={16} />
-                    </button>
-                    <button onClick={() => handleEliminar(v)}
-                      className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition" title="Eliminar">
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
-                </td>
+      {loading && vendedores.length === 0 ? (
+        <div className="flex justify-center py-12">
+          <Loader2 size={32} className="animate-spin text-blue-600" />
+        </div>
+      ) : vendedores.length === 0 ? (
+        <div className="text-center py-12 text-gray-400">
+          <UserCheck size={48} className="mx-auto mb-3 opacity-50" />
+          <p>No hay vendedores registrados</p>
+        </div>
+      ) : (
+        <div className="bg-white border rounded-xl shadow-sm overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b">
+              <tr>
+                <th className="text-left px-4 py-3 font-medium text-gray-600">Nombre</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600">Usuario</th>
+                <th className="text-center px-4 py-3 font-medium text-gray-600">Estado</th>
+                <th className="text-right px-4 py-3 font-medium text-gray-600">Acciones</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-        {vendedores.length === 0 && (
-          <div className="text-center py-8 text-gray-400">
-            <UserPlus size={40} className="mx-auto mb-2" />
-            <p>No hay vendedores registrados</p>
-          </div>
-        )}
-      </div>
-
-      {cambiandoPwd && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl p-6 w-full max-w-sm">
-            <h3 className="font-bold text-gray-800 mb-1">Cambiar contraseña</h3>
-            <p className="text-sm text-gray-500 mb-4">{cambiandoPwd.nombre}</p>
-            <div className="space-y-3">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Nueva contraseña</label>
-                <input
-                  type="password"
-                  value={nuevaPwd}
-                  onChange={(e) => setNuevaPwd(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                  placeholder="Mínimo 6 caracteres"
-                  minLength={6}
-                  autoFocus
-                />
-              </div>
-            </div>
-            <div className="flex gap-2 mt-4">
-              <button onClick={() => { setCambiandoPwd(null); setNuevaPwd(""); }}
-                className="flex-1 py-2 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50">Cancelar</button>
-              <button onClick={() => handleCambiarPassword(cambiandoPwd)}
-                className="flex-1 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2">
-                <KeyRound size={16} /> Actualizar
-              </button>
-            </div>
-          </div>
+            </thead>
+            <tbody className="divide-y">
+              {vendedores.map((v) => (
+                <tr key={v.id} className="hover:bg-gray-50 transition">
+                  <td className="px-4 py-3 font-medium text-gray-800">{v.nombre}</td>
+                  <td className="px-4 py-3 text-gray-500">@{v.username}</td>
+                  <td className="px-4 py-3 text-center">
+                    <button
+                      onClick={() => toggleActivo(v)}
+                      disabled={saving}
+                      className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium transition ${
+                        v.activo
+                          ? "bg-green-100 text-green-700 hover:bg-green-200"
+                          : "bg-gray-100 text-gray-500 hover:bg-gray-200"
+                      }`}
+                    >
+                      {v.activo ? <UserCheck size={12} /> : <UserX size={12} />}
+                      {v.activo ? "Activo" : "Inactivo"}
+                    </button>
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        onClick={() => handleCambiarPassword(v)}
+                        disabled={saving}
+                        className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-600 transition"
+                        title="Cambiar contraseña"
+                      >
+                        <KeyRound size={16} />
+                      </button>
+                      <button
+                        onClick={() => handleEliminar(v)}
+                        disabled={saving}
+                        className="p-1.5 rounded-lg hover:bg-red-50 text-red-600 transition"
+                        title="Eliminar"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>
@@ -6187,9 +6428,10 @@ export const usersService = {
       createdAt: new Date().toISOString(),
     });
 
-    // 4. Registrar username público
+    // 4. Registrar username público (FIX: ahora incluye email para resolver offline)
     await setDoc(doc(db, "publicUsernames", username), {
       uid,
+      email,        // ← AGREGADO: necesario para que login encuentre el email
       almacenId,
       createdAt: new Date().toISOString(),
     });
