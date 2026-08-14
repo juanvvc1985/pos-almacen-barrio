@@ -2,7 +2,25 @@ import { useState, useEffect } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { usersService } from "../services/firestoreUsers";
 import { getPlan, LIMITES } from "../services/planLimits";
-import { Plus, Trash2, RefreshCw, UserCheck, UserX, KeyRound, Loader2, AlertTriangle } from "lucide-react";
+import { Plus, Trash2, RefreshCw, UserCheck, UserX, KeyRound, Loader2, AlertTriangle, Shield } from "lucide-react";
+
+const PRIVILEGIOS_DISPONIBLES = [
+  { key: "productos", label: "Productos", desc: "Crear, editar y eliminar productos" },
+  { key: "mermas", label: "Mermas", desc: "Registrar y eliminar mermas" },
+  { key: "ofertas", label: "Ofertas", desc: "Crear y quitar ofertas especiales" },
+  { key: "fiados", label: "Fiados", desc: "Gestionar fiados (siempre activo)", locked: true },
+  { key: "informes", label: "Informes", desc: "Ver informes y estadísticas (siempre activo)", locked: true },
+];
+
+const DEFAULT_PRIVILEGIOS = {
+  productos: false,
+  mermas: false,
+  ofertas: false,
+  fiados: true,
+  informes: true,
+  configuracion: false,
+  vendedores: false,
+};
 
 export default function AdminVendedores() {
   const { userData } = useAuth();
@@ -13,6 +31,7 @@ export default function AdminVendedores() {
   const [form, setForm] = useState({ nombre: "", username: "", password: "" });
   const [planInfo, setPlanInfo] = useState(null);
   const [error, setError] = useState("");
+  const [editandoPrivilegios, setEditandoPrivilegios] = useState(null);
 
   useEffect(() => {
     if (userData?.almacenId) cargarTodo();
@@ -22,40 +41,38 @@ export default function AdminVendedores() {
     setLoading(true);
     setError("");
     try {
-      // 🔥 OPTIMIZACIÓN: Paralelizar vendedores + plan en vez de secuencial
       const [data, plan] = await Promise.all([
         usersService.getVendedores(userData.almacenId),
         getPlan(userData.almacenId),
       ]);
 
-      setVendedores(data);
+      const normalizados = data.map((v) => ({
+        ...v,
+        privilegios: { ...DEFAULT_PRIVILEGIOS, ...v.privilegios },
+      }));
 
-      // Cache local para offline
+      setVendedores(normalizados);
+
       localStorage.setItem(
         `pos_vendedores_cache_${userData.almacenId}`,
-        JSON.stringify({
-          vendedores: data,
-          timestamp: Date.now(),
-        })
+        JSON.stringify({ vendedores: normalizados, timestamp: Date.now() })
       );
 
-      // Calcular plan localmente sin contar de nuevo en Firestore
       const limite = LIMITES[plan]?.vendedores ?? LIMITES.basico.vendedores;
       setPlanInfo({
         plan,
-        usados: data.length,
+        usados: normalizados.length,
         limite: limite === Infinity ? "∞" : limite,
-        permitido: limite === Infinity || data.length < limite,
+        permitido: limite === Infinity || normalizados.length < limite,
       });
     } catch (err) {
       console.error("Error cargando vendedores:", err);
       setError("Error al cargar vendedores. Intenta recargar.");
-      // Fallback a cache local si existe
       const cache = localStorage.getItem(`pos_vendedores_cache_${userData.almacenId}`);
       if (cache) {
         try {
           const parsed = JSON.parse(cache);
-          setVendedores(parsed.vendedores || []);
+          setVendedores((parsed.vendedores || []).map((v) => ({ ...v, privilegios: { ...DEFAULT_PRIVILEGIOS, ...v.privilegios } })));
         } catch {}
       }
     } finally {
@@ -77,7 +94,6 @@ export default function AdminVendedores() {
         password: form.password,
       });
 
-      // 🔥 OPTIMIZACIÓN: Actualizar estado local inmediatamente sin recargar todo
       const nuevoVendedor = {
         id: result.uid,
         nombre: form.nombre.trim(),
@@ -86,13 +102,13 @@ export default function AdminVendedores() {
         activo: true,
         role: "vendedor",
         almacenId: userData.almacenId,
+        privilegios: { ...DEFAULT_PRIVILEGIOS },
       };
       const nuevaLista = [...vendedores, nuevoVendedor];
       setVendedores(nuevaLista);
       setMostrarForm(false);
       setForm({ nombre: "", username: "", password: "" });
 
-      // Actualizar planInfo localmente
       if (planInfo) {
         const limite = planInfo.limite === "∞" ? Infinity : parseInt(planInfo.limite);
         setPlanInfo({
@@ -102,12 +118,12 @@ export default function AdminVendedores() {
         });
       }
 
-      // Recargar en background para sincronizar con Firestore (sin bloquear UI)
       usersService.getVendedores(userData.almacenId).then((data) => {
-        setVendedores(data);
+        const normalizados = data.map((v) => ({ ...v, privilegios: { ...DEFAULT_PRIVILEGIOS, ...v.privilegios } }));
+        setVendedores(normalizados);
         localStorage.setItem(
           `pos_vendedores_cache_${userData.almacenId}`,
-          JSON.stringify({ vendedores: data, timestamp: Date.now() })
+          JSON.stringify({ vendedores: normalizados, timestamp: Date.now() })
         );
       }).catch(() => {});
     } catch (err) {
@@ -123,12 +139,9 @@ export default function AdminVendedores() {
     setSaving(true);
     try {
       await usersService.deleteVendedor(vendedor.id, vendedor.username);
-
-      // 🔥 OPTIMIZACIÓN: Remover del estado local inmediatamente
       const nuevaLista = vendedores.filter((v) => v.id !== vendedor.id);
       setVendedores(nuevaLista);
 
-      // Actualizar planInfo localmente
       if (planInfo) {
         const limite = planInfo.limite === "∞" ? Infinity : parseInt(planInfo.limite);
         setPlanInfo({
@@ -138,17 +151,16 @@ export default function AdminVendedores() {
         });
       }
 
-      // Recargar en background
       usersService.getVendedores(userData.almacenId).then((data) => {
-        setVendedores(data);
+        const normalizados = data.map((v) => ({ ...v, privilegios: { ...DEFAULT_PRIVILEGIOS, ...v.privilegios } }));
+        setVendedores(normalizados);
         localStorage.setItem(
           `pos_vendedores_cache_${userData.almacenId}`,
-          JSON.stringify({ vendedores: data, timestamp: Date.now() })
+          JSON.stringify({ vendedores: normalizados, timestamp: Date.now() })
         );
       }).catch(() => {});
     } catch (err) {
       setError(err.message || "Error al eliminar vendedor");
-      // Si falló, recargar para sincronizar estado
       cargarTodo();
     } finally {
       setSaving(false);
@@ -159,8 +171,6 @@ export default function AdminVendedores() {
     setSaving(true);
     try {
       await usersService.updateVendedor(vendedor.id, { activo: !vendedor.activo });
-
-      // 🔥 OPTIMIZACIÓN: Toggle local inmediato sin recargar
       setVendedores((prev) =>
         prev.map((v) => (v.id === vendedor.id ? { ...v, activo: !v.activo } : v))
       );
@@ -184,6 +194,45 @@ export default function AdminVendedores() {
       alert("Contraseña actualizada");
     } catch (err) {
       setError(err.message || "Error al cambiar contraseña");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function abrirPrivilegios(vendedor) {
+    setEditandoPrivilegios({
+      ...vendedor,
+      privilegios: { ...DEFAULT_PRIVILEGIOS, ...vendedor.privilegios },
+    });
+  }
+
+  function togglePrivilegio(key) {
+    setEditandoPrivilegios((prev) => ({
+      ...prev,
+      privilegios: {
+        ...prev.privilegios,
+        [key]: !prev.privilegios?.[key],
+      },
+    }));
+  }
+
+  async function guardarPrivilegios() {
+    if (!editandoPrivilegios) return;
+    setSaving(true);
+    try {
+      await usersService.updateVendedor(editandoPrivilegios.id, {
+        privilegios: editandoPrivilegios.privilegios,
+      });
+      setVendedores((prev) =>
+        prev.map((v) =>
+          v.id === editandoPrivilegios.id
+            ? { ...v, privilegios: editandoPrivilegios.privilegios }
+            : v
+        )
+      );
+      setEditandoPrivilegios(null);
+    } catch (err) {
+      setError(err.message || "Error al guardar privilegios");
     } finally {
       setSaving(false);
     }
@@ -325,6 +374,14 @@ export default function AdminVendedores() {
                   <td className="px-4 py-3 text-right">
                     <div className="flex items-center justify-end gap-2">
                       <button
+                        onClick={() => abrirPrivilegios(v)}
+                        disabled={saving}
+                        className="p-1.5 rounded-lg hover:bg-purple-50 text-purple-600 transition"
+                        title="Editar privilegios"
+                      >
+                        <Shield size={16} />
+                      </button>
+                      <button
                         onClick={() => handleCambiarPassword(v)}
                         disabled={saving}
                         className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-600 transition"
@@ -346,6 +403,69 @@ export default function AdminVendedores() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Modal de Privilegios */}
+      {editandoPrivilegios && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <Shield className="text-purple-600" size={20} />
+              <h3 className="text-lg font-bold text-gray-800">
+                Privilegios de {editandoPrivilegios.nombre}
+              </h3>
+            </div>
+            <p className="text-sm text-gray-500 mb-4">
+              Activa o desactiva los permisos de este vendedor. Los cambios se aplican inmediatamente al guardar.
+            </p>
+            <div className="space-y-3">
+              {PRIVILEGIOS_DISPONIBLES.map((p) => (
+                <label
+                  key={p.key}
+                  className={`flex items-start gap-3 p-3 rounded-lg border transition ${
+                    p.locked ? "bg-gray-50 border-gray-200" : "bg-white border-gray-200 hover:border-purple-300"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={!!editandoPrivilegios.privilegios?.[p.key]}
+                    disabled={p.locked || saving}
+                    onChange={() => togglePrivilegio(p.key)}
+                    className="mt-0.5 w-4 h-4 text-purple-600 rounded"
+                  />
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-sm text-gray-800">{p.label}</span>
+                      {p.locked && (
+                        <span className="text-[10px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded">
+                          Siempre activo
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-500">{p.desc}</p>
+                  </div>
+                </label>
+              ))}
+            </div>
+            <div className="flex gap-2 mt-6">
+              <button
+                onClick={() => setEditandoPrivilegios(null)}
+                disabled={saving}
+                className="flex-1 py-2.5 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 font-medium transition"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={guardarPrivilegios}
+                disabled={saving}
+                className="flex-1 py-2.5 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-300 text-white rounded-lg font-medium transition flex items-center justify-center gap-2"
+              >
+                {saving ? <Loader2 size={16} className="animate-spin" /> : <Shield size={16} />}
+                {saving ? "Guardando..." : "Guardar Privilegios"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

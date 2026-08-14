@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 
 export default function Navbar() {
-  const { isDueño, isVendedor, userData, logout, almacenId } = useAuth();
+  const { isDueño, isVendedor, userData, logout, almacenId, hasPrivilege } = useAuth();
   const { isOnline, pendingCount, syncing, getOfflineTurno, addToQueue, clearOfflineTurno } = useOffline();
   const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -33,10 +33,10 @@ export default function Navbar() {
 
   const navLinks = [
     { to: "/", label: "Vender", icon: Store, visible: true },
-    { to: "/productos", label: "Productos", icon: Package, visible: isDueño },
+    { to: "/productos", label: "Productos", icon: Package, visible: isDueño || hasPrivilege("productos") },
     { to: "/fiados", label: "Fiados", icon: HandCoins, visible: true },
-    { to: "/ofertas", label: "Ofertas", icon: Tag, visible: isDueño },
-    { to: "/mermas", label: "Mermas", icon: AlertTriangle, visible: isDueño },
+    { to: "/ofertas", label: "Ofertas", icon: Tag, visible: isDueño || hasPrivilege("ofertas") },
+    { to: "/mermas", label: "Mermas", icon: AlertTriangle, visible: isDueño || hasPrivilege("mermas") },
     { to: "/informes", label: "Informes", icon: BarChart3, visible: true },
     { to: "/vendedores", label: "Vendedores", icon: Users, visible: isDueño },
     { to: "/configuracion", label: "Configuración", icon: Settings, visible: isDueño },
@@ -50,7 +50,6 @@ export default function Navbar() {
 
     setLoadingLogout(true);
     try {
-      // FIX: Si estamos offline, cerrar turno local antes de salir
       if (!isOnline) {
         const offlineTurno = getOfflineTurno();
         if (offlineTurno) {
@@ -67,7 +66,6 @@ export default function Navbar() {
         return;
       }
 
-      // Online: flujo normal con try-catch
       const turno = await salesService.getTurnoActivo(almacenId);
       if (turno) {
         const ventasHoy = await salesService.getTodaySales(almacenId);
@@ -206,7 +204,6 @@ export default function Navbar() {
         )}
       </nav>
 
-      {/* Modal cierre de turno al logout */}
       {mostrarCierreLogout && resumenLogout && (
         <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">

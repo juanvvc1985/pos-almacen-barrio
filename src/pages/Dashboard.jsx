@@ -11,7 +11,7 @@ import AdminVendedores from "./AdminVendedores";
 import ConfiguracionAlmacen from "./ConfiguracionAlmacen";
 
 export default function Dashboard() {
-  const { isDueño, loading } = useAuth();
+  const { isDueño, hasPrivilege, loading } = useAuth();
 
   if (loading) {
     return (
@@ -28,17 +28,13 @@ export default function Dashboard() {
         <Routes>
           <Route path="/" element={<POS />} />
           <Route path="/vender" element={<POS />} />
-          <Route path="/productos" element={<ProductManager />} />
+          <Route path="/productos" element={isDueño || hasPrivilege("productos") ? <ProductManager /> : <Navigate to="/" />} />
           <Route path="/fiados" element={<Fiados />} />
-          {isDueño && (
-            <>
-              <Route path="/ofertas" element={<Offers />} />
-              <Route path="/mermas" element={<Mermas />} />
-              <Route path="/informes" element={<Reports />} />
-              <Route path="/vendedores" element={<AdminVendedores />} />
-              <Route path="/configuracion" element={<ConfiguracionAlmacen />} />
-            </>
-          )}
+          <Route path="/ofertas" element={isDueño || hasPrivilege("ofertas") ? <Offers /> : <Navigate to="/" />} />
+          <Route path="/mermas" element={isDueño || hasPrivilege("mermas") ? <Mermas /> : <Navigate to="/" />} />
+          <Route path="/informes" element={<Reports />} />
+          <Route path="/vendedores" element={isDueño ? <AdminVendedores /> : <Navigate to="/" />} />
+          <Route path="/configuracion" element={isDueño ? <ConfiguracionAlmacen /> : <Navigate to="/" />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

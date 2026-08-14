@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect } from "react";
+import { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { auth, db } from "../firebase/firebase";
 import {
   onAuthStateChanged,
@@ -144,7 +144,6 @@ export function AuthProvider({ children }) {
     let mounted = true;
 
     async function init() {
-      // 1. Restaurar sesión offline lo más rápido posible
       const offline = (await idbGet("session").catch(() => null)) || getOfflineSession();
       if (mounted && offline?.userData) {
         setUser({
@@ -156,7 +155,6 @@ export function AuthProvider({ children }) {
         setUserData(offline.userData);
       }
 
-      // 2. Escuchar Firebase Auth (puede confirmar o invalidar)
       unsub = onAuthStateChanged(auth, async (firebaseUser) => {
         if (!mounted) return;
 
@@ -192,18 +190,15 @@ export function AuthProvider({ children }) {
               saveOfflineSession(firebaseUser, data);
               saveOfflineUser(firebaseUser.uid, data);
             } else {
-              // Documento no existe: usar cache si hay
               const cached = getOfflineUser(firebaseUser.uid);
               if (cached) setUserData(cached);
             }
           } catch (err) {
-            // Fallo de red (offline): mantener cache
             const cached = getOfflineUser(firebaseUser.uid);
             if (cached) setUserData(cached);
             console.warn("Firestore offline, usando cache:", err.message);
           }
         } else {
-          // Firebase dice que no hay usuario
           const stillOffline = (await idbGet("session").catch(() => null)) || getOfflineSession();
           if (!stillOffline) {
             setUser(null);
@@ -225,14 +220,10 @@ export function AuthProvider({ children }) {
 
   async function findEmailByUsername(username) {
     const clean = username.toLowerCase().trim();
-
-    // 1. Buscar en usuarios que ya se han logueado en ESTE dispositivo
     const users = JSON.parse(localStorage.getItem(OFFLINE_USERS_KEY) || "{}");
     for (const uid in users) {
       if (users[uid].username === clean) return users[uid].email;
     }
-
-    // 2. Buscar en cache de vendedores del almacén (se pobla al abrir /vendedores)
     const offlineSession = getOfflineSession();
     const almacenId = offlineSession?.userData?.almacenId;
     if (almacenId) {
@@ -242,22 +233,18 @@ export function AuthProvider({ children }) {
         if (found) return found.email;
       } catch { /* noop */ }
     }
-
-    // 3. Buscar online en Firestore
     if (navigator.onLine) {
       try {
         const snap = await getDoc(doc(db, "publicUsernames", clean));
         if (snap.exists()) {
           const data = snap.data();
           if (data.email) return data.email;
-          // Fallback: vendedores creados con la versión buggeada (sin campo email)
           if (data.almacenId) {
             return `vendedor.${clean}.${data.almacenId}@pos-almacen.local`;
           }
         }
       } catch { /* noop */ }
     }
-
     return null;
   }
 
@@ -269,7 +256,6 @@ export function AuthProvider({ children }) {
       email = foundEmail.toLowerCase();
     }
 
-    // Intento 1: Firebase Auth (por si hay internet lenta o intermitente)
     try {
       const result = await signInWithEmailAndPassword(auth, email, password);
       const userDoc = await getDoc(doc(db, "users", result.user.uid));
@@ -303,8 +289,6 @@ export function AuthProvider({ children }) {
 
       if (isNetworkError) {
         const targetEmail = email.toLowerCase();
-
-        // Buscar en TODOS los usuarios que se han logueado en este dispositivo
         const users = JSON.parse(localStorage.getItem(OFFLINE_USERS_KEY) || "{}");
         let offline = null;
         for (const uid in users) {
@@ -313,15 +297,12 @@ export function AuthProvider({ children }) {
             break;
           }
         }
-
-        // Si no, buscar en la sesión activa anterior
         if (!offline) {
           const session = (await idbGet("session").catch(() => null)) || getOfflineSession();
           if (session && session.email?.toLowerCase() === targetEmail) {
             offline = session;
           }
         }
-
         if (offline) {
           setUser({
             uid: offline.uid,
@@ -332,7 +313,6 @@ export function AuthProvider({ children }) {
           setUserData(offline.userData || offline);
           return { user: offline, offline: true };
         }
-
         throw new Error("Sin conexión. Primero inicia sesión con internet al menos una vez.");
       }
       throw err;
@@ -380,11 +360,8 @@ export function AuthProvider({ children }) {
   };
 
   const logout = async () => {
-    await idbDel("session");           // Borra solo la sesión activa
-    clearOfflineSession();             // Borra la sesión activa de localStorage
-    // NO borramos OFFLINE_USERS_KEY para que el login offline siga funcionando
-    // después de cerrar sesión (cualquier usuario que se haya logueado antes
-    // puede volver a entrar sin internet).
+    await idbDel("session");
+    clearOfflineSession();
     await signOut(auth);
     setUser(null);
     setUserData(null);
@@ -393,6 +370,13 @@ export function AuthProvider({ children }) {
   const isDueño = userData?.role === ROLES.DUEÑO;
   const isVendedor = userData?.role === ROLES.VENDEDOR;
   const almacenId = userData?.almacenId || null;
+
+  // ─── NUEVO: helper de privilegios ───
+  const hasPrivilege = useCallback((privilege) => {
+    if (isDueño) return true;
+    if (!userData?.privilegios) return false;
+    return !!userData.privilegios[privilege];
+  }, [isDueño, userData]);
 
   return (
     <AuthContext.Provider
@@ -407,6 +391,7 @@ export function AuthProvider({ children }) {
         isVendedor,
         almacenId,
         isAuthenticated: !!userData,
+        hasPrivilege,
       }}
     >
       {children}

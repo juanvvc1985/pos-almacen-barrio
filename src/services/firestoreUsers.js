@@ -20,7 +20,6 @@ export const usersService = {
 
     const email = `vendedor.${username}.${almacenId}@pos-almacen.local`;
 
-    // 1. Intentar crear usuario en Firebase Auth
     let res = await fetch(
       `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${API_KEY}`,
       {
@@ -31,7 +30,6 @@ export const usersService = {
     );
     let data = await res.json();
 
-    // 2. Si EMAIL_EXISTS, intentar recuperar el UID haciendo login
     if (!res.ok && data.error?.message === "EMAIL_EXISTS") {
       const loginRes = await fetch(
         `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${API_KEY}`,
@@ -53,8 +51,6 @@ export const usersService = {
         }
         throw new Error(loginData.error?.message || "Error al verificar usuario existente");
       }
-
-      // Login exitoso = reutilizar UID existente
       data = loginData;
     } else if (!res.ok) {
       if (data.error?.message === "WEAK_PASSWORD") {
@@ -65,7 +61,6 @@ export const usersService = {
 
     const uid = data.localId;
 
-    // 3. Crear documento en Firestore
     await setDoc(doc(db, "users", uid), {
       uid,
       nombre,
@@ -74,13 +69,21 @@ export const usersService = {
       role: "vendedor",
       almacenId,
       activo: true,
+      privilegios: {
+        productos: false,
+        mermas: false,
+        ofertas: false,
+        fiados: true,
+        informes: true,
+        configuracion: false,
+        vendedores: false,
+      },
       createdAt: new Date().toISOString(),
     });
 
-    // 4. Registrar username público (FIX: ahora incluye email para resolver offline)
     await setDoc(doc(db, "publicUsernames", username), {
       uid,
-      email,        // ← AGREGADO: necesario para que login encuentre el email
+      email,
       almacenId,
       createdAt: new Date().toISOString(),
     });
@@ -111,8 +114,6 @@ export const usersService = {
   },
 
   async cambiarPasswordVendedor(uid, nuevaPassword) {
-    // Guardamos la nueva contraseña en el documento del vendedor
-    // El hook useAuth la aplicará automáticamente al siguiente login del vendedor
     const ref = doc(db, "users", uid);
     await updateDoc(ref, {
       passwordPending: nuevaPassword,

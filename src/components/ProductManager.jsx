@@ -23,7 +23,8 @@ function generateId() {
 }
 
 export default function ProductManager() {
-  const { almacenId, isDueño } = useAuth();
+  const { almacenId, isDueño, hasPrivilege } = useAuth();
+  const puedeGestionar = isDueño || hasPrivilege("productos");
   const [productos, setProductos] = useState([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -87,7 +88,7 @@ export default function ProductManager() {
   }
 
   function handleEditar(producto) {
-    if (!isDueño) return;
+    if (!puedeGestionar) return;
     setForm({
       nombre: producto.nombre || "", codigoBarras: producto.codigoBarras || "",
       precioVenta: producto.precioVenta?.toString() || "",
@@ -106,6 +107,7 @@ export default function ProductManager() {
   }
 
   async function handleGuardar() {
+    if (!puedeGestionar) { alert("Solo el dueño o vendedores con privilegio pueden gestionar productos"); return; }
     const data = {
       nombre: form.nombre.trim(), codigoBarras: form.codigoBarras.trim() || null,
       precioVenta: Number(form.precioVenta) || 0, precioCompra: Number(form.precioCompra) || 0,
@@ -128,7 +130,6 @@ export default function ProductManager() {
     if (!data.nombre) { alert("El nombre es obligatorio"); return; }
     try {
       if (editando) {
-        if (!isDueño) { alert("Solo el dueño puede editar productos"); return; }
         await productsService.updateProduct(editando, data);
       } else {
         await productsService.createProduct(almacenId, data);
@@ -140,7 +141,7 @@ export default function ProductManager() {
   }
 
   async function handleEliminar(id) {
-    if (!isDueño) return;
+    if (!puedeGestionar) return;
     if (!confirm("¿Eliminar este producto permanentemente?")) return;
     await productsService.deleteProduct(id);
     await cargarProductos();
@@ -414,7 +415,7 @@ export default function ProductManager() {
                         <div className="flex items-center justify-end gap-1">
                           <button onClick={() => handleAgregarStock(p)}
                             className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg transition" title="Agregar stock"><Plus size={16} /></button>
-                          {isDueño && (
+                          {puedeGestionar && (
                             <>
                               <button onClick={() => handleEditar(p)}
                                 className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition" title="Editar"><Edit2 size={16} /></button>
