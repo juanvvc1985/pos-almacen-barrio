@@ -1241,68 +1241,127 @@ export default function Mermas() {
 ````javascript
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
+import { 
+  LayoutDashboard, Package, Users, Tag, Trash2, 
+  BarChart3, Settings, Key, LogOut, Menu, X, Store 
+} from "lucide-react";
+import { useState } from "react";
 
 export default function Navbar() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, isDueño, hasPrivilege, logout } = useAuth();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
+  // Helper para clases activas
   const linkClass = (path) =>
-    `px-3 py-2 rounded-lg text-sm font-medium transition ${
-      location.pathname === path
-        ? "bg-blue-600 text-white"
-        : "text-gray-700 hover:bg-gray-100"
+    `flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+      location.pathname === path || (path === '/app' && location.pathname === '/app/')
+        ? "bg-slate-100 text-slate-900"
+        : "text-slate-500 hover:bg-slate-50 hover:text-slate-700"
     }`;
 
-  // 🔥 FIX #13: Filtrar enlaces por privilegios
+  // Definición de menú con iconos elegantes
   const menuItems = [
-    { path: "/vender", label: "🛒 Vender", show: true },
-    { path: "/productos", label: "📦 Productos", show: isDueño || hasPrivilege("productos") },
-    { path: "/fiados", label: "📝 Fiados", show: true },
-    { path: "/ofertas", label: "🏷️ Ofertas", show: isDueño || hasPrivilege("ofertas") },
-    { path: "/mermas", label: "🗑️ Mermas", show: isDueño || hasPrivilege("mermas") },
-    { path: "/informes", label: "📊 Informes", show: true },
-    { path: "/admin-beta", label: "🔑 Códigos Beta", show: isDueño },
-    { path: "/vendedores", label: "👥 Vendedores", show: isDueño },
-    { path: "/configuracion", label: "⚙️ Config", show: isDueño },
+    { path: "/app", label: "Vender", icon: LayoutDashboard, show: true },
+    { path: "/app/productos", label: "Productos", icon: Package, show: isDueño || hasPrivilege("productos") },
+    { path: "/app/fiados", label: "Fiados", icon: Users, show: true },
+    { path: "/app/ofertas", label: "Ofertas", icon: Tag, show: isDueño || hasPrivilege("ofertas") },
+    { path: "/app/mermas", label: "Mermas", icon: Trash2, show: isDueño || hasPrivilege("mermas") },
+    { path: "/app/informes", label: "Informes", icon: BarChart3, show: true },
+    { path: "/app/admin-beta", label: "Códigos Beta", icon: Key, show: isDueño },
+    { path: "/app/vendedores", label: "Equipo", icon: Users, show: isDueño },
+    { path: "/app/configuracion", label: "Ajustes", icon: Settings, show: isDueño },
   ];
 
   return (
-    <nav className="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-50">
+    <nav className="bg-white border-b border-stone-200 sticky top-0 z-50">
       <div className="container mx-auto px-4 max-w-7xl">
-        <div className="flex items-center justify-between h-14">
+        <div className="flex items-center justify-between h-16">
           {/* Logo */}
           <button
-            onClick={() => navigate("/")}
-            className="flex items-center gap-2 font-bold text-lg text-blue-600"
+            onClick={() => navigate("/app")}
+            className="flex items-center gap-2 group"
           >
-            🏪 Almacén de Barrio
+            <div className="w-8 h-8 bg-slate-800 rounded-lg flex items-center justify-center group-hover:bg-emerald-700 transition-colors">
+              <Store className="w-4 h-4 text-white" />
+            </div>
+            <span className="font-bold text-lg text-slate-900 tracking-tight hidden sm:block">
+              Loventa
+            </span>
           </button>
 
-          {/* Links principales filtrados por privilegio */}
-          <div className="hidden md:flex items-center gap-1">
+          {/* Desktop Navigation */}
+          <div className="hidden md:flex items-center gap-1 bg-stone-50 p-1 rounded-xl border border-stone-100">
             {menuItems.filter(item => item.show).map(item => (
-              <button key={item.path} onClick={() => navigate(item.path)} className={linkClass(item.path)}>
-                {item.label}
+              <button 
+                key={item.path} 
+                onClick={() => navigate(item.path)} 
+                className={linkClass(item.path)}
+                title={item.label}
+              >
+                <item.icon size={18} />
+                <span className="hidden lg:inline">{item.label}</span>
               </button>
             ))}
           </div>
 
-          {/* Usuario + Logout */}
+          {/* User & Actions */}
           <div className="flex items-center gap-3">
-            <span className="text-sm text-gray-600 hidden sm:block">
-              {user?.displayName || user?.email || "Invitado"}
-              {isDueño && <span className="ml-1 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">Dueño</span>}
-            </span>
+            <div className="hidden sm:flex flex-col items-end mr-2">
+              <span className="text-sm font-medium text-slate-700 leading-none">
+                {user?.displayName || user?.email?.split('@')[0] || "Usuario"}
+              </span>
+              {isDueño && (
+                <span className="text-[10px] text-emerald-600 font-medium mt-1 uppercase tracking-wider">
+                  Dueño
+                </span>
+              )}
+            </div>
+            
             <button
               onClick={logout}
-              className="text-sm text-red-600 hover:text-red-800 font-medium px-3 py-2 rounded-lg hover:bg-red-50 transition"
+              className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+              title="Cerrar sesión"
             >
-              Salir
+              <LogOut size={20} />
+            </button>
+
+            {/* Mobile Menu Button */}
+            <button 
+              className="md:hidden p-2 text-slate-600 hover:bg-stone-100 rounded-lg"
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            >
+              {mobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
             </button>
           </div>
         </div>
       </div>
+
+      {/* Mobile Menu Dropdown */}
+      {mobileMenuOpen && (
+        <div className="md:hidden border-t border-stone-100 bg-white animate-in slide-in-from-top-5">
+          <div className="p-4 space-y-1">
+            {menuItems.filter(item => item.show).map(item => (
+              <button
+                key={item.path}
+                onClick={() => {
+                  navigate(item.path);
+                  setMobileMenuOpen(false);
+                }}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors ${
+                  location.pathname === item.path
+                    ? "bg-slate-50 text-slate-900"
+                    : "text-slate-600 hover:bg-stone-50"
+                }`}
+              >
+                <item.icon size={20} />
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </nav>
   );
 }
@@ -6331,44 +6390,45 @@ export default function Dashboard() {
 ````javascript
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import {
-  Store, WifiOff, Smartphone, BarChart3, Shield, Zap,
-  Users, Package, CreditCard, Check, ArrowRight, Menu, X,
-  Clock, Gift, Crown, Star, ChevronDown
+import { 
+  Store, WifiOff, Smartphone, BarChart3, ShieldCheck, Zap, 
+  Users, Package, CreditCard, Check, ArrowRight, Menu, X, 
+  Clock, Gift, Crown, Star, ChevronDown, Leaf, Snowflake 
 } from "lucide-react";
 
 export default function LandingPage() {
   const [menuAbierto, setMenuAbierto] = useState(false);
   const [faqAbierta, setFaqAbierta] = useState(null);
 
+  // Paleta Nórdica: Slate (Gris azulado), Stone (Gris cálido/piedra), Emerald (Verde bosque suave)
   const caracteristicas = [
     {
-      icon: <WifiOff className="w-8 h-8 text-blue-600" />,
+      icon: <WifiOff className="w-6 h-6 text-emerald-600" />,
       titulo: "100% Offline",
       desc: "Vende sin internet. Todo se guarda localmente y se sincroniza cuando vuelvas a conectar.",
     },
     {
-      icon: <Smartphone className="w-8 h-8 text-green-600" />,
+      icon: <Smartphone className="w-6 h-6 text-slate-600" />,
       titulo: "Desde tu celular",
       desc: "No necesitas computador ni caja registradora. Tu celular es tu POS.",
     },
     {
-      icon: <Package className="w-8 h-8 text-purple-600" />,
+      icon: <Package className="w-6 h-6 text-stone-600" />,
       titulo: "Control de stock",
       desc: "Sabe exactamente qué tienes, qué se vende más y qué está por agotarse.",
     },
     {
-      icon: <BarChart3 className="w-8 h-8 text-orange-600" />,
+      icon: <BarChart3 className="w-6 h-6 text-emerald-600" />,
       titulo: "Reportes claros",
       desc: "Ventas por día, producto, vendedor. Toma decisiones con datos reales.",
     },
     {
-      icon: <Users className="w-8 h-8 text-pink-600" />,
+      icon: <Users className="w-6 h-6 text-slate-600" />,
       titulo: "Multi-vendedor",
       desc: "Cada vendedor con su usuario. Controla quién puede vender, editar o ver reportes.",
     },
     {
-      icon: <Shield className="w-8 h-8 text-teal-600" />,
+      icon: <ShieldCheck className="w-6 h-6 text-stone-600" />,
       titulo: "Fiados seguros",
       desc: "Registra deudas de clientes con nombre, teléfono y dirección. Nunca pierdas una cuenta.",
     },
@@ -6379,8 +6439,8 @@ export default function LandingPage() {
       nombre: "Básico",
       precioMensual: 5990,
       precioAnual: 59900,
-      icon: <Zap className="w-6 h-6" />,
-      color: "blue",
+      icon: <Leaf className="w-5 h-5" />,
+      color: "slate",
       popular: false,
       features: [
         "Hasta 500 productos",
@@ -6389,15 +6449,14 @@ export default function LandingPage() {
         "Control de stock",
         "Ventas y fiados",
         "Reportes básicos",
-        "Soporte por email",
       ],
     },
     {
       nombre: "Pro",
       precioMensual: 11990,
       precioAnual: 119900,
-      icon: <Crown className="w-6 h-6" />,
-      color: "purple",
+      icon: <Snowflake className="w-5 h-5" />,
+      color: "emerald",
       popular: true,
       features: [
         "Productos ilimitados",
@@ -6407,7 +6466,6 @@ export default function LandingPage() {
         "Multi-sucursal",
         "Ofertas y promociones",
         "Soporte prioritario",
-        "Exportar datos",
       ],
     },
   ];
@@ -6436,33 +6494,33 @@ export default function LandingPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-stone-50 font-sans text-slate-800 selection:bg-emerald-100 selection:text-emerald-900">
       {/* ─── NAVBAR ─── */}
-      <nav className="fixed top-0 left-0 right-0 bg-white/90 backdrop-blur-md border-b border-gray-100 z-50">
-        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-2">
-            <div className="w-9 h-9 bg-gradient-to-br from-blue-600 to-purple-600 rounded-xl flex items-center justify-center">
-              <Store className="w-5 h-5 text-white" />
+      <nav className="fixed top-0 left-0 right-0 bg-stone-50/80 backdrop-blur-md border-b border-stone-200 z-50">
+        <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
+          <Link to="/" className="flex items-center gap-2 group">
+            <div className="w-8 h-8 bg-slate-800 rounded-lg flex items-center justify-center group-hover:bg-emerald-700 transition-colors duration-300">
+              <Store className="w-4 h-4 text-white" />
             </div>
-            <span className="text-xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-              Loventa
+            <span className="text-xl font-bold tracking-tight text-slate-900">
+              Loventa<span className="text-emerald-600">.</span>
             </span>
           </Link>
-
+          
           {/* Desktop nav */}
           <div className="hidden md:flex items-center gap-8">
-            <a href="#caracteristicas" className="text-sm text-gray-600 hover:text-gray-900 transition">Características</a>
-            <a href="#precios" className="text-sm text-gray-600 hover:text-gray-900 transition">Precios</a>
-            <a href="#faq" className="text-sm text-gray-600 hover:text-gray-900 transition">FAQ</a>
+            <a href="#caracteristicas" className="text-sm font-medium text-slate-600 hover:text-slate-900 transition">Características</a>
+            <a href="#precios" className="text-sm font-medium text-slate-600 hover:text-slate-900 transition">Precios</a>
+            <a href="#faq" className="text-sm font-medium text-slate-600 hover:text-slate-900 transition">FAQ</a>
             <Link
               to="/beta-registro"
-              className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-lg text-sm font-medium transition"
+              className="bg-slate-900 hover:bg-slate-800 text-white px-5 py-2.5 rounded-full text-sm font-medium transition shadow-sm hover:shadow-md"
             >
-              Registrarme
+              Empezar Gratis
             </Link>
             <Link
               to="/login"
-              className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+              className="text-sm font-medium text-slate-600 hover:text-slate-900 transition"
             >
               Iniciar sesión
             </Link>
@@ -6471,7 +6529,7 @@ export default function LandingPage() {
           {/* Mobile menu button */}
           <button
             onClick={() => setMenuAbierto(!menuAbierto)}
-            className="md:hidden p-2 hover:bg-gray-100 rounded-lg"
+            className="md:hidden p-2 text-slate-600 hover:bg-stone-200 rounded-lg transition"
           >
             {menuAbierto ? <X size={24} /> : <Menu size={24} />}
           </button>
@@ -6479,86 +6537,95 @@ export default function LandingPage() {
 
         {/* Mobile menu */}
         {menuAbierto && (
-          <div className="md:hidden bg-white border-t border-gray-100 px-4 py-4 space-y-3">
-            <a href="#caracteristicas" onClick={() => setMenuAbierto(false)} className="block text-gray-600 py-2">Características</a>
-            <a href="#precios" onClick={() => setMenuAbierto(false)} className="block text-gray-600 py-2">Precios</a>
-            <a href="#faq" onClick={() => setMenuAbierto(false)} className="block text-gray-600 py-2">FAQ</a>
-            <Link to="/beta-registro" onClick={() => setMenuAbierto(false)} className="block bg-blue-600 text-white text-center py-2.5 rounded-lg font-medium">Registrarme</Link>
-            <Link to="/login" onClick={() => setMenuAbierto(false)} className="block text-center text-blue-600 py-2 font-medium">Iniciar sesión</Link>
+          <div className="md:hidden bg-stone-50 border-t border-stone-200 px-4 py-4 space-y-3 animate-in slide-in-from-top-5">
+            <a href="#caracteristicas" onClick={() => setMenuAbierto(false)} className="block text-slate-600 py-2 font-medium">Características</a>
+            <a href="#precios" onClick={() => setMenuAbierto(false)} className="block text-slate-600 py-2 font-medium">Precios</a>
+            <a href="#faq" onClick={() => setMenuAbierto(false)} className="block text-slate-600 py-2 font-medium">FAQ</a>
+            <Link to="/beta-registro" onClick={() => setMenuAbierto(false)} className="block bg-slate-900 text-white text-center py-3 rounded-full font-medium">Empezar Gratis</Link>
+            <Link to="/login" onClick={() => setMenuAbierto(false)} className="block text-center text-slate-600 py-2 font-medium">Iniciar sesión</Link>
           </div>
         )}
       </nav>
 
-      {/* ─── HERO ─── */}
-      <section className="pt-32 pb-20 px-4">
-        <div className="max-w-4xl mx-auto text-center">
-          <div className="inline-flex items-center gap-2 bg-blue-50 text-blue-700 px-4 py-1.5 rounded-full text-sm font-medium mb-6">
-            <Gift size={14} />
-            Programa beta abierto — 30 días de prueba + 6 meses gratis
+      {/* ─── HERO ── */}
+      <section className="pt-32 pb-20 px-4 relative overflow-hidden">
+        {/* Background decorative elements */}
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-full max-w-4xl pointer-events-none opacity-20">
+          <div className="absolute top-20 left-10 w-64 h-64 bg-emerald-200 rounded-full blur-3xl"></div>
+          <div className="absolute bottom-20 right-10 w-64 h-64 bg-slate-200 rounded-full blur-3xl"></div>
+        </div>
+
+        <div className="max-w-4xl mx-auto text-center relative z-10">
+          <div className="inline-flex items-center gap-2 bg-white border border-stone-200 text-slate-600 px-4 py-1.5 rounded-full text-xs font-medium mb-8 shadow-sm">
+            <span className="flex h-2 w-2 rounded-full bg-emerald-500"></span>
+            Programa Beta Abierto — 7 meses gratis
           </div>
-          <h1 className="text-4xl md:text-6xl font-extrabold text-gray-900 leading-tight mb-6">
-            El POS que tu almacén
-            <span className="block bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-              de barrio necesita
+          
+          <h1 className="text-5xl md:text-7xl font-extrabold text-slate-900 leading-[1.1] mb-6 tracking-tight">
+            El POS que tu almacén <br/>
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-700 to-slate-600">
+              realmente necesita
             </span>
           </h1>
-          <p className="text-lg md:text-xl text-gray-500 max-w-2xl mx-auto mb-8">
-            Vende sin internet. Controla tu stock. Registra fiados. Todo desde tu celular.
-            <strong className="text-gray-700"> Sin computador, sin caja registradora, sin complicaciones.</strong>
+          
+          <p className="text-lg md:text-xl text-slate-500 max-w-2xl mx-auto mb-10 leading-relaxed">
+            Vende sin internet. Controla tu stock. Registra fiados. 
+            Todo desde tu celular, con un diseño limpio y moderno.
           </p>
+          
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <Link
               to="/beta-registro"
-              className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-xl text-lg font-bold transition flex items-center justify-center gap-2 shadow-lg shadow-blue-200"
+              className="w-full sm:w-auto bg-slate-900 hover:bg-slate-800 text-white px-8 py-4 rounded-full text-lg font-semibold transition shadow-lg hover:shadow-xl hover:-translate-y-0.5 flex items-center justify-center gap-2"
             >
-              Empezar gratis <ArrowRight size={20} />
+              Empezar Gratis <ArrowRight size={20} />
             </Link>
             <a
               href="#caracteristicas"
-              className="w-full sm:w-auto bg-gray-100 hover:bg-gray-200 text-gray-700 px-8 py-4 rounded-xl text-lg font-medium transition flex items-center justify-center gap-2"
+              className="w-full sm:w-auto bg-white hover:bg-stone-50 text-slate-700 border border-stone-200 px-8 py-4 rounded-full text-lg font-medium transition flex items-center justify-center gap-2"
             >
               Ver cómo funciona
             </a>
           </div>
 
           {/* Stats */}
-          <div className="grid grid-cols-3 gap-6 max-w-lg mx-auto mt-16 pt-8 border-t border-gray-100">
+          <div className="grid grid-cols-3 gap-8 max-w-lg mx-auto mt-20 pt-10 border-t border-stone-200">
             <div>
-              <p className="text-2xl md:text-3xl font-bold text-gray-800">100%</p>
-              <p className="text-sm text-gray-500">Offline</p>
+              <p className="text-3xl font-bold text-slate-900">100%</p>
+              <p className="text-sm text-slate-500 mt-1">Offline</p>
             </div>
             <div>
-              <p className="text-2xl md:text-3xl font-bold text-gray-800">$5.990</p>
-              <p className="text-sm text-gray-500">Desde /mes</p>
+              <p className="text-3xl font-bold text-slate-900">$5.990</p>
+              <p className="text-sm text-slate-500 mt-1">Desde /mes</p>
             </div>
             <div>
-              <p className="text-2xl md:text-3xl font-bold text-gray-800">0</p>
-              <p className="text-sm text-gray-500">Complicaciones</p>
+              <p className="text-3xl font-bold text-slate-900">0</p>
+              <p className="text-sm text-slate-500 mt-1">Complicaciones</p>
             </div>
           </div>
         </div>
       </section>
 
       {/* ─── CARACTERÍSTICAS ─── */}
-      <section id="caracteristicas" className="py-20 bg-gray-50">
+      <section id="caracteristicas" className="py-24 bg-white border-y border-stone-100">
         <div className="max-w-6xl mx-auto px-4">
           <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
-              Todo lo que necesitas para vender mejor
+            <h2 className="text-3xl md:text-4xl font-bold text-slate-900 mb-4 tracking-tight">
+              Diseñado para la realidad del barrio
             </h2>
-            <p className="text-gray-500 text-lg max-w-2xl mx-auto">
-              Diseñado específicamente para almacenes de barrio, ferias libres y negocios pequeños de Chile.
+            <p className="text-slate-500 text-lg max-w-2xl mx-auto">
+              Olvida el software complejo. Loventa es simple, rápido y funciona incluso cuando se cae el internet.
             </p>
           </div>
 
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
             {caracteristicas.map((c, i) => (
-              <div key={i} className="bg-white rounded-2xl p-6 border border-gray-100 hover:shadow-lg transition group">
-                <div className="w-14 h-14 bg-gray-50 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition">
+              <div key={i} className="group p-6 rounded-2xl bg-stone-50 border border-stone-100 hover:border-emerald-100 hover:bg-white hover:shadow-lg transition-all duration-300">
+                <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center mb-5 shadow-sm border border-stone-100 group-hover:scale-110 transition-transform duration-300">
                   {c.icon}
                 </div>
-                <h3 className="text-lg font-bold text-gray-800 mb-2">{c.titulo}</h3>
-                <p className="text-gray-500 text-sm leading-relaxed">{c.desc}</p>
+                <h3 className="text-lg font-bold text-slate-900 mb-2">{c.titulo}</h3>
+                <p className="text-slate-500 text-sm leading-relaxed">{c.desc}</p>
               </div>
             ))}
           </div>
@@ -6566,38 +6633,41 @@ export default function LandingPage() {
       </section>
 
       {/* ─── BANNER BETA ─── */}
-      <section className="py-16 bg-gradient-to-r from-blue-600 to-purple-600">
-        <div className="max-w-4xl mx-auto px-4 text-center">
-          <div className="inline-flex items-center gap-2 bg-white/20 text-white px-4 py-1.5 rounded-full text-sm font-medium mb-4">
-            <Star size={14} />
-            Programa Beta Exclusivo
+      <section className="py-20 bg-slate-900 text-white relative overflow-hidden">
+        <div className="absolute inset-0 opacity-10 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
+        <div className="max-w-4xl mx-auto px-4 text-center relative z-10">
+          <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur-sm border border-white/10 text-emerald-300 px-4 py-1.5 rounded-full text-sm font-medium mb-6">
+            <Star size={14} className="fill-current" />
+            Oferta Limitada Beta
           </div>
-          <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">
-            Únete ahora y vende gratis por 6 meses y medio
+          <h2 className="text-3xl md:text-5xl font-bold mb-6 tracking-tight">
+            Únete ahora y vende gratis <br/>por más de 6 meses
           </h2>
-          <p className="text-blue-100 text-lg mb-8 max-w-2xl mx-auto">
-            Los primeros usuarios beta obtienen acceso completo al Plan Pro por 30 días,
-            y luego 6 meses adicionales completamente gratis como agradecimiento.
+          <p className="text-slate-300 text-lg mb-10 max-w-2xl mx-auto leading-relaxed">
+            Los primeros usuarios obtienen acceso completo al Plan Pro por 30 días, 
+            y luego 6 meses adicionales del Plan Básico totalmente gratis.
           </p>
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-            <div className="bg-white/10 backdrop-blur rounded-xl p-4 text-center text-white min-w-[140px]">
-              <p className="text-3xl font-bold">30</p>
-              <p className="text-sm text-blue-100">días de prueba Pro</p>
+          
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-6 mb-10">
+            <div className="bg-white/5 backdrop-blur border border-white/10 rounded-2xl p-6 text-center min-w-[160px]">
+              <p className="text-4xl font-bold text-white mb-1">30</p>
+              <p className="text-sm text-slate-400">días Pro Gratis</p>
             </div>
-            <span className="text-white/50 text-2xl hidden sm:block">+</span>
-            <div className="bg-white/10 backdrop-blur rounded-xl p-4 text-center text-white min-w-[140px]">
-              <p className="text-3xl font-bold">6</p>
-              <p className="text-sm text-blue-100">meses gratis</p>
+            <span className="text-slate-500 text-2xl hidden sm:block">+</span>
+            <div className="bg-white/5 backdrop-blur border border-white/10 rounded-2xl p-6 text-center min-w-[160px]">
+              <p className="text-4xl font-bold text-white mb-1">6</p>
+              <p className="text-sm text-slate-400">meses Básico Gratis</p>
             </div>
-            <span className="text-white/50 text-2xl hidden sm:block">=</span>
-            <div className="bg-white rounded-xl p-4 text-center min-w-[140px]">
-              <p className="text-3xl font-bold text-blue-600">$0</p>
-              <p className="text-sm text-gray-500">Por más de 7 meses</p>
+            <span className="text-slate-500 text-2xl hidden sm:block">=</span>
+            <div className="bg-emerald-500/20 backdrop-blur border border-emerald-500/30 rounded-2xl p-6 text-center min-w-[160px]">
+              <p className="text-4xl font-bold text-emerald-400 mb-1">$0</p>
+              <p className="text-sm text-emerald-200/70">Inversión inicial</p>
             </div>
           </div>
+
           <Link
             to="/beta-registro"
-            className="inline-flex items-center gap-2 bg-white text-blue-600 px-8 py-4 rounded-xl text-lg font-bold mt-8 hover:bg-blue-50 transition shadow-xl"
+            className="inline-flex items-center gap-2 bg-white text-slate-900 px-8 py-4 rounded-full text-lg font-bold hover:bg-emerald-50 transition shadow-xl hover:shadow-emerald-500/20"
           >
             Solicitar acceso beta <ArrowRight size={20} />
           </Link>
@@ -6605,62 +6675,63 @@ export default function LandingPage() {
       </section>
 
       {/* ─── PRECIOS ─── */}
-      <section id="precios" className="py-20">
+      <section id="precios" className="py-24 bg-stone-50">
         <div className="max-w-4xl mx-auto px-4">
           <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
+            <h2 className="text-3xl md:text-4xl font-bold text-slate-900 mb-4 tracking-tight">
               Precios simples, sin sorpresas
             </h2>
-            <p className="text-gray-500 text-lg">
-              Elige el plan que se ajuste a tu negocio. Paga mensual o anual y ahorra 2 meses.
+            <p className="text-slate-500 text-lg">
+              Elige el plan que se ajuste a tu negocio. Cancela cuando quieras.
             </p>
           </div>
 
-          <div className="grid md:grid-cols-2 gap-6 max-w-3xl mx-auto">
+          <div className="grid md:grid-cols-2 gap-8 max-w-3xl mx-auto">
             {planes.map((plan) => (
               <div
                 key={plan.nombre}
-                className={`relative rounded-2xl border-2 p-8 ${
+                className={`relative rounded-3xl p-8 flex flex-col ${
                   plan.popular
-                    ? "border-purple-500 shadow-xl shadow-purple-100"
-                    : "border-gray-200"
+                    ? "bg-white border-2 border-emerald-500 shadow-xl shadow-emerald-100/50"
+                    : "bg-white border border-stone-200 shadow-sm"
                 }`}
               >
                 {plan.popular && (
-                  <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-purple-600 text-white text-sm font-bold px-4 py-1 rounded-full">
-                    Más popular
+                  <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-emerald-600 text-white text-xs font-bold px-4 py-1.5 rounded-full uppercase tracking-wide">
+                    Más Popular
                   </div>
                 )}
-                <div className="flex items-center gap-3 mb-4">
+                
+                <div className="flex items-center gap-3 mb-6">
                   <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                    plan.popular ? "bg-purple-100 text-purple-600" : "bg-blue-100 text-blue-600"
+                    plan.popular ? "bg-emerald-50 text-emerald-600" : "bg-slate-50 text-slate-600"
                   }`}>
                     {plan.icon}
                   </div>
                   <div>
-                    <h3 className="text-xl font-bold text-gray-800">{plan.nombre}</h3>
-                    <p className="text-sm text-gray-500">
-                      {plan.popular ? "Para negocios en crecimiento" : "Para empezar"}
+                    <h3 className="text-xl font-bold text-slate-900">{plan.nombre}</h3>
+                    <p className="text-sm text-slate-500">
+                      {plan.popular ? "Para crecer" : "Para empezar"}
                     </p>
                   </div>
                 </div>
 
-                <div className="mb-6">
+                <div className="mb-8">
                   <div className="flex items-baseline gap-1">
-                    <span className="text-4xl font-bold text-gray-900">
+                    <span className="text-4xl font-bold text-slate-900">
                       ${plan.precioMensual.toLocaleString("es-CL")}
                     </span>
-                    <span className="text-gray-500">/mes</span>
+                    <span className="text-slate-500">/mes</span>
                   </div>
-                  <p className="text-sm text-gray-400 mt-1">
+                  <p className="text-sm text-slate-400 mt-2">
                     o ${plan.precioAnual.toLocaleString("es-CL")}/año (ahorras 2 meses)
                   </p>
                 </div>
 
-                <ul className="space-y-3 mb-8">
+                <ul className="space-y-4 mb-8 flex-1">
                   {plan.features.map((f, i) => (
-                    <li key={i} className="flex items-start gap-2 text-sm text-gray-600">
-                      <Check size={16} className="text-green-500 shrink-0 mt-0.5" />
+                    <li key={i} className="flex items-start gap-3 text-sm text-slate-600">
+                      <Check size={18} className={`shrink-0 mt-0.5 ${plan.popular ? "text-emerald-500" : "text-slate-400"}`} />
                       {f}
                     </li>
                   ))}
@@ -6668,10 +6739,10 @@ export default function LandingPage() {
 
                 <Link
                   to="/beta-registro"
-                  className={`block w-full text-center py-3 rounded-xl font-bold transition ${
+                  className={`block w-full text-center py-3.5 rounded-full font-semibold transition ${
                     plan.popular
-                      ? "bg-purple-600 hover:bg-purple-700 text-white"
-                      : "bg-gray-100 hover:bg-gray-200 text-gray-800"
+                      ? "bg-slate-900 hover:bg-slate-800 text-white shadow-lg hover:shadow-xl"
+                      : "bg-stone-100 hover:bg-stone-200 text-slate-700"
                   }`}
                 >
                   {plan.popular ? "Empezar con Pro" : "Empezar con Básico"}
@@ -6679,39 +6750,41 @@ export default function LandingPage() {
               </div>
             ))}
           </div>
-
-          <p className="text-center text-sm text-gray-400 mt-8">
-            🔒 Pago seguro. Cancela cuando quieras. Sin contratos de permanencia.
+          
+          <p className="text-center text-sm text-slate-400 mt-8">
+            🔒 Pago seguro. Sin contratos de permanencia.
           </p>
         </div>
       </section>
 
       {/* ─── FAQ ─── */}
-      <section id="faq" className="py-20 bg-gray-50">
+      <section id="faq" className="py-24 bg-white border-t border-stone-100">
         <div className="max-w-3xl mx-auto px-4">
           <div className="text-center mb-12">
-            <h2 className="text-3xl font-bold text-gray-900 mb-4">Preguntas frecuentes</h2>
-            <p className="text-gray-500">Todo lo que necesitas saber antes de empezar.</p>
+            <h2 className="text-3xl font-bold text-slate-900 mb-4 tracking-tight">Preguntas frecuentes</h2>
+            <p className="text-slate-500">Todo lo que necesitas saber antes de empezar.</p>
           </div>
 
-          <div className="space-y-3">
+          <div className="space-y-4">
             {faqs.map((faq, i) => (
-              <div key={i} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+              <div key={i} className="bg-stone-50 rounded-2xl border border-stone-100 overflow-hidden">
                 <button
                   onClick={() => setFaqAbierta(faqAbierta === i ? null : i)}
-                  className="w-full flex items-center justify-between p-5 text-left hover:bg-gray-50 transition"
+                  className="w-full flex items-center justify-between p-6 text-left hover:bg-stone-100/50 transition"
                 >
-                  <span className="font-medium text-gray-800">{faq.pregunta}</span>
+                  <span className="font-semibold text-slate-800 pr-4">{faq.pregunta}</span>
                   <ChevronDown
-                    size={18}
-                    className={`text-gray-400 transition-transform ${faqAbierta === i ? "rotate-180" : ""}`}
+                    size={20}
+                    className={`text-slate-400 shrink-0 transition-transform duration-300 ${faqAbierta === i ? "rotate-180" : ""}`}
                   />
                 </button>
-                {faqAbierta === i && (
-                  <div className="px-5 pb-5 text-gray-500 text-sm leading-relaxed">
-                    {faq.respuesta}
+                <div className={`grid transition-all duration-300 ease-in-out ${faqAbierta === i ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`}>
+                  <div className="overflow-hidden">
+                    <div className="px-6 pb-6 text-slate-500 text-sm leading-relaxed border-t border-stone-200/50 pt-4">
+                      {faq.respuesta}
+                    </div>
                   </div>
-                )}
+                </div>
               </div>
             ))}
           </div>
@@ -6719,45 +6792,45 @@ export default function LandingPage() {
       </section>
 
       {/* ─── CTA FINAL ─── */}
-      <section className="py-20">
+      <section className="py-24 bg-stone-50 border-t border-stone-200">
         <div className="max-w-3xl mx-auto px-4 text-center">
-          <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
+          <h2 className="text-3xl md:text-4xl font-bold text-slate-900 mb-6 tracking-tight">
             ¿Listo para modernizar tu almacén?
           </h2>
-          <p className="text-gray-500 text-lg mb-8">
-            Únete al programa beta y empieza a vender mejor hoy mismo.
+          <p className="text-slate-500 text-lg mb-10 max-w-xl mx-auto">
+            Únete al programa beta y empieza a vender mejor hoy mismo. 
             Sin tarjeta de crédito, sin compromiso.
           </p>
           <Link
             to="/beta-registro"
-            className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-xl text-lg font-bold transition shadow-lg shadow-blue-200"
+            className="inline-flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-8 py-4 rounded-full text-lg font-bold transition shadow-lg hover:shadow-xl hover:-translate-y-0.5"
           >
             Crear cuenta gratis <ArrowRight size={20} />
           </Link>
-          <p className="text-sm text-gray-400 mt-4">
+          <p className="text-sm text-slate-400 mt-6">
             Programa beta limitado. Solicita tu código de invitación.
           </p>
         </div>
       </section>
 
       {/* ─── FOOTER ─── */}
-      <footer className="bg-gray-900 text-gray-400 py-12">
+      <footer className="bg-slate-900 text-slate-400 py-12 border-t border-slate-800">
         <div className="max-w-6xl mx-auto px-4">
           <div className="grid md:grid-cols-4 gap-8 mb-8">
             <div className="md:col-span-2">
               <div className="flex items-center gap-2 mb-4">
-                <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-500 rounded-lg flex items-center justify-center">
+                <div className="w-8 h-8 bg-white/10 rounded-lg flex items-center justify-center">
                   <Store className="w-4 h-4 text-white" />
                 </div>
                 <span className="text-xl font-bold text-white">Loventa</span>
               </div>
               <p className="text-sm leading-relaxed max-w-sm">
-                El punto de venta diseñado para almacenes de barrio en Chile.
-                Vende offline, controla tu stock y haz crecer tu negocio.
+                El punto de venta diseñado para almacenes de barrio en Chile. 
+                Simple, offline y elegante.
               </p>
             </div>
             <div>
-              <h4 className="text-white font-medium mb-3">Producto</h4>
+              <h4 className="text-white font-medium mb-4">Producto</h4>
               <ul className="space-y-2 text-sm">
                 <li><a href="#caracteristicas" className="hover:text-white transition">Características</a></li>
                 <li><a href="#precios" className="hover:text-white transition">Precios</a></li>
@@ -6765,18 +6838,18 @@ export default function LandingPage() {
               </ul>
             </div>
             <div>
-              <h4 className="text-white font-medium mb-3">Cuenta</h4>
+              <h4 className="text-white font-medium mb-4">Cuenta</h4>
               <ul className="space-y-2 text-sm">
                 <li><Link to="/login" className="hover:text-white transition">Iniciar sesión</Link></li>
                 <li><Link to="/beta-registro" className="hover:text-white transition">Registrarme</Link></li>
               </ul>
             </div>
           </div>
-          <div className="border-t border-gray-800 pt-8 flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="border-t border-slate-800 pt-8 flex flex-col md:flex-row items-center justify-between gap-4">
             <p className="text-sm">
               © 2026 Loventa. Hecho con ❤️ en Chile.
             </p>
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-slate-500">
               POS Almacén de Barrio — Tu celular, tu caja registradora.
             </p>
           </div>
@@ -6791,7 +6864,8 @@ export default function LandingPage() {
 ````javascript
 import { useState } from "react";
 import { useAuth } from "../hooks/useAuth";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
+import { Store, Mail, Lock, Loader2, ArrowLeft } from "lucide-react";
 
 export default function Login() {
   const { login, registerDueño, error: authError } = useAuth();
@@ -6814,7 +6888,7 @@ export default function Login() {
       } else {
         await registerDueño(email, password, nombre, nombreNegocio);
       }
-      navigate("/");
+      navigate("/app"); // Redirigir al dashboard interno
     } catch (err) {
       setErrorLocal(err.message || "Error al iniciar sesión");
     } finally {
@@ -6825,27 +6899,29 @@ export default function Login() {
   const error = errorLocal || authError;
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100 px-4">
-      <div className="w-full max-w-md bg-white rounded-xl shadow-lg p-8">
-        <div className="text-center mb-6">
-          <div className="text-4xl mb-2">🏪</div>
-          <h1 className="text-2xl font-bold text-gray-800">
-            {modo === "login" ? "Iniciar Sesión" : "Crear Cuenta"}
+    <div className="min-h-screen flex items-center justify-center bg-stone-50 px-4 font-sans">
+      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl shadow-stone-200/50 p-8 border border-stone-100">
+        <div className="text-center mb-8">
+          <div className="w-12 h-12 bg-slate-800 rounded-xl flex items-center justify-center mx-auto mb-4">
+            <Store className="w-6 h-6 text-white" />
+          </div>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
+            {modo === "login" ? "Bienvenido de vuelta" : "Crear Cuenta"}
           </h1>
-          <p className="text-gray-500 text-sm mt-1">Almacén de Barrio — POS</p>
+          <p className="text-slate-500 text-sm mt-2">Almacén de Barrio — POS</p>
         </div>
 
         {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">
-            {error}
+          <div className="bg-red-50 border border-red-100 text-red-700 px-4 py-3 rounded-xl mb-6 text-sm flex items-start gap-2">
+            <span className="font-medium">Error:</span> {error}
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-5">
           {modo === "registro" && (
             <>
               <div>
-                <label htmlFor="nombre" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="nombre" className="block text-sm font-medium text-slate-700 mb-1.5">
                   Tu nombre
                 </label>
                 <input
@@ -6856,12 +6932,12 @@ export default function Login() {
                   required
                   value={nombre}
                   onChange={(e) => setNombre(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+                  className="w-full border border-stone-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition bg-stone-50/50"
                   placeholder="Juan Pérez"
                 />
               </div>
               <div>
-                <label htmlFor="nombreNegocio" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="nombreNegocio" className="block text-sm font-medium text-slate-700 mb-1.5">
                   Nombre del negocio
                 </label>
                 <input
@@ -6872,7 +6948,7 @@ export default function Login() {
                   required
                   value={nombreNegocio}
                   onChange={(e) => setNombreNegocio(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+                  className="w-full border border-stone-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition bg-stone-50/50"
                   placeholder="Mi Almacén"
                 />
               </div>
@@ -6880,66 +6956,77 @@ export default function Login() {
           )}
 
           <div>
-            <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="email" className="block text-sm font-medium text-slate-700 mb-1.5">
               Correo electrónico
             </label>
-            <input
-              id="email"
-              name="email"
-              type="email"
-              autoComplete="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
-              placeholder="tu@email.com"
-            />
+            <div className="relative">
+              <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+              <input
+                id="email"
+                name="email"
+                type="email"
+                autoComplete="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full border border-stone-200 rounded-xl pl-10 pr-4 py-2.5 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition bg-stone-50/50"
+                placeholder="tu@email.com"
+              />
+            </div>
           </div>
 
           <div>
-            <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="password" className="block text-sm font-medium text-slate-700 mb-1.5">
               Contraseña
             </label>
-            <input
-              id="password"
-              name="password"
-              type="password"
-              autoComplete={modo === "login" ? "current-password" : "new-password"}
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
-              placeholder="••••••••"
-            />
+            <div className="relative">
+              <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+              <input
+                id="password"
+                name="password"
+                type="password"
+                autoComplete={modo === "login" ? "current-password" : "new-password"}
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full border border-stone-200 rounded-xl pl-10 pr-4 py-2.5 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition bg-stone-50/50"
+                placeholder="••••••••"
+              />
+            </div>
           </div>
 
           <button
             type="submit"
             disabled={cargando}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full bg-slate-900 hover:bg-slate-800 text-white font-semibold py-3 rounded-xl transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-slate-900/20"
           >
-            {cargando
-              ? "Cargando..."
-              : modo === "login"
-              ? "🔐 Iniciar Sesión"
-              : "✨ Crear Cuenta"}
+            {cargando ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
+            {cargando ? "Procesando..." : modo === "login" ? "Iniciar Sesión" : "Crear Cuenta"}
           </button>
         </form>
 
-        <div className="mt-4 text-center">
+        <div className="mt-6 text-center">
           <button
             type="button"
             onClick={() => {
               setModo(modo === "login" ? "registro" : "login");
               setErrorLocal("");
             }}
-            className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+            className="text-emerald-600 hover:text-emerald-700 text-sm font-medium transition"
           >
             {modo === "login"
               ? "¿No tienes cuenta? Regístrate"
               : "¿Ya tienes cuenta? Inicia sesión"}
           </button>
         </div>
+        
+        {modo === "login" && (
+          <div className="mt-4 pt-4 border-t border-stone-100 text-center">
+             <Link to="/" className="text-xs text-slate-400 hover:text-slate-600 flex items-center justify-center gap-1">
+               <ArrowLeft size={12} /> Volver al inicio
+             </Link>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -8787,27 +8874,46 @@ export function estadoVencimiento(fechaVencimiento, diasAlerta = 3) {
 ## File: src/App.jsx
 ````javascript
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { AuthProvider } from "./hooks/useAuth";
+import { AuthProvider, useAuth } from "./hooks/useAuth";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import CanjearCodigo from "./components/CanjearCodigo";
 import BetaRegister from "./pages/BetaRegister";
 import Register from "./pages/Register";
+import LandingPage from "./pages/LandingPage";
+
+// Componente para proteger rutas privadas
+function PrivateRoute({ children }) {
+  const { isAuthenticated, loading } = useAuth();
+  if (loading) return <div className="min-h-screen flex items-center justify-center bg-stone-50"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-slate-600"></div></div>;
+  return isAuthenticated ? children : <Navigate to="/login" />;
+}
 
 function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
         <Routes>
-          {/* Ruta pública: canjear código beta (no requiere login) */}
-          <Route path="/canjear-beta" element={<CanjearCodigo />} />
-          {/* 🔥 FIX #24: Rutas faltantes para LandingPage */}
-          <Route path="/beta-registro" element={<BetaRegister />} />
-          <Route path="/registro" element={<Register />} />
-          {/* Login */}
+          {/* Ruta pública: Landing Page (Inicio) */}
+          <Route path="/" element={<LandingPage />} />
+          
+          {/* Rutas públicas de autenticación */}
           <Route path="/login" element={<Login />} />
-          {/* Dashboard con todas las rutas internas */}
-          <Route path="/*" element={<Dashboard />} />
+          <Route path="/registro" element={<Register />} />
+          <Route path="/beta-registro" element={<BetaRegister />} />
+          <Route path="/canjear-beta" element={<CanjearCodigo />} />
+          
+          {/* Rutas privadas (Dashboard) */}
+          <Route path="/app/*" element={
+            <PrivateRoute>
+              <Dashboard />
+            </PrivateRoute>
+          } />
+          
+          {/* Redirecciones legacy por si alguien entra a rutas viejas */}
+          <Route path="/vender" element={<Navigate to="/app/vender" />} />
+          <Route path="/productos" element={<Navigate to="/app/productos" />} />
+          <Route path="/dashboard" element={<Navigate to="/app" />} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>
