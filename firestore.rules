@@ -25,8 +25,8 @@ service cloud.firestore {
       return isAuthenticated() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data["plan"] != "suspendido";
     }
 
-    // ─── Beta Codes ───
-    match /beta_codes/{code} {
+    // ─── Beta Codes (unificado a codigosBeta) ───
+    match /codigosBeta/{code} {
       allow read: if true;
       allow create: if isDueno();
       allow update: if isDueno();

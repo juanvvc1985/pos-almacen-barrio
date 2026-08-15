@@ -1234,127 +1234,91 @@ export default function Mermas() {
 
 ## File: src/components/Navbar.jsx
 ````javascript
+import { useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
-import { 
-  LayoutDashboard, Package, Users, Tag, Trash2, 
-  BarChart3, Settings, Key, LogOut, Menu, X, Store 
+import {
+  Store, LogOut, Menu, X, LayoutGrid, Package, Users, Tag,
+  Trash2, BarChart3, KeyRound, Settings,
 } from "lucide-react";
-import { useState } from "react";
 
 export default function Navbar() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, isDueño, hasPrivilege, logout } = useAuth();
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
-  // Helper para clases activas
   const linkClass = (path) =>
-    `flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
-      location.pathname === path || (path === '/app' && location.pathname === '/app/')
-        ? "bg-slate-100 text-slate-900"
-        : "text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+    `flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition ${
+      location.pathname === path
+        ? "bg-sky-100 text-sky-700"
+        : "text-slate-600 hover:bg-slate-100"
     }`;
 
-  // Definición de menú con iconos elegantes
   const menuItems = [
-    { path: "/app", label: "Vender", icon: LayoutDashboard, show: true },
+    { path: "/app", label: "Vender", icon: LayoutGrid, show: true },
     { path: "/app/productos", label: "Productos", icon: Package, show: isDueño || hasPrivilege("productos") },
     { path: "/app/fiados", label: "Fiados", icon: Users, show: true },
     { path: "/app/ofertas", label: "Ofertas", icon: Tag, show: isDueño || hasPrivilege("ofertas") },
     { path: "/app/mermas", label: "Mermas", icon: Trash2, show: isDueño || hasPrivilege("mermas") },
     { path: "/app/informes", label: "Informes", icon: BarChart3, show: true },
-    { path: "/app/admin-beta", label: "Códigos Beta", icon: Key, show: isDueño },
+    { path: "/app/admin-beta", label: "Códigos Beta", icon: KeyRound, show: isDueño },
     { path: "/app/vendedores", label: "Equipo", icon: Users, show: isDueño },
     { path: "/app/configuracion", label: "Ajustes", icon: Settings, show: isDueño },
   ];
 
   return (
-    <nav className="bg-white border-b border-stone-200 sticky top-0 z-50">
+    <nav className="bg-white shadow-sm border-b border-slate-200 sticky top-0 z-50">
       <div className="container mx-auto px-4 max-w-7xl">
-        <div className="flex items-center justify-between h-16">
-          {/* Logo */}
-          <button
-            onClick={() => navigate("/app")}
-            className="flex items-center gap-2 group"
-          >
-            <div className="w-8 h-8 bg-slate-800 rounded-lg flex items-center justify-center group-hover:bg-emerald-700 transition-colors">
-              <Store className="w-4 h-4 text-white" />
+        <div className="flex items-center justify-between h-14">
+          {/* Logo → vuelve a la página principal pública */}
+          <button onClick={() => navigate("/")} className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-slate-900 rounded-lg flex items-center justify-center">
+              <Store className="w-4 h-4 text-sky-400" />
             </div>
-            <span className="font-bold text-lg text-slate-900 tracking-tight hidden sm:block">
-              Loventa
-            </span>
+            <span className="font-bold text-lg text-slate-900">Loventa</span>
           </button>
 
-          {/* Desktop Navigation */}
-          <div className="hidden md:flex items-center gap-1 bg-stone-50 p-1 rounded-xl border border-stone-100">
-            {menuItems.filter(item => item.show).map(item => (
-              <button 
-                key={item.path} 
-                onClick={() => navigate(item.path)} 
-                className={linkClass(item.path)}
-                title={item.label}
-              >
-                <item.icon size={18} />
-                <span className="hidden lg:inline">{item.label}</span>
+          <div className="hidden md:flex items-center gap-1">
+            {menuItems.filter((item) => item.show).map((item) => (
+              <button key={item.path} onClick={() => navigate(item.path)} className={linkClass(item.path)}>
+                <item.icon size={16} />
+                {item.label}
               </button>
             ))}
           </div>
 
-          {/* User & Actions */}
           <div className="flex items-center gap-3">
-            <div className="hidden sm:flex flex-col items-end mr-2">
-              <span className="text-sm font-medium text-slate-700 leading-none">
-                {user?.displayName || user?.email?.split('@')[0] || "Usuario"}
-              </span>
-              {isDueño && (
-                <span className="text-[10px] text-emerald-600 font-medium mt-1 uppercase tracking-wider">
-                  Dueño
-                </span>
-              )}
-            </div>
-            
+            <span className="text-sm text-slate-600 hidden sm:block">
+              {user?.displayName || user?.email || "Usuario"}
+              {isDueño && <span className="ml-1 text-xs bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded">Dueño</span>}
+            </span>
             <button
               onClick={logout}
-              className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-              title="Cerrar sesión"
+              className="flex items-center gap-1 text-sm text-red-600 hover:text-red-800 font-medium px-3 py-2 rounded-lg hover:bg-red-50 transition"
             >
-              <LogOut size={20} />
+              <LogOut size={16} /> Salir
             </button>
-
-            {/* Mobile Menu Button */}
-            <button 
-              className="md:hidden p-2 text-slate-600 hover:bg-stone-100 rounded-lg"
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            >
-              {mobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
+            <button className="md:hidden p-2 text-slate-600 hover:bg-slate-100 rounded-lg" onClick={() => setMobileOpen(!mobileOpen)}>
+              {mobileOpen ? <X size={24} /> : <Menu size={24} />}
             </button>
           </div>
         </div>
       </div>
 
-      {/* Mobile Menu Dropdown */}
-      {mobileMenuOpen && (
-        <div className="md:hidden border-t border-stone-100 bg-white animate-in slide-in-from-top-5">
-          <div className="p-4 space-y-1">
-            {menuItems.filter(item => item.show).map(item => (
-              <button
-                key={item.path}
-                onClick={() => {
-                  navigate(item.path);
-                  setMobileMenuOpen(false);
-                }}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors ${
-                  location.pathname === item.path
-                    ? "bg-slate-50 text-slate-900"
-                    : "text-slate-600 hover:bg-stone-50"
-                }`}
-              >
-                <item.icon size={20} />
-                {item.label}
-              </button>
-            ))}
-          </div>
+      {mobileOpen && (
+        <div className="md:hidden border-t border-slate-100 bg-white px-4 py-3 space-y-1">
+          {menuItems.filter((item) => item.show).map((item) => (
+            <button
+              key={item.path}
+              onClick={() => { navigate(item.path); setMobileOpen(false); }}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${
+                location.pathname === item.path ? "bg-sky-100 text-sky-700" : "text-slate-600 hover:bg-slate-100"
+              }`}
+            >
+              <item.icon size={18} /> {item.label}
+            </button>
+          ))}
         </div>
       )}
     </nav>
@@ -4653,7 +4617,6 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const [suscripcionInfo, setSuscripcionInfo] = useState(null);
 
-  // 🔥 FIX #9: Función refreshUser para recargar datos desde Firestore
   const refreshUser = useCallback(async () => {
     if (user) {
       try {
@@ -4662,7 +4625,6 @@ export function AuthProvider({ children }) {
           const data = userDoc.data();
           setUserData(data);
           setSuscripcionInfo(verificarEstadoV2(data));
-
           const session = {
             uid: user.uid,
             email: user.email?.toLowerCase(),
@@ -4694,8 +4656,7 @@ export function AuthProvider({ children }) {
           photoURL: offline.photoURL,
         });
         setUserData(offline.userData);
-        const info = verificarEstadoV2(offline.userData);
-        setSuscripcionInfo(info);
+        setSuscripcionInfo(verificarEstadoV2(offline.userData));
       }
 
       unsub = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -4707,7 +4668,6 @@ export function AuthProvider({ children }) {
             const userDoc = await getDoc(doc(db, "users", firebaseUser.uid));
             if (userDoc.exists()) {
               let data = userDoc.data();
-
               const estadoInfo = verificarEstadoV2(data);
               if (
                 estadoInfo.necesitaUpgrade ||
@@ -4722,9 +4682,7 @@ export function AuthProvider({ children }) {
                   console.error("Error en auto-upgrade:", upgradeErr);
                 }
               }
-
-              const finalInfo = verificarEstadoV2(data);
-              setSuscripcionInfo(finalInfo);
+              setSuscripcionInfo(verificarEstadoV2(data));
 
               if (data.passwordPending && data.role === "vendedor") {
                 try {
@@ -4790,7 +4748,6 @@ export function AuthProvider({ children }) {
     for (const uid in users) {
       if (users[uid].username === clean) return users[uid].email;
     }
-
     const offlineSession = getOfflineSession();
     const almacenId = offlineSession?.userData?.almacenId;
     if (almacenId) {
@@ -4802,7 +4759,6 @@ export function AuthProvider({ children }) {
         /* noop */
       }
     }
-
     if (navigator.onLine) {
       try {
         const snap = await getDoc(doc(db, "publicUsernames", clean));
@@ -4834,7 +4790,6 @@ export function AuthProvider({ children }) {
       if (userDoc.exists()) {
         let data = userDoc.data();
         const estadoInfo = verificarEstadoV2(data);
-
         if (
           estadoInfo.necesitaUpgrade ||
           (data.plan === "pro_gratis" && estadoInfo.suspendido) ||
@@ -4848,9 +4803,7 @@ export function AuthProvider({ children }) {
             console.error("Error en auto-upgrade:", upgradeErr);
           }
         }
-
-        const finalInfo = verificarEstadoV2(data);
-        setSuscripcionInfo(finalInfo);
+        setSuscripcionInfo(verificarEstadoV2(data));
 
         if (data.activo === false) {
           await signOut(auth);
@@ -4895,7 +4848,6 @@ export function AuthProvider({ children }) {
             offline = session;
           }
         }
-
         if (offline) {
           setUser({
             uid: offline.uid,
@@ -4913,11 +4865,9 @@ export function AuthProvider({ children }) {
     }
   };
 
-  // 🔥 FIX #7: Rollback si falla la creación en Firestore
   const registerDueño = async (email, password, nombre, nombreAlmacen) => {
     const result = await createUserWithEmailAndPassword(auth, email, password);
     await updateProfile(result.user, { displayName: nombre });
-
     try {
       const almacenRef = doc(collection(db, "almacenes"));
       await setDoc(almacenRef, {
@@ -4926,7 +4876,6 @@ export function AuthProvider({ children }) {
         plan: PLANES.BASICO,
         createdAt: new Date().toISOString(),
       });
-
       await setDoc(doc(db, "users", result.user.uid), {
         email,
         nombre,
@@ -4935,7 +4884,6 @@ export function AuthProvider({ children }) {
         plan: PLANES.BASICO,
         createdAt: new Date().toISOString(),
       });
-
       const newUserData = {
         email,
         nombre,
@@ -4943,10 +4891,8 @@ export function AuthProvider({ children }) {
         almacenId: almacenRef.id,
         plan: PLANES.BASICO,
       };
-
       setUserData(newUserData);
       setSuscripcionInfo(verificarEstadoV2(newUserData));
-
       const session = {
         uid: result.user.uid,
         email: result.user.email?.toLowerCase(),
@@ -4958,7 +4904,6 @@ export function AuthProvider({ children }) {
       await idbSet("session", session);
       saveOfflineSession(result.user, newUserData);
       saveOfflineUser(result.user.uid, newUserData);
-
       return result;
     } catch (err) {
       console.error("Error creando almacén, revirtiendo usuario:", err);
@@ -4967,7 +4912,7 @@ export function AuthProvider({ children }) {
     }
   };
 
-  // 🔥 FIX LOGOUT: Redirigir a /login después de cerrar sesión
+  // 🔥 LOGOUT CORREGIDO: limpia TODA la sesión guardada y vuelve a la portada pública
   const logout = async () => {
     await idbDel("session");
     clearOfflineSession();
@@ -4975,8 +4920,7 @@ export function AuthProvider({ children }) {
     setUser(null);
     setUserData(null);
     setSuscripcionInfo(null);
-    // Forzar redirección a login
-    window.location.href = "/login";
+    window.location.href = "/";
   };
 
   const isDueño = userData?.role === ROLES.DUEÑO;
@@ -5028,10 +4972,8 @@ export function useAuth() {
 export async function crearVendedorDirecto(almacenId, nombre, username, password) {
   const cleanUser = username.toLowerCase().trim();
   const email = `vendedor.${cleanUser}.${almacenId}@pos-almacen.local`;
-
   const snapCheck = await getDoc(doc(db, "publicUsernames", cleanUser));
   if (snapCheck.exists()) throw new Error("El nombre de usuario ya existe");
-
   const response = await fetch(
     `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${FIREBASE_API_KEY}`,
     {
@@ -5041,14 +4983,12 @@ export async function crearVendedorDirecto(almacenId, nombre, username, password
     }
   );
   const data = await response.json();
-
   if (data.error) {
     if (data.error.message === "EMAIL_EXISTS") throw new Error("El usuario ya existe");
     if (data.error.message === "WEAK_PASSWORD")
       throw new Error("Contraseña muy débil (mínimo 6 caracteres)");
     throw new Error(data.error.message);
   }
-
   const uid = data.localId;
   await setDoc(doc(db, "users", uid), {
     email,
@@ -5059,13 +4999,11 @@ export async function crearVendedorDirecto(almacenId, nombre, username, password
     activo: true,
     createdAt: new Date().toISOString(),
   });
-
   await setDoc(doc(db, "publicUsernames", cleanUser), {
     email,
     almacenId,
     uid,
   });
-
   return { uid, email, username: cleanUser };
 }
 
@@ -5079,9 +5017,7 @@ export async function toggleVendedorEstado(vendedorId, activo) {
 export async function getVendedores(almacenId) {
   const q = query(collection(db, "users"), where("almacenId", "==", almacenId));
   const snap = await getDocs(q);
-  return snap.docs
-    .map((d) => ({ id: d.id, ...d.data() }))
-    .filter((u) => u.role === "vendedor");
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((u) => u.role === "vendedor");
 }
 
 export async function sendPasswordReset(email) {
@@ -6352,28 +6288,28 @@ export default function Dashboard() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      <div className="min-h-screen flex items-center justify-center bg-slate-100">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-sky-600"></div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-slate-100">
       <Navbar />
       <main className="container mx-auto px-4 py-6 max-w-7xl">
         <Routes>
-          <Route path="/" element={<POS />} />
-          <Route path="/vender" element={<POS />} />
-          <Route path="/productos" element={isDueño || hasPrivilege("productos") ? <ProductManager /> : <Navigate to="/" />} />
-          <Route path="/fiados" element={<Fiados />} />
-          <Route path="/ofertas" element={isDueño || hasPrivilege("ofertas") ? <Offers /> : <Navigate to="/" />} />
-          <Route path="/mermas" element={isDueño || hasPrivilege("mermas") ? <Mermas /> : <Navigate to="/" />} />
-          <Route path="/informes" element={<Reports />} />
-          <Route path="/vendedores" element={isDueño ? <AdminVendedores /> : <Navigate to="/" />} />
-          <Route path="/configuracion" element={isDueño ? <ConfiguracionAlmacen /> : <Navigate to="/" />} />
-          <Route path="/admin-beta" element={isDueño ? <BetaCodesAdmin /> : <Navigate to="/" />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route index element={<POS />} />
+          <Route path="vender" element={<POS />} />
+          <Route path="productos" element={isDueño || hasPrivilege("productos") ? <ProductManager /> : <Navigate to="/app" replace />} />
+          <Route path="fiados" element={<Fiados />} />
+          <Route path="ofertas" element={isDueño || hasPrivilege("ofertas") ? <Offers /> : <Navigate to="/app" replace />} />
+          <Route path="mermas" element={isDueño || hasPrivilege("mermas") ? <Mermas /> : <Navigate to="/app" replace />} />
+          <Route path="informes" element={<Reports />} />
+          <Route path="vendedores" element={isDueño ? <AdminVendedores /> : <Navigate to="/app" replace />} />
+          <Route path="configuracion" element={isDueño ? <ConfiguracionAlmacen /> : <Navigate to="/app" replace />} />
+          <Route path="admin-beta" element={isDueño ? <BetaCodesAdmin /> : <Navigate to="/app" replace />} />
+          <Route path="*" element={<Navigate to="/app" replace />} />
         </Routes>
       </main>
     </div>
@@ -6383,327 +6319,199 @@ export default function Dashboard() {
 
 ## File: src/pages/LandingPage.jsx
 ````javascript
-import { useState, useEffect } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useState } from "react";
+import { Link } from "react-router-dom";
+import { useAuth } from "../hooks/useAuth";
 import {
-  Store, WifiOff, Smartphone, BarChart3, ShieldCheck,
-  Users, Package, Check, ArrowRight, Menu, X,
-  Gift, Star, ChevronDown, Leaf, Snowflake, NotebookPen, Wallet
+  Store, WifiOff, Smartphone, BarChart3, Users, Package,
+  Check, ArrowRight, Menu, X, Gift, Star, ChevronDown,
+  NotebookPen, Wallet, Crown, Zap,
 } from "lucide-react";
 
-const IMG_HERO = "/img/hero-phone.png";
-const IMG_DUENO = "/img/dueno-almacen.jpg";
-const IMG_REPORTES = "/img/reportes-phone.png";
+// Mockup de celular hecho 100% con CSS (sin imágenes que puedan fallar)
+function PhoneMockup() {
+  const productos = [
+    { nombre: "Pan", precio: "$1.500", emoji: "🥖" },
+    { nombre: "Leche", precio: "$1.500", emoji: "🥛" },
+    { nombre: "Huevos", precio: "$3.500", emoji: "🥚" },
+    { nombre: "Arroz", precio: "$1.800", emoji: "🍚" },
+    { nombre: "Bebida", precio: "$1.500", emoji: "🥤" },
+    { nombre: "Galletas", precio: "$900", emoji: "🍪" },
+  ];
+  return (
+    <div className="relative">
+      <div className="absolute -inset-10 bg-sky-400/20 blur-3xl rounded-full"></div>
+      <div className="relative w-[280px] sm:w-[320px] mx-auto bg-slate-900 rounded-[2.5rem] border border-slate-700 shadow-2xl p-3 rotate-3 hover:rotate-0 transition-transform duration-500">
+        <div className="bg-slate-100 rounded-[2rem] overflow-hidden">
+          <div className="bg-slate-900 h-6 flex items-center justify-center">
+            <div className="w-16 h-3 bg-slate-800 rounded-full"></div>
+          </div>
+          <div className="p-4">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-xs font-bold text-slate-800">Turno abierto</p>
+              <span className="text-[10px] bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full font-medium">En línea</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2 mb-3">
+              {productos.map((p) => (
+                <div key={p.nombre} className="bg-white rounded-xl border border-slate-200 p-2 text-center shadow-sm">
+                  <div className="text-xl mb-1">{p.emoji}</div>
+                  <p className="text-[10px] font-medium text-slate-700 truncate">{p.nombre}</p>
+                  <p className="text-[10px] font-bold text-sky-600">{p.precio}</p>
+                </div>
+              ))}
+            </div>
+            <div className="bg-white rounded-xl border border-slate-200 p-2.5 mb-3">
+              <div className="flex justify-between text-[11px] text-slate-600 mb-1.5">
+                <span>2 productos</span>
+                <span className="font-bold text-slate-900">$3.000</span>
+              </div>
+              <div className="h-1.5 bg-slate-100 rounded-full">
+                <div className="h-1.5 w-2/3 bg-sky-500 rounded-full"></div>
+              </div>
+            </div>
+            <div className="bg-sky-600 text-white text-center text-sm font-bold py-2.5 rounded-xl">Cobrar</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function LandingPage() {
-  const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
   const [menuAbierto, setMenuAbierto] = useState(false);
   const [faqAbierta, setFaqAbierta] = useState(null);
 
-  // Scroll suave en toda la página (estilo Apple)
-  useEffect(() => {
-    document.documentElement.style.scrollBehavior = "smooth";
-    return () => {
-      document.documentElement.style.scrollBehavior = "";
-    };
-  }, []);
-
-  // 🔥 FIX: El logo SIEMPRE vuelve al inicio, sin quedar pegado en secciones
-  function volverInicio(e) {
-    e.preventDefault();
-    setMenuAbierto(false);
-    navigate("/");
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }
-
   const caracteristicas = [
-    {
-      icon: <WifiOff className="w-6 h-6 text-emerald-600" />,
-      titulo: "Funciona sin internet",
-      desc: "¿Se cortó la señal? Sigue vendiendo. Todo se guarda en tu celular y se sincroniza solo cuando vuelve la conexión.",
-    },
-    {
-      icon: <NotebookPen className="w-6 h-6 text-emerald-600" />,
-      titulo: "La libreta de fiados, digital",
-      desc: "Cada fiado con nombre, teléfono y dirección. Sabes quién te debe, cuánto y desde cuándo. Nada se pierde.",
-    },
-    {
-      icon: <Package className="w-6 h-6 text-emerald-600" />,
-      titulo: "Stock que se cuida solo",
-      desc: "Se descuenta con cada venta y te avisa antes de que falte. Nunca más un \"no me di cuenta\".",
-    },
-    {
-      icon: <BarChart3 className="w-6 h-6 text-emerald-600" />,
-      titulo: "Cuentas claras al cerrar",
-      desc: "Cuánto entró en efectivo, tarjeta o transferencia. Cuadrar la caja toma 1 minuto, no media noche.",
-    },
-    {
-      icon: <Users className="w-6 h-6 text-emerald-600" />,
-      titulo: "Cada vendedor con su usuario",
-      desc: "Si te ayudan en el negocio, cada uno vende con su propio usuario y tú ves quién vendió qué.",
-    },
-    {
-      icon: <Smartphone className="w-6 h-6 text-emerald-600" />,
-      titulo: "Tu celular es tu caja",
-      desc: "No necesitas computador ni caja registradora nueva. Funciona en el celular que ya tienes.",
-    },
+    { icon: <WifiOff className="w-6 h-6 text-sky-600" />, titulo: "Funciona sin internet", desc: "¿Se cortó la señal? Sigue vendiendo. Todo se guarda en tu celular y se sincroniza solo cuando vuelve la conexión." },
+    { icon: <NotebookPen className="w-6 h-6 text-blue-600" />, titulo: "La libreta de fiados, digital", desc: "Cada fiado con nombre, teléfono y dirección. Sabes quién te debe, cuánto y desde cuándo. Nada se pierde." },
+    { icon: <Package className="w-6 h-6 text-sky-600" />, titulo: "Stock que se cuida solo", desc: "Se descuenta con cada venta y te avisa antes de que falte. Nunca más un \"no me di cuenta\"." },
+    { icon: <Wallet className="w-6 h-6 text-blue-600" />, titulo: "Cuentas claras al cerrar", desc: "Cuánto entró en efectivo, tarjeta o transferencia. Cuadrar la caja toma 1 minuto, no media noche." },
+    { icon: <Users className="w-6 h-6 text-sky-600" />, titulo: "Cada vendedor con su usuario", desc: "Si te ayudan en el negocio, cada uno vende con su propio usuario y tú ves quién vendió qué." },
+    { icon: <Smartphone className="w-6 h-6 text-blue-600" />, titulo: "Tu celular es tu caja", desc: "No necesitas computador ni caja registradora nueva. Funciona en el celular que ya tienes." },
   ];
 
   const planes = [
     {
-      nombre: "Básico",
-      sub: "Para empezar",
-      precioMensual: 5990,
-      precioAnual: 59900,
-      icon: <Leaf className="w-5 h-5" />,
-      popular: false,
-      features: [
-        "Hasta 500 productos",
-        "1 vendedor",
-        "POS 100% offline",
-        "Control de stock",
-        "Ventas y fiados",
-        "Reportes básicos",
-      ],
+      nombre: "Básico", precioMensual: 5990, precioAnual: 59900,
+      icon: <Zap className="w-5 h-5" />, popular: false, sub: "Para empezar",
+      features: ["Hasta 500 productos", "1 vendedor", "Funciona sin internet", "Control de stock", "Ventas y fiados", "Resumen del día"],
     },
     {
-      nombre: "Pro",
-      sub: "Para crecer",
-      precioMensual: 11990,
-      precioAnual: 119900,
-      icon: <Snowflake className="w-5 h-5" />,
-      popular: true,
-      features: [
-        "Productos ilimitados",
-        "Vendedores ilimitados",
-        "POS 100% offline",
-        "Reportes avanzados",
-        "Multi-sucursal",
-        "Ofertas y promociones",
-        "Soporte prioritario",
-      ],
+      nombre: "Pro", precioMensual: 11990, precioAnual: 119900,
+      icon: <Crown className="w-5 h-5" />, popular: true, sub: "Para crecer",
+      features: ["Productos ilimitados", "Vendedores ilimitados", "Funciona sin internet", "Informes para el contador", "Varias sucursales", "Ofertas y promociones", "Atención prioritaria"],
     },
   ];
 
   const faqs = [
-    {
-      pregunta: "¿Funciona sin internet?",
-      respuesta: "Sí. Si se corta la señal, sigues vendiendo igual: todo queda guardado en el celular y se manda solo a la nube cuando vuelve la conexión. No pierdes ninguna venta.",
-    },
-    {
-      pregunta: "¿Necesito computador o caja registradora?",
-      respuesta: "No. Funciona en el celular o tablet que ya tienes. Tampoco hay que instalar nada: entras con tu correo y contraseña y listo.",
-    },
-    {
-      pregunta: "¿Qué pasa con mis fiados si pierdo el celular?",
-      respuesta: "Nada. Quedan guardados con nombre, teléfono y dirección. Entras desde cualquier otro celular y ahí está todo, tal como lo dejaste.",
-    },
-    {
-      pregunta: "¿Puede vender alguien más conmigo?",
-      respuesta: "Sí. Puedes crear un usuario para cada vendedor, con permisos distintos. Tú ves quién vendió qué y a qué hora.",
-    },
-    {
-      pregunta: "¿Cómo funciona el programa beta?",
-      respuesta: "Con un código de invitación tienes 30 días con todo incluido y después 6 meses gratis del Plan Básico, como agradecimiento por ayudarnos a probar el sistema.",
-    },
+    { pregunta: "¿Funciona sin internet?", respuesta: "Sí. Si se corta la señal, sigues vendiendo igual: todo queda guardado en el celular y se manda solo a la nube cuando vuelve la conexión. No pierdes ninguna venta." },
+    { pregunta: "¿Necesito computador o caja registradora?", respuesta: "No. Funciona en el celular o tablet que ya tienes. Tampoco hay que instalar nada: entras con tu correo y contraseña y listo." },
+    { pregunta: "¿Qué pasa con mis fiados si pierdo el celular?", respuesta: "Nada. Quedan guardados con nombre, teléfono y dirección. Entras desde cualquier otro celular y ahí está todo, tal como lo dejaste." },
+    { pregunta: "¿Puede vender alguien más conmigo?", respuesta: "Sí. Puedes crear un usuario para cada vendedor, con permisos distintos. Tú ves quién vendió qué y a qué hora." },
+    { pregunta: "¿Cómo funciona el programa beta?", respuesta: "Con un código de invitación tienes 30 días con todo incluido y después 6 meses gratis del Plan Básico, como agradecimiento por ayudarnos a probar el sistema." },
   ];
 
   return (
-    <div className="min-h-screen bg-slate-950 font-sans text-slate-800 selection:bg-emerald-100 selection:text-emerald-900">
-
+    <div className="min-h-screen bg-slate-100 font-sans text-slate-800">
       {/* ─── NAVBAR ─── */}
-      <nav className="fixed top-0 left-0 right-0 z-50 bg-slate-950/80 backdrop-blur-md border-b border-white/5">
+      <nav className="fixed top-0 left-0 right-0 z-50 bg-slate-900/90 backdrop-blur-md border-b border-white/5">
         <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
-          <Link to="/" onClick={volverInicio} className="flex items-center gap-2 group">
-            <div className="w-8 h-8 bg-white/10 rounded-lg flex items-center justify-center group-hover:bg-emerald-500/20 transition">
-              <Store className="w-4 h-4 text-emerald-400" />
+          <button onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-white/10 rounded-lg flex items-center justify-center">
+              <Store className="w-4 h-4 text-sky-400" />
             </div>
-            <span className="text-lg font-bold text-white tracking-tight">
-              Loventa<span className="text-emerald-400">.</span>
-            </span>
-          </Link>
-
+            <span className="text-lg font-bold text-white">Loventa<span className="text-sky-400">.</span></span>
+          </button>
           <div className="hidden md:flex items-center gap-7">
             <a href="#caracteristicas" className="text-sm text-slate-300 hover:text-white transition">Características</a>
             <a href="#precios" className="text-sm text-slate-300 hover:text-white transition">Precios</a>
             <a href="#faq" className="text-sm text-slate-300 hover:text-white transition">FAQ</a>
-            <Link to="/beta-registro" className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-4 py-1.5 rounded-full text-sm font-semibold transition">
-              Empezar Gratis
-            </Link>
-            <Link to="/login" className="text-sm text-white font-medium hover:text-emerald-300 transition">
-              Iniciar sesión
-            </Link>
+            {isAuthenticated ? (
+              <Link to="/app" className="bg-sky-500 hover:bg-sky-400 text-slate-900 px-4 py-1.5 rounded-full text-sm font-bold transition">
+                Ir a mi panel
+              </Link>
+            ) : (
+              <>
+                <Link to="/beta-registro" className="bg-sky-500 hover:bg-sky-400 text-slate-900 px-4 py-1.5 rounded-full text-sm font-bold transition">
+                  Empezar Gratis
+                </Link>
+                <Link to="/login" className="text-sm text-white font-medium hover:text-sky-300 transition">
+                  Iniciar sesión
+                </Link>
+              </>
+            )}
           </div>
-
-          <button className="md:hidden text-slate-300 p-2" onClick={() => setMenuAbierto(!menuAbierto)}>
+          <button onClick={() => setMenuAbierto(!menuAbierto)} className="md:hidden text-slate-300 p-2">
             {menuAbierto ? <X size={22} /> : <Menu size={22} />}
           </button>
         </div>
-
         {menuAbierto && (
-          <div className="md:hidden bg-slate-950/95 backdrop-blur-md border-t border-white/5 px-4 py-4 space-y-3">
+          <div className="md:hidden bg-slate-900/95 border-t border-white/5 px-4 py-4 space-y-3">
             <a href="#caracteristicas" onClick={() => setMenuAbierto(false)} className="block text-slate-300 py-2">Características</a>
             <a href="#precios" onClick={() => setMenuAbierto(false)} className="block text-slate-300 py-2">Precios</a>
             <a href="#faq" onClick={() => setMenuAbierto(false)} className="block text-slate-300 py-2">FAQ</a>
-            <Link to="/beta-registro" onClick={() => setMenuAbierto(false)} className="block bg-emerald-500 text-slate-950 text-center py-2.5 rounded-full font-semibold">Empezar Gratis</Link>
-            <Link to="/login" onClick={() => setMenuAbierto(false)} className="block text-center text-white py-2 font-medium">Iniciar sesión</Link>
+            {isAuthenticated ? (
+              <Link to="/app" onClick={() => setMenuAbierto(false)} className="block bg-sky-500 text-slate-900 text-center py-2.5 rounded-full font-bold">Ir a mi panel</Link>
+            ) : (
+              <>
+                <Link to="/beta-registro" onClick={() => setMenuAbierto(false)} className="block bg-sky-500 text-slate-900 text-center py-2.5 rounded-full font-bold">Empezar Gratis</Link>
+                <Link to="/login" onClick={() => setMenuAbierto(false)} className="block text-center text-white py-2 font-medium">Iniciar sesión</Link>
+              </>
+            )}
           </div>
         )}
       </nav>
 
-      {/* ─── HERO (Mensaje 2) ─── */}
-      <header className="relative bg-slate-950 pt-28 pb-20 px-4 overflow-hidden">
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[500px] bg-emerald-500/10 rounded-full blur-3xl pointer-events-none"></div>
-
-        <div className="max-w-4xl mx-auto text-center relative z-10">
-          <div className="inline-flex items-center gap-2 bg-white/5 border border-white/10 text-emerald-300 px-4 py-1.5 rounded-full text-sm font-medium mb-8">
-            <span className="flex h-2 w-2 rounded-full bg-emerald-400"></span>
-            Programa Beta Abierto — 7 meses gratis
+      {/* ─── HERO ── */}
+      <header className="pt-28 pb-20 px-4 bg-slate-900 relative overflow-hidden">
+        <div className="absolute top-20 left-10 w-72 h-72 bg-sky-500/10 rounded-full blur-3xl pointer-events-none"></div>
+        <div className="absolute bottom-10 right-10 w-72 h-72 bg-blue-500/10 rounded-full blur-3xl pointer-events-none"></div>
+        <div className="max-w-6xl mx-auto grid lg:grid-cols-2 gap-16 items-center relative z-10">
+          <div className="text-center lg:text-left">
+            <div className="inline-flex items-center gap-2 bg-white/5 border border-white/10 text-sky-300 px-4 py-1.5 rounded-full text-xs font-medium mb-6">
+              <span className="flex h-2 w-2 rounded-full bg-sky-400"></span>
+              Programa beta abierto — 7 meses gratis
+            </div>
+            <h1 className="text-4xl md:text-6xl font-extrabold text-white leading-[1.1] mb-6 tracking-tight">
+              Tu almacén ordenado
+              <span className="block text-transparent bg-clip-text bg-gradient-to-r from-sky-400 to-blue-400">
+                sin cuaderno ni calculadora
+              </span>
+            </h1>
+            <p className="text-lg text-slate-400 mb-8 leading-relaxed">
+              Vende sin internet. Controla tu stock. Registra fiados. Todo desde tu celular.
+              <strong className="text-slate-200"> Sin computador, sin caja registradora.</strong>
+            </p>
+            <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4">
+              <Link to="/beta-registro" className="w-full sm:w-auto bg-sky-500 hover:bg-sky-400 text-slate-900 px-8 py-4 rounded-full text-lg font-bold transition flex items-center justify-center gap-2">
+                Empezar Gratis <ArrowRight size={20} />
+              </Link>
+              <a href="#caracteristicas" className="w-full sm:w-auto bg-white/5 hover:bg-white/10 text-white border border-white/10 px-8 py-4 rounded-full text-lg font-medium transition">
+                Ver cómo funciona
+              </a>
+            </div>
+            <div className="grid grid-cols-3 gap-6 max-w-md mx-auto lg:mx-0 mt-12 pt-8 border-t border-white/10">
+              <div><p className="text-2xl font-bold text-white">100%</p><p className="text-sm text-slate-400 mt-1">Funciona sin señal</p></div>
+              <div><p className="text-2xl font-bold text-white">$5.990</p><p className="text-sm text-slate-400 mt-1">Desde /mes</p></div>
+              <div><p className="text-2xl font-bold text-white">0</p><p className="text-sm text-slate-400 mt-1">Cuadernos y planillas</p></div>
+            </div>
           </div>
-
-          <h1 className="text-4xl md:text-6xl font-extrabold text-white leading-[1.1] mb-6 tracking-tight">
-            Tu almacén ordenado
-            <span className="block text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-300">
-              sin cuaderno ni calculadora
-            </span>
-          </h1>
-
-          <p className="text-lg md:text-xl text-slate-400 max-w-2xl mx-auto mb-10 leading-relaxed">
-            Cada venta, cada fiado y cada producto registrado en tu celular.
-            Funciona con o sin internet, y al cerrar el día
-            <strong className="text-slate-200"> la caja cuadra sola.</strong>
-          </p>
-
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-            <Link
-              to="/beta-registro"
-              className="w-full sm:w-auto bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-8 py-4 rounded-full text-lg font-bold transition flex items-center justify-center gap-2"
-            >
-              Empezar Gratis <ArrowRight size={20} />
-            </Link>
-            <a
-              href="#como-funciona"
-              className="w-full sm:w-auto bg-white/5 hover:bg-white/10 text-white border border-white/10 px-8 py-4 rounded-full text-lg font-medium transition flex items-center justify-center gap-2"
-            >
-              Ver cómo funciona
-            </a>
-          </div>
-        </div>
-
-        <div className="relative max-w-3xl mx-auto mt-16">
-          <img
-            src={IMG_HERO}
-            alt="Loventa en tu celular: vende con un toque"
-            className="w-full rounded-3xl shadow-2xl shadow-emerald-500/10 border border-white/5"
-          />
+          <PhoneMockup />
         </div>
       </header>
 
-      {/* ─── HECHO PARA EL BARRIO (foto dueño) ─── */}
-      <section id="como-funciona" className="bg-stone-100 py-24 px-4 scroll-mt-20">
-        <div className="max-w-6xl mx-auto grid md:grid-cols-2 gap-12 items-center">
-          <img
-            src={IMG_DUENO}
-            alt="Dueño de almacén de barrio usando Loventa"
-            className="rounded-3xl shadow-xl w-full object-cover aspect-[4/3]"
-          />
-          <div>
-            <p className="text-emerald-600 font-semibold text-sm uppercase tracking-widest mb-4">Hecho para el barrio</p>
-            <h2 className="text-3xl md:text-5xl font-bold text-slate-900 tracking-tight mb-6">
-              Como tener una caja registradora. Pero en tu bolsillo.
-            </h2>
-            <p className="text-lg text-slate-600 mb-8 leading-relaxed">
-              Atiende, cobra y registra en segundos. Tus clientes no esperan,
-              tú no te equivales con las vueltas y todo queda anotado sin escribir una sola línea.
-            </p>
-            <ul className="space-y-4">
-              {[
-                "Cobras con un toque: efectivo, tarjeta, transferencia o fiado.",
-                "El stock se descuenta solo con cada venta.",
-                "Los fiados quedan con nombre, teléfono y dirección.",
-                "Al cerrar el día, ves exactamente cuánto hay en caja.",
-              ].map((t, i) => (
-                <li key={i} className="flex items-start gap-3 text-slate-700">
-                  <Check size={20} className="text-emerald-600 shrink-0 mt-0.5" />
-                  {t}
-                </li>
-              ))}
-            </ul>
-          </div>
-        </div>
-      </section>
-
-      {/* ─── OFFLINE (statement oscuro) ─── */}
-      <section className="bg-slate-950 py-24 px-4 text-center">
-        <div className="max-w-3xl mx-auto">
-          <div className="w-14 h-14 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl flex items-center justify-center mx-auto mb-8">
-            <WifiOff className="w-6 h-6 text-emerald-400" />
-          </div>
-          <h2 className="text-3xl md:text-5xl font-bold text-white tracking-tight mb-6">
-            ¿Se cortó el internet?
-            <span className="block text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-300">Sigue vendiendo.</span>
-          </h2>
-          <p className="text-lg text-slate-400 leading-relaxed">
-            Loventa guarda cada venta en tu celular y la sube a la nube cuando vuelve la conexión.
-            Ni tú ni tus clientes notan la diferencia.
-          </p>
-        </div>
-      </section>
-
-      {/* ─── REPORTES (foto dashboard) ─── */}
-      <section className="bg-slate-900 py-24 px-4">
-        <div className="max-w-6xl mx-auto grid md:grid-cols-2 gap-12 items-center">
-          <div>
-            <div className="flex items-center gap-2 mb-4">
-              <Wallet className="w-5 h-5 text-emerald-400" />
-              <p className="text-emerald-400 font-semibold text-sm uppercase tracking-widest">Cuentas claras</p>
-            </div>
-            <h2 className="text-3xl md:text-5xl font-bold text-white tracking-tight mb-6">
-              La caja cuadra sola. Todo suma, nada se pierde.
-            </h2>
-            <p className="text-lg text-slate-400 leading-relaxed mb-8">
-              Efectivo, tarjeta, transferencia y fiados, separados y ordenados.
-              Al cerrar el turno sabes exactamente cuánto debería haber en el cajón,
-              y al fin del mes tienes el informe listo para tu contador.
-            </p>
-            <ul className="space-y-4">
-              {[
-                "Resumen del turno en 1 minuto.",
-                "Ranking de lo que más se vende.",
-                "Fiados pendientes y atrasados a la vista.",
-              ].map((t, i) => (
-                <li key={i} className="flex items-start gap-3 text-slate-300">
-                  <Check size={20} className="text-emerald-400 shrink-0 mt-0.5" />
-                  {t}
-                </li>
-              ))}
-            </ul>
-          </div>
-          <img
-            src={IMG_REPORTES}
-            alt="Reportes de ventas de Loventa en tu celular"
-            className="rounded-3xl w-full shadow-2xl shadow-emerald-500/10 border border-white/5"
-          />
-        </div>
-      </section>
-
-      {/* ─── CARACTERÍSTICAS (grid) ─── */}
-      <section id="caracteristicas" className="bg-stone-100 py-24 px-4 scroll-mt-20">
-        <div className="max-w-6xl mx-auto">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-4xl font-bold text-slate-900 tracking-tight mb-4">
-              Todo lo que tu almacén necesita. Nada que te sobre.
-            </h2>
-            <p className="text-slate-500 text-lg max-w-2xl mx-auto">
-              Diseñado para almacenes, minimarkets y negocios familiares de Chile.
-            </p>
+      {/* ─── CARACTERÍSTICAS ─── */}
+      <section id="caracteristicas" className="py-20 bg-slate-100">
+        <div className="max-w-6xl mx-auto px-4">
+          <div className="text-center mb-14">
+            <h2 className="text-3xl md:text-4xl font-bold text-slate-900 mb-4">Hecho para la realidad del barrio</h2>
+            <p className="text-slate-500 text-lg max-w-2xl mx-auto">Pensado para almacenes, minimarkets y negocios familiares de Chile.</p>
           </div>
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
             {caracteristicas.map((c, i) => (
-              <div key={i} className="bg-white rounded-2xl p-7 border border-stone-200 hover:shadow-lg hover:-translate-y-1 transition-all duration-300">
-                <div className="w-12 h-12 bg-emerald-50 rounded-xl flex items-center justify-center mb-5">
-                  {c.icon}
-                </div>
+              <div key={i} className="bg-white rounded-2xl p-6 border border-slate-200 hover:shadow-lg hover:-translate-y-1 transition-all duration-300">
+                <div className="w-12 h-12 bg-sky-50 rounded-xl flex items-center justify-center mb-4">{c.icon}</div>
                 <h3 className="text-lg font-bold text-slate-900 mb-2">{c.titulo}</h3>
                 <p className="text-slate-500 text-sm leading-relaxed">{c.desc}</p>
               </div>
@@ -6713,148 +6521,91 @@ export default function LandingPage() {
       </section>
 
       {/* ─── BANNER BETA ─── */}
-      <section className="bg-slate-950 py-20 px-4">
-        <div className="max-w-4xl mx-auto text-center">
-          <div className="inline-flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 px-4 py-1.5 rounded-full text-sm font-medium mb-6">
-            <Star size={14} className="fill-current" />
-            Programa Beta Exclusivo
+      <section className="py-16 bg-slate-900">
+        <div className="max-w-4xl mx-auto px-4 text-center">
+          <div className="inline-flex items-center gap-2 bg-sky-500/10 border border-sky-500/20 text-sky-300 px-4 py-1.5 rounded-full text-sm font-medium mb-6">
+            <Star size={14} className="fill-current" /> Programa Beta Exclusivo
           </div>
-          <h2 className="text-3xl md:text-5xl font-bold text-white tracking-tight mb-10">
-            Únete ahora y vende gratis por más de 6 meses
-          </h2>
+          <h2 className="text-3xl md:text-4xl font-bold text-white mb-10">Únete ahora y vende gratis por más de 6 meses</h2>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-6 mb-10">
-            <div className="bg-white/5 border border-white/10 rounded-2xl p-6 text-center min-w-[160px] w-full sm:w-auto">
-              <p className="text-4xl font-bold text-white mb-1">30</p>
-              <p className="text-sm text-slate-400">días con todo incluido</p>
+            <div className="bg-white/5 border border-white/10 rounded-2xl p-6 text-center min-w-[140px] w-full sm:w-auto">
+              <p className="text-3xl font-bold text-white">30</p><p className="text-sm text-slate-400">días con todo incluido</p>
             </div>
             <span className="text-slate-500 text-2xl hidden sm:block">+</span>
-            <div className="bg-white/5 border border-white/10 rounded-2xl p-6 text-center min-w-[160px] w-full sm:w-auto">
-              <p className="text-4xl font-bold text-white mb-1">6</p>
-              <p className="text-sm text-slate-400">meses gratis</p>
+            <div className="bg-white/5 border border-white/10 rounded-2xl p-6 text-center min-w-[140px] w-full sm:w-auto">
+              <p className="text-3xl font-bold text-white">6</p><p className="text-sm text-slate-400">meses gratis</p>
             </div>
             <span className="text-slate-500 text-2xl hidden sm:block">=</span>
-            <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-6 text-center min-w-[160px] w-full sm:w-auto">
-              <p className="text-4xl font-bold text-emerald-400 mb-1">$0</p>
-              <p className="text-sm text-emerald-200/70">por más de 7 meses</p>
+            <div className="bg-sky-500/10 border border-sky-500/30 rounded-2xl p-6 text-center min-w-[140px] w-full sm:w-auto">
+              <p className="text-3xl font-bold text-sky-400">$0</p><p className="text-sm text-sky-200/70">por más de 7 meses</p>
             </div>
           </div>
-          <Link
-            to="/beta-registro"
-            className="inline-flex items-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-8 py-4 rounded-full text-lg font-bold transition"
-          >
+          <Link to="/beta-registro" className="inline-flex items-center gap-2 bg-sky-500 hover:bg-sky-400 text-slate-900 px-8 py-4 rounded-full text-lg font-bold transition">
             Solicitar acceso beta <ArrowRight size={20} />
           </Link>
         </div>
       </section>
 
       {/* ─── PRECIOS ─── */}
-      <section id="precios" className="bg-stone-100 py-24 px-4 scroll-mt-20">
-        <div className="max-w-4xl mx-auto">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-4xl font-bold text-slate-900 tracking-tight mb-4">
-              Precios simples, sin sorpresas
-            </h2>
-            <p className="text-slate-500 text-lg">
-              Elige el plan que se ajuste a tu negocio. Cancela cuando quieras.
-            </p>
+      <section id="precios" className="py-20 bg-slate-100">
+        <div className="max-w-4xl mx-auto px-4">
+          <div className="text-center mb-14">
+            <h2 className="text-3xl md:text-4xl font-bold text-slate-900 mb-4">Precios simples, sin sorpresas</h2>
+            <p className="text-slate-500 text-lg">Elige el plan que se ajuste a tu negocio. Cancela cuando quieras.</p>
           </div>
-
-          <div className="grid md:grid-cols-2 gap-8 max-w-3xl mx-auto items-stretch">
+          <div className="grid md:grid-cols-2 gap-6 max-w-3xl mx-auto">
             {planes.map((plan) => (
-              <div
-                key={plan.nombre}
-                className={`relative rounded-3xl p-8 flex flex-col ${
-                  plan.popular
-                    ? "bg-slate-950 border-2 border-emerald-500 shadow-2xl shadow-emerald-500/10"
-                    : "bg-white border border-stone-200 shadow-sm"
-                }`}
-              >
+              <div key={plan.nombre} className={`relative rounded-2xl p-8 flex flex-col ${plan.popular ? "bg-slate-900 border-2 border-sky-500 shadow-xl" : "bg-white border border-slate-200 shadow-sm"}`}>
                 {plan.popular && (
-                  <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-emerald-500 text-slate-950 text-xs font-bold px-4 py-1.5 rounded-full uppercase tracking-wide">
-                    Más popular
-                  </div>
+                  <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-sky-500 text-slate-900 text-xs font-bold px-4 py-1 rounded-full uppercase tracking-wide">Más popular</div>
                 )}
-
                 <div className="flex items-center gap-3 mb-6">
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                    plan.popular ? "bg-emerald-500/10 text-emerald-400" : "bg-stone-100 text-slate-600"
-                  }`}>
-                    {plan.icon}
-                  </div>
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${plan.popular ? "bg-sky-500/10 text-sky-400" : "bg-slate-100 text-slate-600"}`}>{plan.icon}</div>
                   <div>
                     <h3 className={`text-xl font-bold ${plan.popular ? "text-white" : "text-slate-900"}`}>{plan.nombre}</h3>
                     <p className={`text-sm ${plan.popular ? "text-slate-400" : "text-slate-500"}`}>{plan.sub}</p>
                   </div>
                 </div>
-
-                <div className="mb-8">
+                <div className="mb-6">
                   <div className="flex items-baseline gap-1">
-                    <span className={`text-4xl font-bold ${plan.popular ? "text-white" : "text-slate-900"}`}>
-                      ${plan.precioMensual.toLocaleString("es-CL")}
-                    </span>
+                    <span className={`text-4xl font-bold ${plan.popular ? "text-white" : "text-slate-900"}`}>${plan.precioMensual.toLocaleString("es-CL")}</span>
                     <span className={plan.popular ? "text-slate-400" : "text-slate-500"}>/mes</span>
                   </div>
-                  <p className={`text-sm mt-2 ${plan.popular ? "text-slate-400" : "text-slate-400"}`}>
-                    o ${plan.precioAnual.toLocaleString("es-CL")}/año (ahorras 2 meses)
-                  </p>
+                  <p className="text-sm text-slate-400 mt-1">o ${plan.precioAnual.toLocaleString("es-CL")}/año (ahorras 2 meses)</p>
                 </div>
-
-                <ul className="space-y-4 mb-8 flex-1">
+                <ul className="space-y-3 mb-8 flex-1">
                   {plan.features.map((f, i) => (
-                    <li key={i} className={`flex items-start gap-3 text-sm ${plan.popular ? "text-slate-300" : "text-slate-600"}`}>
-                      <Check size={18} className="text-emerald-500 shrink-0 mt-0.5" />
-                      {f}
+                    <li key={i} className={`flex items-start gap-2 text-sm ${plan.popular ? "text-slate-300" : "text-slate-600"}`}>
+                      <Check size={16} className="text-sky-500 shrink-0 mt-0.5" /> {f}
                     </li>
                   ))}
                 </ul>
-
-                <Link
-                  to="/beta-registro"
-                  className={`block w-full text-center py-3.5 rounded-full font-bold transition ${
-                    plan.popular
-                      ? "bg-emerald-500 hover:bg-emerald-400 text-slate-950"
-                      : "bg-slate-950 hover:bg-slate-800 text-white"
-                  }`}
-                >
+                <Link to="/beta-registro" className={`block w-full text-center py-3 rounded-full font-bold transition ${plan.popular ? "bg-sky-500 hover:bg-sky-400 text-slate-900" : "bg-slate-900 hover:bg-slate-800 text-white"}`}>
                   {plan.popular ? "Empezar con Pro" : "Empezar con Básico"}
                 </Link>
               </div>
             ))}
           </div>
-
-          <p className="text-center text-sm text-slate-400 mt-10 flex items-center justify-center gap-2">
-            <ShieldCheck size={16} /> Pago seguro. Sin contratos de permanencia.
-          </p>
         </div>
       </section>
 
       {/* ─── FAQ ─── */}
-      <section id="faq" className="bg-white py-24 px-4 scroll-mt-20">
-        <div className="max-w-3xl mx-auto">
+      <section id="faq" className="py-20 bg-white">
+        <div className="max-w-3xl mx-auto px-4">
           <div className="text-center mb-12">
-            <h2 className="text-3xl font-bold text-slate-900 tracking-tight mb-4">Preguntas frecuentes</h2>
+            <h2 className="text-3xl font-bold text-slate-900 mb-4">Preguntas frecuentes</h2>
             <p className="text-slate-500">Lo que cualquier dueño de almacén nos pregunta antes de partir.</p>
           </div>
-          <div className="space-y-4">
+          <div className="space-y-3">
             {faqs.map((faq, i) => (
-              <div key={i} className="bg-stone-50 rounded-2xl border border-stone-200 overflow-hidden">
-                <button
-                  onClick={() => setFaqAbierta(faqAbierta === i ? null : i)}
-                  className="w-full flex items-center justify-between p-6 text-left hover:bg-stone-100 transition"
-                >
-                  <span className="font-semibold text-slate-800 pr-4">{faq.pregunta}</span>
-                  <ChevronDown
-                    size={20}
-                    className={`text-slate-400 shrink-0 transition-transform duration-300 ${faqAbierta === i ? "rotate-180" : ""}`}
-                  />
+              <div key={i} className="bg-slate-50 rounded-xl border border-slate-200 overflow-hidden">
+                <button onClick={() => setFaqAbierta(faqAbierta === i ? null : i)} className="w-full flex items-center justify-between p-5 text-left hover:bg-slate-100 transition">
+                  <span className="font-medium text-slate-800">{faq.pregunta}</span>
+                  <ChevronDown size={18} className={`text-slate-400 transition-transform ${faqAbierta === i ? "rotate-180" : ""}`} />
                 </button>
-                <div className={`grid transition-all duration-300 ease-in-out ${faqAbierta === i ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`}>
-                  <div className="overflow-hidden">
-                    <div className="px-6 pb-6 text-slate-500 text-sm leading-relaxed">
-                      {faq.respuesta}
-                    </div>
-                  </div>
-                </div>
+                {faqAbierta === i && (
+                  <div className="px-5 pb-5 text-slate-500 text-sm leading-relaxed">{faq.respuesta}</div>
+                )}
               </div>
             ))}
           </div>
@@ -6862,63 +6613,25 @@ export default function LandingPage() {
       </section>
 
       {/* ─── CTA FINAL ─── */}
-      <section className="bg-slate-950 py-24 px-4 text-center">
-        <div className="max-w-3xl mx-auto">
-          <h2 className="text-3xl md:text-4xl font-bold text-white tracking-tight mb-6">
-            Deja el cuaderno. Pásate al celular.
-          </h2>
-          <p className="text-slate-400 text-lg mb-10 max-w-xl mx-auto">
-            Únete al programa beta y empieza a vender mejor hoy mismo.
-            Sin tarjeta, sin compromiso.
-          </p>
-          <Link
-            to="/beta-registro"
-            className="inline-flex items-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-8 py-4 rounded-full text-lg font-bold transition"
-          >
-            Crear cuenta gratis <ArrowRight size={20} />
-          </Link>
-          <p className="text-sm text-slate-500 mt-6 flex items-center justify-center gap-2">
-            <Gift size={14} /> Cupos beta limitados. Pide tu código de invitación.
-          </p>
-        </div>
+      <section className="py-20 bg-slate-100 text-center px-4">
+        <h2 className="text-3xl md:text-4xl font-bold text-slate-900 mb-6">Deja el cuaderno. Pásate al celular.</h2>
+        <p className="text-slate-500 text-lg mb-10 max-w-xl mx-auto">Únete al programa beta y empieza a vender mejor hoy mismo. Sin tarjeta, sin compromiso.</p>
+        <Link to="/beta-registro" className="inline-flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-8 py-4 rounded-full text-lg font-bold transition">
+          Crear cuenta gratis <ArrowRight size={20} />
+        </Link>
       </section>
 
       {/* ─── FOOTER ─── */}
-      <footer className="bg-slate-950 border-t border-white/5 text-slate-400 py-12 px-4">
-        <div className="max-w-6xl mx-auto">
-          <div className="grid md:grid-cols-4 gap-8 mb-8">
-            <div className="md:col-span-2">
-              <div className="flex items-center gap-2 mb-4">
-                <div className="w-8 h-8 bg-white/10 rounded-lg flex items-center justify-center">
-                  <Store className="w-4 h-4 text-emerald-400" />
-                </div>
-                <span className="text-lg font-bold text-white">Loventa</span>
-              </div>
-              <p className="text-sm leading-relaxed max-w-sm">
-                El sistema hecho para almacenes de barrio en Chile.
-                Vende sin internet, controla tu stock y no pierdas ni un fiado.
-              </p>
+      <footer className="bg-slate-900 text-slate-400 py-12 px-4">
+        <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-white/10 rounded-lg flex items-center justify-center">
+              <Store className="w-4 h-4 text-sky-400" />
             </div>
-            <div>
-              <h4 className="text-white font-medium mb-4">Producto</h4>
-              <ul className="space-y-2 text-sm">
-                <li><a href="#caracteristicas" className="hover:text-white transition">Características</a></li>
-                <li><a href="#precios" className="hover:text-white transition">Precios</a></li>
-                <li><Link to="/beta-registro" className="hover:text-white transition">Programa Beta</Link></li>
-              </ul>
-            </div>
-            <div>
-              <h4 className="text-white font-medium mb-4">Cuenta</h4>
-              <ul className="space-y-2 text-sm">
-                <li><Link to="/login" className="hover:text-white transition">Iniciar sesión</Link></li>
-                <li><Link to="/beta-registro" className="hover:text-white transition">Registrarme</Link></li>
-              </ul>
-            </div>
+            <span className="text-lg font-bold text-white">Loventa</span>
           </div>
-          <div className="border-t border-white/5 pt-8 flex flex-col md:flex-row items-center justify-between gap-4">
-            <p className="text-sm">© 2026 Loventa. Hecho con ❤️ en Chile.</p>
-            <p className="text-xs text-slate-500">Tu celular, tu caja registradora.</p>
-          </div>
+          <p className="text-sm">© 2026 Loventa. Hecho con ❤️ en Chile.</p>
+          <p className="text-xs text-slate-500">Tu celular, tu caja registradora.</p>
         </div>
       </footer>
     </div>
@@ -6931,34 +6644,30 @@ export default function LandingPage() {
 import { useState, useEffect } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { useNavigate, Link } from "react-router-dom";
-import { 
-  Store, Mail, Lock, Loader2, ArrowRight, ShieldCheck, 
-  WifiOff, Smartphone, Zap, ChevronRight, Eye, EyeOff 
-} from "lucide-react";
+import { Store, Mail, Lock, Loader2, ArrowRight, Eye, EyeOff } from "lucide-react";
 
 export default function Login() {
-  const { login, registerDueño, user, loading: authLoading } = useAuth();
+  const { login, registerDueño, loading, isAuthenticated } = useAuth();
   const navigate = useNavigate();
-  
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [modo, setModo] = useState("login");
   const [nombre, setNombre] = useState("");
   const [nombreNegocio, setNombreNegocio] = useState("");
   const [cargando, setCargando] = useState(false);
-  const [error, setError] = useState("");
+  const [errorLocal, setErrorLocal] = useState("");
   const [showPassword, setShowPassword] = useState(false);
 
-  // Redirección automática si ya está logueado
+  // Si ya hay sesión activa (ej: volviste con sesión guardada), entra directo al panel
   useEffect(() => {
-    if (!authLoading && user) {
+    if (!loading && isAuthenticated) {
       navigate("/app", { replace: true });
     }
-  }, [user, authLoading, navigate]);
+  }, [loading, isAuthenticated, navigate]);
 
   async function handleSubmit(e) {
     e.preventDefault();
-    setError("");
+    setErrorLocal("");
     setCargando(true);
     try {
       if (modo === "login") {
@@ -6966,270 +6675,150 @@ export default function Login() {
       } else {
         await registerDueño(email, password, nombre, nombreNegocio);
       }
-      // La redirección la maneja el useEffect de arriba
+      navigate("/app", { replace: true });
     } catch (err) {
-      console.error(err);
-      setError(err.message || "Error al procesar. Verifica tus datos.");
+      setErrorLocal(err.message || "Error al iniciar sesión");
     } finally {
       setCargando(false);
     }
   }
 
-  if (authLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
-          <p className="text-slate-500 font-medium animate-pulse">Cargando Loventa...</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="min-h-screen flex bg-slate-50 font-sans selection:bg-emerald-100 selection:text-emerald-900">
-      
-      {/* ─── LADO IZQUIERDO: BRANDING (Oculto en móvil) ─── */}
-      <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-slate-900">
-        {/* Fondo decorativo abstracto */}
-        <div className="absolute inset-0 opacity-20">
-          <div className="absolute top-0 left-0 w-96 h-96 bg-emerald-500 rounded-full mix-blend-multiply filter blur-3xl animate-blob"></div>
-          <div className="absolute top-0 right-0 w-96 h-96 bg-blue-500 rounded-full mix-blend-multiply filter blur-3xl animate-blob animation-delay-2000"></div>
-          <div className="absolute -bottom-8 left-20 w-96 h-96 bg-purple-500 rounded-full mix-blend-multiply filter blur-3xl animate-blob animation-delay-4000"></div>
+    <div className="min-h-screen flex items-center justify-center bg-slate-100 px-4">
+      <div className="w-full max-w-md bg-white rounded-2xl shadow-lg p-8">
+        <div className="text-center mb-6">
+          <Link to="/" className="inline-flex items-center gap-2 mb-4">
+            <div className="w-10 h-10 bg-slate-900 rounded-xl flex items-center justify-center">
+              <Store className="w-5 h-5 text-sky-400" />
+            </div>
+            <span className="text-xl font-bold text-slate-900">
+              Loventa<span className="text-sky-500">.</span>
+            </span>
+          </Link>
+          <h1 className="text-2xl font-bold text-slate-800">
+            {modo === "login" ? "Iniciar Sesión" : "Crear Cuenta"}
+          </h1>
+          <p className="text-slate-500 text-sm mt-1">Almacén de Barrio — POS</p>
         </div>
-        
-        {/* Patrón de grid sutil */}
-        <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20"></div>
 
-        <div className="relative z-10 flex flex-col justify-between p-12 text-white w-full max-w-2xl mx-auto">
-          <div>
-            <Link to="/" className="flex items-center gap-3 group mb-16">
-              <div className="w-10 h-10 bg-white/10 backdrop-blur-md rounded-xl flex items-center justify-center border border-white/20 group-hover:bg-emerald-500/20 transition-colors">
-                <Store className="w-5 h-5 text-emerald-400" />
-              </div>
-              <span className="text-2xl font-bold tracking-tight">
-                Loventa<span className="text-emerald-400">.</span>
-              </span>
-            </Link>
-
-            <h1 className="text-5xl font-extrabold leading-tight mb-6">
-              El POS que tu almacén <br/>
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-300">
-                realmente necesita.
-              </span>
-            </h1>
-            <p className="text-lg text-slate-300 leading-relaxed max-w-md">
-              Vende sin internet. Controla tu stock. Registra fiados. 
-              Todo desde tu celular, con un diseño que inspira confianza.
-            </p>
+        {errorLocal && (
+          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">
+            {errorLocal}
           </div>
+        )}
 
-          <div className="space-y-6">
-            <div className="flex items-center gap-4 p-4 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10">
-              <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center shrink-0">
-                <WifiOff className="w-5 h-5 text-emerald-400" />
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {modo === "registro" && (
+            <>
+              <div>
+                <label htmlFor="nombre" className="block text-sm font-medium text-slate-700 mb-1">
+                  Tu nombre
+                </label>
+                <input
+                  id="nombre"
+                  name="nombre"
+                  type="text"
+                  autoComplete="name"
+                  required
+                  value={nombre}
+                  onChange={(e) => setNombre(e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition"
+                  placeholder="Juan Pérez"
+                />
               </div>
               <div>
-                <p className="font-semibold text-white">100% Offline First</p>
-                <p className="text-sm text-slate-400">Sigue vendiendo aunque se caiga el internet.</p>
+                <label htmlFor="nombreNegocio" className="block text-sm font-medium text-slate-700 mb-1">
+                  Nombre del negocio
+                </label>
+                <input
+                  id="nombreNegocio"
+                  name="nombreNegocio"
+                  type="text"
+                  autoComplete="organization"
+                  required
+                  value={nombreNegocio}
+                  onChange={(e) => setNombreNegocio(e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition"
+                  placeholder="Mi Almacén"
+                />
               </div>
-            </div>
-            
-            <div className="flex items-center gap-4 p-4 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10">
-              <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center shrink-0">
-                <Smartphone className="w-5 h-5 text-blue-400" />
-              </div>
-              <div>
-                <p className="font-semibold text-white">Tu celular es tu caja</p>
-                <p className="text-sm text-slate-400">Sin hardware costoso. Solo tú y tu teléfono.</p>
-              </div>
-            </div>
-
-            <div className="pt-8 border-t border-white/10">
-              <p className="text-sm text-slate-500 flex items-center gap-2">
-                <ShieldCheck className="w-4 h-4" />
-                Datos encriptados y seguros en la nube de Google.
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ─── LADO DERECHO: FORMULARIO ─── */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-6 sm:p-12">
-        <div className="w-full max-w-md space-y-8">
-          
-          {/* Header Móvil (Solo visible en pantallas pequeñas) */}
-          <div className="lg:hidden text-center mb-8">
-            <Link to="/" className="inline-flex items-center gap-2 mb-4">
-              <div className="w-8 h-8 bg-slate-900 rounded-lg flex items-center justify-center">
-                <Store className="w-4 h-4 text-emerald-400" />
-              </div>
-              <span className="text-xl font-bold text-slate-900">Loventa</span>
-            </Link>
-            <h2 className="text-2xl font-bold text-slate-900">Bienvenido de vuelta</h2>
-            <p className="text-slate-500 mt-2">Ingresa a tu cuenta para continuar</p>
-          </div>
-
-          {/* Header Desktop */}
-          <div className="hidden lg:block">
-            <h2 className="text-3xl font-bold text-slate-900 tracking-tight">
-              {modo === "login" ? "Iniciar Sesión" : "Crear Cuenta"}
-            </h2>
-            <p className="text-slate-500 mt-2">
-              {modo === "login" 
-                ? "Ingresa tus credenciales para acceder al panel." 
-                : "Registra tu negocio y comienza a vender hoy."}
-            </p>
-          </div>
-
-          {error && (
-            <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-r-lg flex items-start gap-3 animate-in slide-in-from-top-2">
-              <div className="text-red-500 mt-0.5">
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </div>
-              <div>
-                <h3 className="text-sm font-medium text-red-800">Error de autenticación</h3>
-                <p className="text-sm text-red-700 mt-1">{error}</p>
-              </div>
-            </div>
+            </>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-5">
-            {modo === "registro" && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 animate-in fade-in slide-in-from-bottom-4 duration-300">
-                <div className="space-y-1.5">
-                  <label htmlFor="nombre" className="text-sm font-medium text-slate-700 ml-1">Tu nombre</label>
-                  <input
-                    id="nombre"
-                    type="text"
-                    required
-                    value={nombre}
-                    onChange={(e) => setNombre(e.target.value)}
-                    className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all placeholder:text-slate-400"
-                    placeholder="Juan Pérez"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label htmlFor="nombreNegocio" className="text-sm font-medium text-slate-700 ml-1">Nombre del negocio</label>
-                  <input
-                    id="nombreNegocio"
-                    type="text"
-                    required
-                    value={nombreNegocio}
-                    onChange={(e) => setNombreNegocio(e.target.value)}
-                    className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all placeholder:text-slate-400"
-                    placeholder="Mi Almacén"
-                  />
-                </div>
-              </div>
-            )}
-
-            <div className="space-y-1.5">
-              <label htmlFor="email" className="text-sm font-medium text-slate-700 ml-1">Correo electrónico</label>
-              <div className="relative group">
-                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                  <Mail className="h-5 w-5 text-slate-400 group-focus-within:text-emerald-500 transition-colors" />
-                </div>
-                <input
-                  id="email"
-                  type="email"
-                  autoComplete="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full pl-11 pr-4 py-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all placeholder:text-slate-400"
-                  placeholder="tu@email.com"
-                />
-              </div>
+          <div>
+            <label htmlFor="email" className="block text-sm font-medium text-slate-700 mb-1">
+              Correo o usuario
+            </label>
+            <div className="relative">
+              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+              <input
+                id="email"
+                name="email"
+                type="text"
+                autoComplete="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full border border-slate-300 rounded-lg pl-10 pr-4 py-2.5 focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition"
+                placeholder="tu@email.com"
+              />
             </div>
+          </div>
 
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between ml-1">
-                <label htmlFor="password" className="text-sm font-medium text-slate-700">Contraseña</label>
-                {modo === "login" && (
-                  <button type="button" className="text-xs font-medium text-emerald-600 hover:text-emerald-700">
-                    ¿Olvidaste tu contraseña?
-                  </button>
-                )}
-              </div>
-              <div className="relative group">
-                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                  <Lock className="h-5 w-5 text-slate-400 group-focus-within:text-emerald-500 transition-colors" />
-                </div>
-                <input
-                  id="password"
-                  type={showPassword ? "text" : "password"}
-                  autoComplete={modo === "login" ? "current-password" : "new-password"}
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-11 pr-12 py-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all placeholder:text-slate-400"
-                  placeholder="••••••••"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute inset-y-0 right-0 pr-4 flex items-center text-slate-400 hover:text-slate-600 transition-colors"
-                >
-                  {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-                </button>
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              disabled={cargando}
-              className="w-full bg-slate-900 hover:bg-slate-800 text-white font-semibold py-3.5 rounded-xl transition-all duration-200 transform hover:-translate-y-0.5 hover:shadow-lg hover:shadow-slate-900/20 disabled:opacity-70 disabled:cursor-not-allowed disabled:transform-none flex items-center justify-center gap-2 group"
-            >
-              {cargando ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  Procesando...
-                </>
-              ) : (
-                <>
-                  {modo === "login" ? "Iniciar Sesión" : "Crear Cuenta Gratis"}
-                  <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-                </>
-              )}
-            </button>
-          </form>
-
-          <div className="text-center pt-4">
-            <p className="text-sm text-slate-500">
-              {modo === "login" ? "¿No tienes cuenta?" : "¿Ya tienes cuenta?"}{" "}
+          <div>
+            <label htmlFor="password" className="block text-sm font-medium text-slate-700 mb-1">
+              Contraseña
+            </label>
+            <div className="relative">
+              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+              <input
+                id="password"
+                name="password"
+                type={showPassword ? "text" : "password"}
+                autoComplete={modo === "login" ? "current-password" : "new-password"}
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full border border-slate-300 rounded-lg pl-10 pr-10 py-2.5 focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition"
+                placeholder="••••••••"
+              />
               <button
                 type="button"
-                onClick={() => {
-                  setModo(modo === "login" ? "registro" : "login");
-                  setError("");
-                }}
-                className="font-semibold text-emerald-600 hover:text-emerald-700 transition-colors"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
               >
-                {modo === "login" ? "Regístrate gratis" : "Inicia sesión"}
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
               </button>
-            </p>
+            </div>
           </div>
 
-          <div className="relative flex items-center py-2">
-            <div className="flex-grow border-t border-slate-200"></div>
-            <span className="flex-shrink mx-4 text-xs text-slate-400 uppercase tracking-wider font-medium">O continúa con</span>
-            <div className="flex-grow border-t border-slate-200"></div>
-          </div>
+          <button
+            type="submit"
+            disabled={cargando}
+            className="w-full bg-slate-900 hover:bg-slate-800 text-white font-semibold py-2.5 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          >
+            {cargando ? <Loader2 className="w-5 h-5 animate-spin" /> : <ArrowRight size={18} />}
+            {cargando ? "Cargando..." : modo === "login" ? "Iniciar Sesión" : "Crear Cuenta"}
+          </button>
+        </form>
 
-          <div className="grid grid-cols-1 gap-3">
-             <button className="w-full flex items-center justify-center gap-3 py-3 px-4 border border-slate-200 rounded-xl bg-white hover:bg-slate-50 transition-colors text-sm font-medium text-slate-700">
-                <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" className="w-5 h-5" />
-                Google (Próximamente)
-             </button>
-          </div>
-          
-          <p className="text-center text-xs text-slate-400 mt-8">
-            Al continuar, aceptas nuestros <Link to="#" className="underline hover:text-slate-600">Términos de Servicio</Link> y <Link to="#" className="underline hover:text-slate-600">Política de Privacidad</Link>.
-          </p>
+        <div className="mt-4 text-center">
+          <button
+            type="button"
+            onClick={() => {
+              setModo(modo === "login" ? "registro" : "login");
+              setErrorLocal("");
+            }}
+            className="text-sky-600 hover:text-sky-700 text-sm font-medium"
+          >
+            {modo === "login" ? "¿No tienes cuenta? Regístrate" : "¿Ya tienes cuenta? Inicia sesión"}
+          </button>
+        </div>
+
+        <div className="mt-4 pt-4 border-t border-slate-200 text-center">
+          <Link to="/" className="text-xs text-slate-400 hover:text-slate-600">
+            ← Volver a la página principal
+          </Link>
         </div>
       </div>
     </div>
@@ -9081,16 +8670,22 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./hooks/useAuth";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
+import LandingPage from "./pages/LandingPage";
 import CanjearCodigo from "./components/CanjearCodigo";
 import BetaRegister from "./pages/BetaRegister";
 import Register from "./pages/Register";
-import LandingPage from "./pages/LandingPage";
 
-// Componente para proteger rutas privadas
+// Puerta de seguridad: solo usuarios autenticados entran al panel
 function PrivateRoute({ children }) {
   const { isAuthenticated, loading } = useAuth();
-  if (loading) return <div className="min-h-screen flex items-center justify-center bg-slate-50"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600"></div></div>;
-  return isAuthenticated ? children : <Navigate to="/login" />;
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-100">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-sky-600"></div>
+      </div>
+    );
+  }
+  return isAuthenticated ? children : <Navigate to="/login" replace />;
 }
 
 function App() {
@@ -9098,26 +8693,27 @@ function App() {
     <AuthProvider>
       <BrowserRouter>
         <Routes>
-          {/* Ruta pública: Landing Page (Inicio) */}
+          {/* Página principal PÚBLICA: siempre visible, con o sin sesión */}
           <Route path="/" element={<LandingPage />} />
-          
-          {/* Rutas públicas de autenticación */}
+
+          {/* Autenticación */}
           <Route path="/login" element={<Login />} />
           <Route path="/registro" element={<Register />} />
           <Route path="/beta-registro" element={<BetaRegister />} />
           <Route path="/canjear-beta" element={<CanjearCodigo />} />
-          
-          {/* Rutas privadas (Dashboard) - Ahora bajo /app */}
-          <Route path="/app/*" element={
-            <PrivateRoute>
-              <Dashboard />
-            </PrivateRoute>
-          } />
-          
-          {/* Redirecciones legacy */}
-          <Route path="/vender" element={<Navigate to="/app/vender" />} />
-          <Route path="/productos" element={<Navigate to="/app/productos" />} />
-          <Route path="/dashboard" element={<Navigate to="/app" />} />
+
+          {/* Panel privado: requiere sesión iniciada */}
+          <Route
+            path="/app/*"
+            element={
+              <PrivateRoute>
+                <Dashboard />
+              </PrivateRoute>
+            }
+          />
+
+          {/* Cualquier otra ruta → portada */}
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>
