@@ -1,34 +1,31 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { useNavigate, Link } from "react-router-dom";
-import { 
-  Store, Mail, Lock, Loader2, ArrowRight, ShieldCheck, 
-  WifiOff, Smartphone, Zap, ChevronRight, Eye, EyeOff 
+import {
+  Store, Mail, Lock, Loader2, ArrowRight, ShieldCheck,
+  WifiOff, Smartphone, Eye, EyeOff
 } from "lucide-react";
 
 export default function Login() {
-  const { login, registerDueño, user, loading: authLoading } = useAuth();
+  const { login, registerDueño, user, loading } = useAuth();
   const navigate = useNavigate();
-  
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [modo, setModo] = useState("login");
   const [nombre, setNombre] = useState("");
   const [nombreNegocio, setNombreNegocio] = useState("");
   const [cargando, setCargando] = useState(false);
-  const [error, setError] = useState("");
+  const [errorLocal, setErrorLocal] = useState("");
   const [showPassword, setShowPassword] = useState(false);
 
-  // Redirección automática si ya está logueado
+  // Si ya hay sesión activa, ir directo al panel
   useEffect(() => {
-    if (!authLoading && user) {
-      navigate("/app", { replace: true });
-    }
-  }, [user, authLoading, navigate]);
+    if (!loading && user) navigate("/", { replace: true });
+  }, [user, loading, navigate]);
 
   async function handleSubmit(e) {
     e.preventDefault();
-    setError("");
+    setErrorLocal("");
     setCargando(true);
     try {
       if (modo === "login") {
@@ -36,75 +33,53 @@ export default function Login() {
       } else {
         await registerDueño(email, password, nombre, nombreNegocio);
       }
-      // La redirección la maneja el useEffect de arriba
+      navigate("/", { replace: true });
     } catch (err) {
-      console.error(err);
-      setError(err.message || "Error al procesar. Verifica tus datos.");
+      console.error("Error de autenticación:", err);
+      setErrorLocal(err.message || "Error al iniciar sesión. Verifica tus datos.");
     } finally {
       setCargando(false);
     }
   }
 
-  if (authLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
-          <p className="text-slate-500 font-medium animate-pulse">Cargando Loventa...</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="min-h-screen flex bg-slate-50 font-sans selection:bg-emerald-100 selection:text-emerald-900">
-      
-      {/* ─── LADO IZQUIERDO: BRANDING (Oculto en móvil) ─── */}
+    <div className="min-h-screen flex bg-slate-100 font-sans">
+      {/* ─── PANEL IZQUIERDO (BRANDING) ─── */}
       <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-slate-900">
-        {/* Fondo decorativo abstracto */}
-        <div className="absolute inset-0 opacity-20">
-          <div className="absolute top-0 left-0 w-96 h-96 bg-emerald-500 rounded-full mix-blend-multiply filter blur-3xl animate-blob"></div>
-          <div className="absolute top-0 right-0 w-96 h-96 bg-blue-500 rounded-full mix-blend-multiply filter blur-3xl animate-blob animation-delay-2000"></div>
-          <div className="absolute -bottom-8 left-20 w-96 h-96 bg-purple-500 rounded-full mix-blend-multiply filter blur-3xl animate-blob animation-delay-4000"></div>
-        </div>
-        
-        {/* Patrón de grid sutil */}
-        <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20"></div>
+        <div className="absolute top-0 left-0 w-96 h-96 bg-sky-500/20 rounded-full blur-3xl"></div>
+        <div className="absolute bottom-0 right-0 w-96 h-96 bg-blue-600/20 rounded-full blur-3xl"></div>
 
-        <div className="relative z-10 flex flex-col justify-between p-12 text-white w-full max-w-2xl mx-auto">
-          <div>
-            <Link to="/" className="flex items-center gap-3 group mb-16">
-              <div className="w-10 h-10 bg-white/10 backdrop-blur-md rounded-xl flex items-center justify-center border border-white/20 group-hover:bg-emerald-500/20 transition-colors">
-                <Store className="w-5 h-5 text-emerald-400" />
-              </div>
-              <span className="text-2xl font-bold tracking-tight">
-                Loventa<span className="text-emerald-400">.</span>
-              </span>
-            </Link>
+        <div className="relative z-10 flex flex-col justify-center p-12 xl:p-20 w-full max-w-2xl mx-auto">
+          <Link to="/" className="flex items-center gap-3 mb-14 w-fit">
+            <div className="w-10 h-10 bg-white/10 backdrop-blur-md rounded-xl flex items-center justify-center border border-white/20">
+              <Store className="w-5 h-5 text-sky-400" />
+            </div>
+            <span className="text-2xl font-bold tracking-tight text-white">
+              Loventa<span className="text-sky-400">.</span>
+            </span>
+          </Link>
 
-            <h1 className="text-5xl font-extrabold leading-tight mb-6">
-              El POS que tu almacén <br/>
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-300">
-                realmente necesita.
-              </span>
-            </h1>
-            <p className="text-lg text-slate-300 leading-relaxed max-w-md">
-              Vende sin internet. Controla tu stock. Registra fiados. 
-              Todo desde tu celular, con un diseño que inspira confianza.
-            </p>
-          </div>
+          <h1 className="text-4xl xl:text-5xl font-extrabold text-white leading-tight mb-6">
+            Tu almacén ordenado.
+            <span className="block text-transparent bg-clip-text bg-gradient-to-r from-sky-400 to-blue-500">
+              Sin cuaderno ni calculadora.
+            </span>
+          </h1>
+          <p className="text-lg text-slate-400 leading-relaxed mb-10">
+            Vende sin internet. Controla tu stock. Registra fiados.
+            Todo desde tu celular.
+          </p>
 
-          <div className="space-y-6">
+          <div className="space-y-4">
             <div className="flex items-center gap-4 p-4 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10">
-              <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center shrink-0">
-                <WifiOff className="w-5 h-5 text-emerald-400" />
+              <div className="w-10 h-10 rounded-full bg-sky-500/20 flex items-center justify-center shrink-0">
+                <WifiOff className="w-5 h-5 text-sky-400" />
               </div>
               <div>
                 <p className="font-semibold text-white">100% Offline First</p>
                 <p className="text-sm text-slate-400">Sigue vendiendo aunque se caiga el internet.</p>
               </div>
             </div>
-            
             <div className="flex items-center gap-4 p-4 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10">
               <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center shrink-0">
                 <Smartphone className="w-5 h-5 text-blue-400" />
@@ -114,191 +89,145 @@ export default function Login() {
                 <p className="text-sm text-slate-400">Sin hardware costoso. Solo tú y tu teléfono.</p>
               </div>
             </div>
-
-            <div className="pt-8 border-t border-white/10">
-              <p className="text-sm text-slate-500 flex items-center gap-2">
-                <ShieldCheck className="w-4 h-4" />
-                Datos encriptados y seguros en la nube de Google.
-              </p>
-            </div>
           </div>
+
+          <p className="text-sm text-slate-500 flex items-center gap-2 mt-10">
+            <ShieldCheck className="w-4 h-4" />
+            Datos encriptados y seguros en la nube de Google.
+          </p>
         </div>
       </div>
 
-      {/* ─── LADO DERECHO: FORMULARIO ─── */}
+      {/* ─── PANEL DERECHO (FORMULARIO) ─── */}
       <div className="w-full lg:w-1/2 flex items-center justify-center p-6 sm:p-12">
-        <div className="w-full max-w-md space-y-8">
-          
-          {/* Header Móvil (Solo visible en pantallas pequeñas) */}
-          <div className="lg:hidden text-center mb-8">
-            <Link to="/" className="inline-flex items-center gap-2 mb-4">
-              <div className="w-8 h-8 bg-slate-900 rounded-lg flex items-center justify-center">
-                <Store className="w-4 h-4 text-emerald-400" />
-              </div>
-              <span className="text-xl font-bold text-slate-900">Loventa</span>
-            </Link>
-            <h2 className="text-2xl font-bold text-slate-900">Bienvenido de vuelta</h2>
-            <p className="text-slate-500 mt-2">Ingresa a tu cuenta para continuar</p>
-          </div>
+        <div className="w-full max-w-md">
+          {/* Logo móvil */}
+          <Link to="/" className="lg:hidden flex items-center gap-2 mb-8 w-fit">
+            <div className="w-9 h-9 bg-slate-900 rounded-xl flex items-center justify-center">
+              <Store className="w-4 h-4 text-sky-400" />
+            </div>
+            <span className="text-xl font-bold text-slate-900">
+              Loventa<span className="text-sky-600">.</span>
+            </span>
+          </Link>
 
-          {/* Header Desktop */}
-          <div className="hidden lg:block">
-            <h2 className="text-3xl font-bold text-slate-900 tracking-tight">
-              {modo === "login" ? "Iniciar Sesión" : "Crear Cuenta"}
-            </h2>
-            <p className="text-slate-500 mt-2">
-              {modo === "login" 
-                ? "Ingresa tus credenciales para acceder al panel." 
-                : "Registra tu negocio y comienza a vender hoy."}
-            </p>
-          </div>
+          <h2 className="text-3xl font-bold text-slate-900 mb-2">
+            {modo === "login" ? "Iniciar Sesión" : "Crear Cuenta"}
+          </h2>
+          <p className="text-slate-500 mb-8">
+            {modo === "login"
+              ? "Ingresa tus credenciales para acceder al panel."
+              : "Registra tu negocio y comienza a vender hoy."}
+          </p>
 
-          {error && (
-            <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-r-lg flex items-start gap-3 animate-in slide-in-from-top-2">
-              <div className="text-red-500 mt-0.5">
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </div>
-              <div>
-                <h3 className="text-sm font-medium text-red-800">Error de autenticación</h3>
-                <p className="text-sm text-red-700 mt-1">{error}</p>
-              </div>
+          {errorLocal && (
+            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl mb-6 text-sm">
+              {errorLocal}
             </div>
           )}
 
           <form onSubmit={handleSubmit} className="space-y-5">
             {modo === "registro" && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 animate-in fade-in slide-in-from-bottom-4 duration-300">
-                <div className="space-y-1.5">
-                  <label htmlFor="nombre" className="text-sm font-medium text-slate-700 ml-1">Tu nombre</label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="nombre" className="block text-sm font-medium text-slate-700 mb-1.5">Tu nombre</label>
                   <input
-                    id="nombre"
-                    type="text"
-                    required
-                    value={nombre}
-                    onChange={(e) => setNombre(e.target.value)}
-                    className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all placeholder:text-slate-400"
+                    id="nombre" name="nombre" type="text" autoComplete="name" required
+                    value={nombre} onChange={(e) => setNombre(e.target.value)}
+                    className="w-full border border-slate-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none transition bg-white"
                     placeholder="Juan Pérez"
                   />
                 </div>
-                <div className="space-y-1.5">
-                  <label htmlFor="nombreNegocio" className="text-sm font-medium text-slate-700 ml-1">Nombre del negocio</label>
+                <div>
+                  <label htmlFor="nombreNegocio" className="block text-sm font-medium text-slate-700 mb-1.5">Negocio</label>
                   <input
-                    id="nombreNegocio"
-                    type="text"
-                    required
-                    value={nombreNegocio}
-                    onChange={(e) => setNombreNegocio(e.target.value)}
-                    className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all placeholder:text-slate-400"
+                    id="nombreNegocio" name="nombreNegocio" type="text" autoComplete="organization" required
+                    value={nombreNegocio} onChange={(e) => setNombreNegocio(e.target.value)}
+                    className="w-full border border-slate-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none transition bg-white"
                     placeholder="Mi Almacén"
                   />
                 </div>
               </div>
             )}
 
-            <div className="space-y-1.5">
-              <label htmlFor="email" className="text-sm font-medium text-slate-700 ml-1">Correo electrónico</label>
-              <div className="relative group">
-                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                  <Mail className="h-5 w-5 text-slate-400 group-focus-within:text-emerald-500 transition-colors" />
-                </div>
+            <div>
+              <label htmlFor="email" className="block text-sm font-medium text-slate-700 mb-1.5">Correo o usuario</label>
+              <div className="relative">
+                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                 <input
-                  id="email"
-                  type="email"
-                  autoComplete="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full pl-11 pr-4 py-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all placeholder:text-slate-400"
+                  id="email" name="email" type="text" autoComplete="email" required
+                  value={email} onChange={(e) => setEmail(e.target.value)}
+                  className="w-full border border-slate-300 rounded-xl pl-11 pr-4 py-3 focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none transition bg-white"
                   placeholder="tu@email.com"
                 />
               </div>
             </div>
 
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between ml-1">
-                <label htmlFor="password" className="text-sm font-medium text-slate-700">Contraseña</label>
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label htmlFor="password" className="block text-sm font-medium text-slate-700">Contraseña</label>
                 {modo === "login" && (
-                  <button type="button" className="text-xs font-medium text-emerald-600 hover:text-emerald-700">
+                  <button type="button" className="text-xs font-medium text-sky-600 hover:text-sky-700">
                     ¿Olvidaste tu contraseña?
                   </button>
                 )}
               </div>
-              <div className="relative group">
-                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                  <Lock className="h-5 w-5 text-slate-400 group-focus-within:text-emerald-500 transition-colors" />
-                </div>
+              <div className="relative">
+                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                 <input
-                  id="password"
-                  type={showPassword ? "text" : "password"}
-                  autoComplete={modo === "login" ? "current-password" : "new-password"}
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-11 pr-12 py-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all placeholder:text-slate-400"
+                  id="password" name="password" type={showPassword ? "text" : "password"}
+                  autoComplete={modo === "login" ? "current-password" : "new-password"} required
+                  value={password} onChange={(e) => setPassword(e.target.value)}
+                  className="w-full border border-slate-300 rounded-xl pl-11 pr-12 py-3 focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none transition bg-white"
                   placeholder="••••••••"
                 />
                 <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute inset-y-0 right-0 pr-4 flex items-center text-slate-400 hover:text-slate-600 transition-colors"
+                  type="button" onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                 >
-                  {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
               </div>
             </div>
 
             <button
-              type="submit"
-              disabled={cargando}
-              className="w-full bg-slate-900 hover:bg-slate-800 text-white font-semibold py-3.5 rounded-xl transition-all duration-200 transform hover:-translate-y-0.5 hover:shadow-lg hover:shadow-slate-900/20 disabled:opacity-70 disabled:cursor-not-allowed disabled:transform-none flex items-center justify-center gap-2 group"
+              type="submit" disabled={cargando}
+              className="w-full bg-slate-900 hover:bg-slate-800 text-white font-semibold py-3.5 rounded-xl transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-slate-900/20"
             >
-              {cargando ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  Procesando...
-                </>
-              ) : (
-                <>
-                  {modo === "login" ? "Iniciar Sesión" : "Crear Cuenta Gratis"}
-                  <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-                </>
-              )}
+              {cargando ? <Loader2 className="w-5 h-5 animate-spin" /> : <ArrowRight size={18} />}
+              {cargando ? "Procesando..." : modo === "login" ? "Iniciar Sesión" : "Crear Cuenta"}
             </button>
           </form>
 
-          <div className="text-center pt-4">
-            <p className="text-sm text-slate-500">
-              {modo === "login" ? "¿No tienes cuenta?" : "¿Ya tienes cuenta?"}{" "}
-              <button
-                type="button"
-                onClick={() => {
-                  setModo(modo === "login" ? "registro" : "login");
-                  setError("");
-                }}
-                className="font-semibold text-emerald-600 hover:text-emerald-700 transition-colors"
-              >
-                {modo === "login" ? "Regístrate gratis" : "Inicia sesión"}
-              </button>
-            </p>
-          </div>
+          <p className="text-center text-sm text-slate-500 mt-6">
+            {modo === "login" ? "¿No tienes cuenta?" : "¿Ya tienes cuenta?"}{" "}
+            <button
+              type="button"
+              onClick={() => { setModo(modo === "login" ? "registro" : "login"); setErrorLocal(""); }}
+              className="font-semibold text-sky-600 hover:text-sky-700"
+            >
+              {modo === "login" ? "Regístrate gratis" : "Inicia sesión"}
+            </button>
+          </p>
 
-          <div className="relative flex items-center py-2">
+          <div className="relative flex items-center py-6">
             <div className="flex-grow border-t border-slate-200"></div>
             <span className="flex-shrink mx-4 text-xs text-slate-400 uppercase tracking-wider font-medium">O continúa con</span>
             <div className="flex-grow border-t border-slate-200"></div>
           </div>
 
-          <div className="grid grid-cols-1 gap-3">
-             <button className="w-full flex items-center justify-center gap-3 py-3 px-4 border border-slate-200 rounded-xl bg-white hover:bg-slate-50 transition-colors text-sm font-medium text-slate-700">
-                <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" className="w-5 h-5" />
-                Google (Próximamente)
-             </button>
-          </div>
-          
-          <p className="text-center text-xs text-slate-400 mt-8">
-            Al continuar, aceptas nuestros <Link to="#" className="underline hover:text-slate-600">Términos de Servicio</Link> y <Link to="#" className="underline hover:text-slate-600">Política de Privacidad</Link>.
+          <button className="w-full flex items-center justify-center gap-3 py-3 px-4 border border-slate-300 rounded-xl bg-white hover:bg-slate-50 transition text-sm font-medium text-slate-700">
+            <svg className="w-5 h-5" viewBox="0 0 24 24">
+              <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.27-4.74 3.27-8.1z"/>
+              <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+              <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18A10.97 10.97 0 0 0 1 12c0 1.77.42 3.45 1.18 4.93l3.66-2.84z"/>
+              <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+            </svg>
+            Google (Próximamente)
+          </button>
+
+          <p className="text-center text-xs text-slate-400 mt-6">
+            Al continuar, aceptas nuestros Términos de Servicio y Política de Privacidad.
           </p>
         </div>
       </div>
