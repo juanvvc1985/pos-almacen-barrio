@@ -37,6 +37,7 @@ export default function Navbar() {
           >
             🏪 Almacén de Barrio
           </button>
+
           {/* Links principales filtrados por privilegio */}
           <div className="hidden md:flex items-center gap-1">
             {menuItems.filter(item => item.show).map(item => (
@@ -45,10 +46,11 @@ export default function Navbar() {
               </button>
             ))}
           </div>
+
           {/* Usuario + Logout */}
           <div className="flex items-center gap-3">
             <span className="text-sm text-gray-600 hidden sm:block">
-              {user?.nombre || user?.email || "Invitado"}
+              {user?.displayName || user?.email || "Invitado"}
               {isDueño && <span className="ml-1 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">Dueño</span>}
             </span>
             <button

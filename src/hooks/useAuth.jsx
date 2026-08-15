@@ -458,6 +458,7 @@ export function AuthProvider({ children }) {
     }
   };
 
+  // 🔥 FIX LOGOUT: Redirigir a /login después de cerrar sesión
   const logout = async () => {
     await idbDel("session");
     clearOfflineSession();
@@ -465,6 +466,8 @@ export function AuthProvider({ children }) {
     setUser(null);
     setUserData(null);
     setSuscripcionInfo(null);
+    // Forzar redirección a login
+    window.location.href = "/login";
   };
 
   const isDueño = userData?.role === ROLES.DUEÑO;
