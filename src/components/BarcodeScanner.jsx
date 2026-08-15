@@ -1,69 +1,87 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
-import { BrowserMultiFormatReader } from '@zxing/browser';
-import { BarcodeFormat, DecodeHintType } from '@zxing/library';
-import { X, Camera, Scan, AlertTriangle, Keyboard } from 'lucide-react';
+import { useState, useRef, useCallback, useEffect } from "react";
+import { BrowserMultiFormatReader } from "@zxing/browser";
+import { BarcodeFormat, DecodeHintType } from "@zxing/library";
+import { X, Camera, Scan, AlertTriangle, Keyboard } from "lucide-react";
 
 const createZXingReader = () => {
   const hints = new Map();
   const formats = [
-    BarcodeFormat.EAN_13, BarcodeFormat.EAN_8, BarcodeFormat.UPC_A,
-    BarcodeFormat.UPC_E, BarcodeFormat.CODE_128, BarcodeFormat.CODE_39,
-    BarcodeFormat.CODE_93, BarcodeFormat.ITF, BarcodeFormat.QR_CODE,
+    BarcodeFormat.EAN_13,
+    BarcodeFormat.EAN_8,
+    BarcodeFormat.UPC_A,
+    BarcodeFormat.UPC_E,
+    BarcodeFormat.CODE_128,
+    BarcodeFormat.CODE_39,
+    BarcodeFormat.CODE_93,
+    BarcodeFormat.ITF,
+    BarcodeFormat.QR_CODE,
     BarcodeFormat.DATA_MATRIX,
   ];
   hints.set(DecodeHintType.POSSIBLE_FORMATS, formats);
   hints.set(DecodeHintType.TRY_HARDER, true);
   const reader = new BrowserMultiFormatReader(hints);
-  reader.timeBetweenDecodingAttempts = 100;
   return reader;
 };
 
 export default function BarcodeScanner({ onScan, onClose, products = [] }) {
-  const [activeTab, setActiveTab] = useState('camera');
-  const [error, setError] = useState('');
+  const [activeTab, setActiveTab] = useState("camera");
+  const [error, setError] = useState("");
   const [scannerReady, setScannerReady] = useState(false);
-  const [manualCode, setManualCode] = useState('');
-  
+  const [manualCode, setManualCode] = useState("");
   const videoRef = useRef(null);
   const controlsRef = useRef(null);
   const pauseRef = useRef(false);
+  const isProcessingRef = useRef(false);
   const onScanRef = useRef(onScan);
   const onCloseRef = useRef(onClose);
 
-  useEffect(() => { onScanRef.current = onScan; }, [onScan]);
-  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
+  useEffect(() => {
+    onScanRef.current = onScan;
+  }, [onScan]);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   const stopLiveScanner = useCallback(() => {
     if (controlsRef.current) {
-      try { controlsRef.current.stop(); } catch {}
+      try {
+        controlsRef.current.stop();
+      } catch {
+        /* noop */
+      }
       controlsRef.current = null;
     }
     if (videoRef.current) {
       const stream = videoRef.current.srcObject;
       if (stream) {
-        stream.getTracks().forEach(track => track.stop());
+        stream.getTracks().forEach((track) => track.stop());
         videoRef.current.srcObject = null;
       }
     }
     setScannerReady(false);
   }, []);
 
-  const handleCodeFound = useCallback((code) => {
-    stopLiveScanner();
-    onScanRef.current(code);
-    onCloseRef.current();
-  }, [stopLiveScanner]);
+  const handleCodeFound = useCallback(
+    (code) => {
+      stopLiveScanner();
+      onScanRef.current(code);
+      onCloseRef.current();
+    },
+    [stopLiveScanner]
+  );
 
   const startLiveScanner = useCallback(async () => {
-    setError('');
+    setError("");
     try {
       const reader = createZXingReader();
       const controls = await reader.decodeFromConstraints(
-        { audio: false, video: { facingMode: 'environment' } },
+        { audio: false, video: { facingMode: "environment" } },
         videoRef.current,
         (result) => {
-          if (result && !pauseRef.current) {
+          if (result && !pauseRef.current && !isProcessingRef.current) {
             pauseRef.current = true;
+            isProcessingRef.current = true;
             handleCodeFound(result.getText());
           }
         }
@@ -71,8 +89,8 @@ export default function BarcodeScanner({ onScan, onClose, products = [] }) {
       controlsRef.current = controls;
       setScannerReady(true);
     } catch (err) {
-      console.error('[SCANNER] Error:', err);
-      setError('No se pudo iniciar la cámara. Intenta recargar la página.');
+      console.error("[SCANNER] Error:", err);
+      setError("No se pudo iniciar la cámara. Intenta recargar la página.");
       setScannerReady(false);
     }
   }, [handleCodeFound]);
@@ -85,8 +103,8 @@ export default function BarcodeScanner({ onScan, onClose, products = [] }) {
 
   const handleTabChange = (tab) => {
     setActiveTab(tab);
-    setError('');
-    if (tab === 'camera') {
+    setError("");
+    if (tab === "camera") {
       startLiveScanner();
     } else {
       stopLiveScanner();
@@ -108,25 +126,35 @@ export default function BarcodeScanner({ onScan, onClose, products = [] }) {
             <Scan className="w-5 h-5" />
             Escanear código
           </h2>
-          <button onClick={() => { stopLiveScanner(); onClose(); }} className="text-gray-400 hover:text-white">
+          <button
+            onClick={() => {
+              stopLiveScanner();
+              onClose();
+            }}
+            className="text-gray-400 hover:text-white"
+          >
             <X className="w-6 h-6" />
           </button>
         </div>
 
         <div className="flex border-b border-gray-700">
           <button
-            onClick={() => handleTabChange('camera')}
+            onClick={() => handleTabChange("camera")}
             className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 transition-colors ${
-              activeTab === 'camera' ? 'text-blue-400 border-b-2 border-blue-400 bg-gray-800' : 'text-gray-400 hover:text-gray-200'
+              activeTab === "camera"
+                ? "text-blue-400 border-b-2 border-blue-400 bg-gray-800"
+                : "text-gray-400 hover:text-gray-200"
             }`}
           >
             <Camera className="w-4 h-4" />
             Cámara en vivo
           </button>
           <button
-            onClick={() => handleTabChange('manual')}
+            onClick={() => handleTabChange("manual")}
             className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 transition-colors ${
-              activeTab === 'manual' ? 'text-blue-400 border-b-2 border-blue-400 bg-gray-800' : 'text-gray-400 hover:text-gray-200'
+              activeTab === "manual"
+                ? "text-blue-400 border-b-2 border-blue-400 bg-gray-800"
+                : "text-gray-400 hover:text-gray-200"
             }`}
           >
             <Keyboard className="w-4 h-4" />
@@ -144,7 +172,7 @@ export default function BarcodeScanner({ onScan, onClose, products = [] }) {
         )}
 
         <div className="p-4">
-          {activeTab === 'camera' && (
+          {activeTab === "camera" && (
             <div>
               <video
                 ref={videoRef}
@@ -161,7 +189,7 @@ export default function BarcodeScanner({ onScan, onClose, products = [] }) {
             </div>
           )}
 
-          {activeTab === 'manual' && (
+          {activeTab === "manual" && (
             <form onSubmit={handleManualSubmit} className="space-y-4">
               <div>
                 <label className="block text-gray-400 text-sm mb-2">
@@ -189,9 +217,7 @@ export default function BarcodeScanner({ onScan, onClose, products = [] }) {
         </div>
 
         <div className="px-4 pb-4 text-center">
-          <p className="text-gray-500 text-xs">
-            Carrito · {products.length} items
-          </p>
+          <p className="text-gray-500 text-xs">Carrito · {products.length} items</p>
         </div>
       </div>
     </div>

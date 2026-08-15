@@ -56,8 +56,8 @@ function openIDB() {
 }
 
 async function idbSet(key, value) {
-  const db = await openIDB();
-  const tx = db.transaction(IDB_STORE, "readwrite");
+  const database = await openIDB();
+  const tx = database.transaction(IDB_STORE, "readwrite");
   const store = tx.objectStore(IDB_STORE);
   return new Promise((resolve, reject) => {
     const req = store.put(value, key);
@@ -68,8 +68,8 @@ async function idbSet(key, value) {
 
 async function idbGet(key) {
   try {
-    const db = await openIDB();
-    const tx = db.transaction(IDB_STORE, "readonly");
+    const database = await openIDB();
+    const tx = database.transaction(IDB_STORE, "readonly");
     const store = tx.objectStore(IDB_STORE);
     return new Promise((resolve, reject) => {
       const req = store.get(key);
@@ -83,8 +83,8 @@ async function idbGet(key) {
 
 async function idbDel(key) {
   try {
-    const db = await openIDB();
-    const tx = db.transaction(IDB_STORE, "readwrite");
+    const database = await openIDB();
+    const tx = database.transaction(IDB_STORE, "readwrite");
     const store = tx.objectStore(IDB_STORE);
     return new Promise((resolve, reject) => {
       const req = store.delete(key);
@@ -144,6 +144,33 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const [suscripcionInfo, setSuscripcionInfo] = useState(null);
 
+  // 🔥 FIX #9: Función refreshUser para recargar datos desde Firestore
+  const refreshUser = useCallback(async () => {
+    if (user) {
+      try {
+        const userDoc = await getDoc(doc(db, "users", user.uid));
+        if (userDoc.exists()) {
+          const data = userDoc.data();
+          setUserData(data);
+          setSuscripcionInfo(verificarEstadoV2(data));
+
+          const session = {
+            uid: user.uid,
+            email: user.email?.toLowerCase(),
+            displayName: user.displayName,
+            photoURL: user.photoURL,
+            userData: data,
+            savedAt: new Date().toISOString(),
+          };
+          await idbSet("session", session);
+          saveOfflineSession(user, data);
+        }
+      } catch (err) {
+        console.error("Error refrescando usuario:", err);
+      }
+    }
+  }, [user]);
+
   useEffect(() => {
     let unsub = null;
     let mounted = true;
@@ -172,14 +199,14 @@ export function AuthProvider({ children }) {
             if (userDoc.exists()) {
               let data = userDoc.data();
 
-              // 🔥 FIX: Verificar y auto-actualizar fases de suscripción
               const estadoInfo = verificarEstadoV2(data);
-
-              if (estadoInfo.necesitaUpgrade || 
-                  (data.plan === "pro_gratis" && estadoInfo.suspendido) ||
-                  ((data.plan === "basico" || data.plan === "pro") && estadoInfo.suspendido)) {
+              if (
+                estadoInfo.necesitaUpgrade ||
+                (data.plan === "pro_gratis" && estadoInfo.suspendido) ||
+                ((data.plan === "basico" || data.plan === "pro") && estadoInfo.suspendido)
+              ) {
                 try {
-                  const nuevoPlan = await autoUpgradeFases(firebaseUser.uid, data);
+                  await autoUpgradeFases(firebaseUser.uid, data);
                   const updatedDoc = await getDoc(doc(db, "users", firebaseUser.uid));
                   if (updatedDoc.exists()) data = updatedDoc.data();
                 } catch (upgradeErr) {
@@ -237,13 +264,11 @@ export function AuthProvider({ children }) {
             setSuscripcionInfo(null);
           }
         }
-
         if (mounted) setLoading(false);
       });
     }
 
     init();
-
     return () => {
       mounted = false;
       if (unsub) unsub();
@@ -256,6 +281,7 @@ export function AuthProvider({ children }) {
     for (const uid in users) {
       if (users[uid].username === clean) return users[uid].email;
     }
+
     const offlineSession = getOfflineSession();
     const almacenId = offlineSession?.userData?.almacenId;
     if (almacenId) {
@@ -263,8 +289,11 @@ export function AuthProvider({ children }) {
         const cache = JSON.parse(localStorage.getItem(`pos_vendedores_cache_${almacenId}`) || "[]");
         const found = cache.find((v) => v.username === clean);
         if (found) return found.email;
-      } catch { /* noop */ }
+      } catch {
+        /* noop */
+      }
     }
+
     if (navigator.onLine) {
       try {
         const snap = await getDoc(doc(db, "publicUsernames", clean));
@@ -275,7 +304,9 @@ export function AuthProvider({ children }) {
             return `vendedor.${clean}.${data.almacenId}@pos-almacen.local`;
           }
         }
-      } catch { /* noop */ }
+      } catch {
+        /* noop */
+      }
     }
     return null;
   }
@@ -293,12 +324,13 @@ export function AuthProvider({ children }) {
       const userDoc = await getDoc(doc(db, "users", result.user.uid));
       if (userDoc.exists()) {
         let data = userDoc.data();
-
         const estadoInfo = verificarEstadoV2(data);
 
-        if (estadoInfo.necesitaUpgrade || 
-            (data.plan === "pro_gratis" && estadoInfo.suspendido) ||
-            ((data.plan === "basico" || data.plan === "pro") && estadoInfo.suspendido)) {
+        if (
+          estadoInfo.necesitaUpgrade ||
+          (data.plan === "pro_gratis" && estadoInfo.suspendido) ||
+          ((data.plan === "basico" || data.plan === "pro") && estadoInfo.suspendido)
+        ) {
           try {
             await autoUpgradeFases(result.user.uid, data);
             const updatedDoc = await getDoc(doc(db, "users", result.user.uid));
@@ -354,6 +386,7 @@ export function AuthProvider({ children }) {
             offline = session;
           }
         }
+
         if (offline) {
           setUser({
             uid: offline.uid,
@@ -371,45 +404,58 @@ export function AuthProvider({ children }) {
     }
   };
 
+  // 🔥 FIX #7: Rollback si falla la creación en Firestore
   const registerDueño = async (email, password, nombre, nombreAlmacen) => {
     const result = await createUserWithEmailAndPassword(auth, email, password);
     await updateProfile(result.user, { displayName: nombre });
-    const almacenRef = doc(collection(db, "almacenes"));
-    await setDoc(almacenRef, {
-      nombre: nombreAlmacen,
-      dueñoId: result.user.uid,
-      plan: PLANES.BASICO,
-      createdAt: new Date().toISOString(),
-    });
-    await setDoc(doc(db, "users", result.user.uid), {
-      email,
-      nombre,
-      role: ROLES.DUEÑO,
-      almacenId: almacenRef.id,
-      plan: PLANES.BASICO,
-      createdAt: new Date().toISOString(),
-    });
-    const newUserData = {
-      email,
-      nombre,
-      role: ROLES.DUEÑO,
-      almacenId: almacenRef.id,
-      plan: PLANES.BASICO,
-    };
-    setUserData(newUserData);
-    setSuscripcionInfo(verificarEstadoV2(newUserData));
-    const session = {
-      uid: result.user.uid,
-      email: result.user.email?.toLowerCase(),
-      displayName: result.user.displayName,
-      photoURL: result.user.photoURL,
-      userData: newUserData,
-      savedAt: new Date().toISOString(),
-    };
-    await idbSet("session", session);
-    saveOfflineSession(result.user, newUserData);
-    saveOfflineUser(result.user.uid, newUserData);
-    return result;
+
+    try {
+      const almacenRef = doc(collection(db, "almacenes"));
+      await setDoc(almacenRef, {
+        nombre: nombreAlmacen,
+        dueñoId: result.user.uid,
+        plan: PLANES.BASICO,
+        createdAt: new Date().toISOString(),
+      });
+
+      await setDoc(doc(db, "users", result.user.uid), {
+        email,
+        nombre,
+        role: ROLES.DUEÑO,
+        almacenId: almacenRef.id,
+        plan: PLANES.BASICO,
+        createdAt: new Date().toISOString(),
+      });
+
+      const newUserData = {
+        email,
+        nombre,
+        role: ROLES.DUEÑO,
+        almacenId: almacenRef.id,
+        plan: PLANES.BASICO,
+      };
+
+      setUserData(newUserData);
+      setSuscripcionInfo(verificarEstadoV2(newUserData));
+
+      const session = {
+        uid: result.user.uid,
+        email: result.user.email?.toLowerCase(),
+        displayName: result.user.displayName,
+        photoURL: result.user.photoURL,
+        userData: newUserData,
+        savedAt: new Date().toISOString(),
+      };
+      await idbSet("session", session);
+      saveOfflineSession(result.user, newUserData);
+      saveOfflineUser(result.user.uid, newUserData);
+
+      return result;
+    } catch (err) {
+      console.error("Error creando almacén, revirtiendo usuario:", err);
+      await result.user.delete().catch((e) => console.error("No se pudo borrar usuario huérfano:", e));
+      throw err;
+    }
   };
 
   const logout = async () => {
@@ -427,11 +473,14 @@ export function AuthProvider({ children }) {
   const isSuspendido = suscripcionInfo?.suspendido || false;
   const planReal = suscripcionInfo?.planReal || null;
 
-  const hasPrivilege = useCallback((privilege) => {
-    if (isDueño) return true;
-    if (!userData?.privilegios) return false;
-    return !!userData.privilegios[privilege];
-  }, [isDueño, userData]);
+  const hasPrivilege = useCallback(
+    (privilege) => {
+      if (isDueño) return true;
+      if (!userData?.privilegios) return false;
+      return !!userData.privilegios[privilege];
+    },
+    [isDueño, userData]
+  );
 
   return (
     <AuthContext.Provider
@@ -450,6 +499,7 @@ export function AuthProvider({ children }) {
         suscripcionInfo,
         isSuspendido,
         planReal,
+        refreshUser,
       }}
     >
       {children}
@@ -466,6 +516,7 @@ export function useAuth() {
 export async function crearVendedorDirecto(almacenId, nombre, username, password) {
   const cleanUser = username.toLowerCase().trim();
   const email = `vendedor.${cleanUser}.${almacenId}@pos-almacen.local`;
+
   const snapCheck = await getDoc(doc(db, "publicUsernames", cleanUser));
   if (snapCheck.exists()) throw new Error("El nombre de usuario ya existe");
 
@@ -478,11 +529,14 @@ export async function crearVendedorDirecto(almacenId, nombre, username, password
     }
   );
   const data = await response.json();
+
   if (data.error) {
     if (data.error.message === "EMAIL_EXISTS") throw new Error("El usuario ya existe");
-    if (data.error.message === "WEAK_PASSWORD") throw new Error("Contraseña muy débil (mínimo 6 caracteres)");
+    if (data.error.message === "WEAK_PASSWORD")
+      throw new Error("Contraseña muy débil (mínimo 6 caracteres)");
     throw new Error(data.error.message);
   }
+
   const uid = data.localId;
   await setDoc(doc(db, "users", uid), {
     email,
@@ -493,11 +547,13 @@ export async function crearVendedorDirecto(almacenId, nombre, username, password
     activo: true,
     createdAt: new Date().toISOString(),
   });
+
   await setDoc(doc(db, "publicUsernames", cleanUser), {
     email,
     almacenId,
     uid,
   });
+
   return { uid, email, username: cleanUser };
 }
 

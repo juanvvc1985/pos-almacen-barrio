@@ -1,17 +1,13 @@
-// pages/Login.jsx
-// Login accesible con id, name y htmlFor correctos
-
 import { useState } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { useNavigate } from "react-router-dom";
 
 export default function Login() {
-  const { login, loginAnonimo, error: authError } = useAuth();
+  const { login, registerDueño, error: authError } = useAuth();
   const navigate = useNavigate();
-
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [modo, setModo] = useState("login"); // "login" | "registro"
+  const [modo, setModo] = useState("login");
   const [nombre, setNombre] = useState("");
   const [nombreNegocio, setNombreNegocio] = useState("");
   const [cargando, setCargando] = useState(false);
@@ -21,29 +17,15 @@ export default function Login() {
     e.preventDefault();
     setErrorLocal("");
     setCargando(true);
-
     try {
       if (modo === "login") {
         await login(email, password);
       } else {
-        // Registro — ajusta según tu flujo real
-        await login(email, password); // o tu función de registro
+        await registerDueño(email, password, nombre, nombreNegocio);
       }
-      navigate("/dashboard");
+      navigate("/");
     } catch (err) {
       setErrorLocal(err.message || "Error al iniciar sesión");
-    } finally {
-      setCargando(false);
-    }
-  }
-
-  async function handleAnonimo() {
-    setCargando(true);
-    try {
-      await loginAnonimo();
-      navigate("/dashboard");
-    } catch (err) {
-      setErrorLocal(err.message || "Error al entrar como invitado");
     } finally {
       setCargando(false);
     }
@@ -59,9 +41,7 @@ export default function Login() {
           <h1 className="text-2xl font-bold text-gray-800">
             {modo === "login" ? "Iniciar Sesión" : "Crear Cuenta"}
           </h1>
-          <p className="text-gray-500 text-sm mt-1">
-            Almacén de Barrio — POS
-          </p>
+          <p className="text-gray-500 text-sm mt-1">Almacén de Barrio — POS</p>
         </div>
 
         {error && (
@@ -167,17 +147,6 @@ export default function Login() {
             {modo === "login"
               ? "¿No tienes cuenta? Regístrate"
               : "¿Ya tienes cuenta? Inicia sesión"}
-          </button>
-        </div>
-
-        <div className="mt-4 pt-4 border-t border-gray-200">
-          <button
-            type="button"
-            onClick={handleAnonimo}
-            disabled={cargando}
-            className="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium py-2.5 rounded-lg transition disabled:opacity-50"
-          >
-            👤 Entrar como invitado
           </button>
         </div>
       </div>

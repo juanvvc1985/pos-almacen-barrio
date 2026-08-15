@@ -49,7 +49,6 @@ export function getCachedProducts(almacenId) {
 
 export async function getProducts(almacenId) {
   if (!almacenId) return [];
-
   try {
     const q = query(
       collection(db, COLLECTION),
@@ -58,8 +57,6 @@ export async function getProducts(almacenId) {
     const snap = await getDocs(q);
     const products = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     const sorted = products.sort((a, b) => (a.nombre || "").localeCompare(b.nombre || ""));
-
-    // Guardar en cache para uso offline
     saveProductsToCache(almacenId, sorted);
     return sorted;
   } catch (err) {
@@ -76,12 +73,11 @@ export async function getProduct(productId) {
   return null;
 }
 
-// 🔥 FIX: Validar duplicados por código de barras antes de crear
+// 🔥 FIX #4: Validar duplicados por código de barras antes de crear
 export async function createProduct(almacenId, productData) {
   const check = await puedeCrearProducto(almacenId);
   if (!check.permitido) throw new Error(check.mensaje);
 
-  // Si tiene código de barras, verificar que no exista otro producto con el mismo código
   if (productData.codigoBarras && productData.codigoBarras.trim() !== "") {
     const existente = await getProductByBarcode(almacenId, productData.codigoBarras.trim());
     if (existente) {
@@ -99,7 +95,23 @@ export async function createProduct(almacenId, productData) {
   return { id: ref.id, ...data };
 }
 
+// 🔥 FIX #4: Validar duplicados por código de barras al actualizar (excluyendo el propio producto)
 export async function updateProduct(productId, updates) {
+  // Si se actualiza el código de barras, verificar que no exista otro producto con el mismo código
+  if (updates.codigoBarras && updates.codigoBarras.trim() !== "") {
+    // Necesitamos el almacenId para buscar duplicados
+    const currentProduct = await getProduct(productId);
+    if (!currentProduct) throw new Error("Producto no encontrado");
+
+    const almacenId = currentProduct.almacenId;
+    const existente = await getProductByBarcode(almacenId, updates.codigoBarras.trim());
+
+    // Si existe OTRO producto (distinto al que se está editando) con el mismo código
+    if (existente && existente.id !== productId) {
+      throw new Error(`Ya existe otro producto con el código de barras "${updates.codigoBarras}".`);
+    }
+  }
+
   const data = { ...updates, updatedAt: new Date().toISOString() };
   await updateDoc(doc(db, COLLECTION, productId), data);
   return { id: productId, ...updates };
@@ -111,15 +123,12 @@ export async function deleteProduct(productId) {
 
 export async function addStock(productId, cantidad, loteData = null) {
   const productRef = doc(db, COLLECTION, productId);
-
   return await runTransaction(db, async (transaction) => {
     const productSnap = await transaction.get(productRef);
     if (!productSnap.exists()) throw new Error("Producto no encontrado");
-
     const product = productSnap.data();
     const nuevoStock = (product.stock || 0) + cantidad;
     const updates = { stock: nuevoStock, updatedAt: new Date().toISOString() };
-
     if (product.perecedero && loteData) {
       const lotes = product.lotes ? [...product.lotes] : [];
       lotes.push({
@@ -130,7 +139,6 @@ export async function addStock(productId, cantidad, loteData = null) {
       });
       updates.lotes = lotes;
     }
-
     transaction.update(productRef, updates);
     return { id: productId, ...product, ...updates };
   });
@@ -138,23 +146,18 @@ export async function addStock(productId, cantidad, loteData = null) {
 
 export async function discountStock(productId, cantidad) {
   const productRef = doc(db, COLLECTION, productId);
-
   return await runTransaction(db, async (transaction) => {
     const productSnap = await transaction.get(productRef);
     if (!productSnap.exists()) throw new Error("Producto no encontrado");
-
     const product = productSnap.data();
-
     if ((product.stock || 0) < cantidad) {
       throw new Error(`Stock insuficiente: ${product.nombre || productId}`);
     }
-
     const nuevoStock = (product.stock || 0) - cantidad;
     const updates = {
       stock: nuevoStock,
       updatedAt: new Date().toISOString(),
     };
-
     if (product.perecedero && product.lotes) {
       let restante = cantidad;
       const lotes = [...product.lotes].sort(
@@ -171,7 +174,6 @@ export async function discountStock(productId, cantidad) {
       }
       updates.lotes = lotes.filter((l) => l.cantidad > 0);
     }
-
     transaction.update(productRef, updates);
     return { id: productId, ...product, ...updates };
   });
@@ -187,7 +189,6 @@ export async function discountStockBatch(carritoItems) {
 }
 
 // 🔥 FIX: Si hay múltiples productos con el mismo código, devolver el que tenga stock > 0
-// para evitar vender productos duplicados con stock 0
 export async function getProductByBarcode(almacenId, barcode) {
   if (!almacenId || !barcode) return null;
   try {
@@ -198,18 +199,12 @@ export async function getProductByBarcode(almacenId, barcode) {
     );
     const snap = await getDocs(q);
     if (snap.empty) return null;
-
-    // Si hay múltiples resultados, priorizar el que tenga stock disponible
     const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     if (docs.length === 1) return docs[0];
-
     const conStock = docs.find(p => (p.stock || 0) > 0);
     if (conStock) return conStock;
-
-    // Si ninguno tiene stock, devolver el primero (para mostrarlo como agotado)
     return docs[0];
   } catch (err) {
-    // Fallback: buscar en cache local
     const cached = getCachedProducts(almacenId);
     if (cached) {
       const matches = cached.filter(p => p.codigoBarras === barcode);

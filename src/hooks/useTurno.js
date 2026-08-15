@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import {
-  getActiveTurno,
-  closeTurno as closeTurnoService,
-  openTurno as openTurnoService,
+  getTurnoActivo,
+  createTurno as openTurnoService,
+  updateTurno,
 } from "../services/firestoreSales";
 
 export function useTurno(almacenId, vendedorId) {
@@ -18,7 +18,7 @@ export function useTurno(almacenId, vendedorId) {
     setLoading(true);
     setError("");
     try {
-      const t = await getActiveTurno(almacenId, vendedorId);
+      const t = await getTurnoActivo(almacenId);
       setTurno(t);
     } catch (e) {
       console.error(e);
@@ -40,12 +40,14 @@ export function useTurno(almacenId, vendedorId) {
       setLoading(true);
       setError("");
       try {
-        const res = await openTurnoService(
-          almacenId,
+        const turnoData = {
+          estado: "abierto",
           vendedorId,
           vendedorNombre,
-          efectivoInicial
-        );
+          montoInicial: efectivoInicial,
+          ventas: { efectivo: 0, tarjeta: 0, transferencia: 0, fiado: 0 },
+        };
+        const res = await openTurnoService(almacenId, turnoData);
         await refresh();
         return res;
       } catch (e) {
@@ -60,15 +62,18 @@ export function useTurno(almacenId, vendedorId) {
   );
 
   const cerrar = useCallback(async () => {
-    if (!almacenId || !vendedorId) {
-      throw new Error("Falta almacenId o vendedorId");
+    if (!almacenId || !vendedorId || !turno?.id) {
+      throw new Error("Falta turno activo");
     }
     setLoading(true);
     setError("");
     try {
-      const resumen = await closeTurnoService(almacenId, vendedorId);
+      await updateTurno(turno.id, {
+        estado: "cerrado",
+        cerradoEn: new Date().toISOString(),
+      });
       setTurno(null);
-      return resumen;
+      return { mensaje: "Turno cerrado" };
     } catch (e) {
       console.error(e);
       setError(e.message || "Error al cerrar turno");
@@ -76,7 +81,7 @@ export function useTurno(almacenId, vendedorId) {
     } finally {
       setLoading(false);
     }
-  }, [almacenId, vendedorId]);
+  }, [almacenId, vendedorId, turno]);
 
   return { turno, loading, error, refresh, abrir, cerrar };
 }
