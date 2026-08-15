@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useAuth } from "../hooks/useAuth";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
+import { Store, Mail, Lock, Loader2, ArrowLeft } from "lucide-react";
 
 export default function Login() {
   const { login, registerDueño, error: authError } = useAuth();
@@ -23,7 +24,7 @@ export default function Login() {
       } else {
         await registerDueño(email, password, nombre, nombreNegocio);
       }
-      navigate("/");
+      navigate("/app"); // Redirigir al dashboard interno
     } catch (err) {
       setErrorLocal(err.message || "Error al iniciar sesión");
     } finally {
@@ -34,27 +35,29 @@ export default function Login() {
   const error = errorLocal || authError;
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100 px-4">
-      <div className="w-full max-w-md bg-white rounded-xl shadow-lg p-8">
-        <div className="text-center mb-6">
-          <div className="text-4xl mb-2">🏪</div>
-          <h1 className="text-2xl font-bold text-gray-800">
-            {modo === "login" ? "Iniciar Sesión" : "Crear Cuenta"}
+    <div className="min-h-screen flex items-center justify-center bg-stone-50 px-4 font-sans">
+      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl shadow-stone-200/50 p-8 border border-stone-100">
+        <div className="text-center mb-8">
+          <div className="w-12 h-12 bg-slate-800 rounded-xl flex items-center justify-center mx-auto mb-4">
+            <Store className="w-6 h-6 text-white" />
+          </div>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
+            {modo === "login" ? "Bienvenido de vuelta" : "Crear Cuenta"}
           </h1>
-          <p className="text-gray-500 text-sm mt-1">Almacén de Barrio — POS</p>
+          <p className="text-slate-500 text-sm mt-2">Almacén de Barrio — POS</p>
         </div>
 
         {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">
-            {error}
+          <div className="bg-red-50 border border-red-100 text-red-700 px-4 py-3 rounded-xl mb-6 text-sm flex items-start gap-2">
+            <span className="font-medium">Error:</span> {error}
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-5">
           {modo === "registro" && (
             <>
               <div>
-                <label htmlFor="nombre" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="nombre" className="block text-sm font-medium text-slate-700 mb-1.5">
                   Tu nombre
                 </label>
                 <input
@@ -65,12 +68,12 @@ export default function Login() {
                   required
                   value={nombre}
                   onChange={(e) => setNombre(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+                  className="w-full border border-stone-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition bg-stone-50/50"
                   placeholder="Juan Pérez"
                 />
               </div>
               <div>
-                <label htmlFor="nombreNegocio" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="nombreNegocio" className="block text-sm font-medium text-slate-700 mb-1.5">
                   Nombre del negocio
                 </label>
                 <input
@@ -81,7 +84,7 @@ export default function Login() {
                   required
                   value={nombreNegocio}
                   onChange={(e) => setNombreNegocio(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+                  className="w-full border border-stone-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition bg-stone-50/50"
                   placeholder="Mi Almacén"
                 />
               </div>
@@ -89,66 +92,77 @@ export default function Login() {
           )}
 
           <div>
-            <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="email" className="block text-sm font-medium text-slate-700 mb-1.5">
               Correo electrónico
             </label>
-            <input
-              id="email"
-              name="email"
-              type="email"
-              autoComplete="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
-              placeholder="tu@email.com"
-            />
+            <div className="relative">
+              <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+              <input
+                id="email"
+                name="email"
+                type="email"
+                autoComplete="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full border border-stone-200 rounded-xl pl-10 pr-4 py-2.5 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition bg-stone-50/50"
+                placeholder="tu@email.com"
+              />
+            </div>
           </div>
 
           <div>
-            <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="password" className="block text-sm font-medium text-slate-700 mb-1.5">
               Contraseña
             </label>
-            <input
-              id="password"
-              name="password"
-              type="password"
-              autoComplete={modo === "login" ? "current-password" : "new-password"}
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
-              placeholder="••••••••"
-            />
+            <div className="relative">
+              <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+              <input
+                id="password"
+                name="password"
+                type="password"
+                autoComplete={modo === "login" ? "current-password" : "new-password"}
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full border border-stone-200 rounded-xl pl-10 pr-4 py-2.5 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition bg-stone-50/50"
+                placeholder="••••••••"
+              />
+            </div>
           </div>
 
           <button
             type="submit"
             disabled={cargando}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full bg-slate-900 hover:bg-slate-800 text-white font-semibold py-3 rounded-xl transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-slate-900/20"
           >
-            {cargando
-              ? "Cargando..."
-              : modo === "login"
-              ? "🔐 Iniciar Sesión"
-              : "✨ Crear Cuenta"}
+            {cargando ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
+            {cargando ? "Procesando..." : modo === "login" ? "Iniciar Sesión" : "Crear Cuenta"}
           </button>
         </form>
 
-        <div className="mt-4 text-center">
+        <div className="mt-6 text-center">
           <button
             type="button"
             onClick={() => {
               setModo(modo === "login" ? "registro" : "login");
               setErrorLocal("");
             }}
-            className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+            className="text-emerald-600 hover:text-emerald-700 text-sm font-medium transition"
           >
             {modo === "login"
               ? "¿No tienes cuenta? Regístrate"
               : "¿Ya tienes cuenta? Inicia sesión"}
           </button>
         </div>
+        
+        {modo === "login" && (
+          <div className="mt-4 pt-4 border-t border-stone-100 text-center">
+             <Link to="/" className="text-xs text-slate-400 hover:text-slate-600 flex items-center justify-center gap-1">
+               <ArrowLeft size={12} /> Volver al inicio
+             </Link>
+          </div>
+        )}
       </div>
     </div>
   );

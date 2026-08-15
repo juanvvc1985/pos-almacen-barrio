@@ -7,10 +7,10 @@ import BetaRegister from "./pages/BetaRegister";
 import Register from "./pages/Register";
 import LandingPage from "./pages/LandingPage";
 
-// Componente para proteger rutas
+// Componente para proteger rutas privadas
 function PrivateRoute({ children }) {
   const { isAuthenticated, loading } = useAuth();
-  if (loading) return <div className="min-h-screen flex items-center justify-center bg-slate-50"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-slate-600"></div></div>;
+  if (loading) return <div className="min-h-screen flex items-center justify-center bg-stone-50"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-slate-600"></div></div>;
   return isAuthenticated ? children : <Navigate to="/login" />;
 }
 
@@ -19,23 +19,26 @@ function App() {
     <AuthProvider>
       <BrowserRouter>
         <Routes>
-          {/* Rutas Públicas */}
+          {/* Ruta pública: Landing Page (Inicio) */}
           <Route path="/" element={<LandingPage />} />
+          
+          {/* Rutas públicas de autenticación */}
           <Route path="/login" element={<Login />} />
           <Route path="/registro" element={<Register />} />
           <Route path="/beta-registro" element={<BetaRegister />} />
           <Route path="/canjear-beta" element={<CanjearCodigo />} />
           
-          {/* Rutas Privadas (Dashboard) */}
+          {/* Rutas privadas (Dashboard) */}
           <Route path="/app/*" element={
             <PrivateRoute>
               <Dashboard />
             </PrivateRoute>
           } />
           
-          {/* Redirección legacy por si alguien entra a /vender directamente sin estar logueado */}
+          {/* Redirecciones legacy por si alguien entra a rutas viejas */}
           <Route path="/vender" element={<Navigate to="/app/vender" />} />
           <Route path="/productos" element={<Navigate to="/app/productos" />} />
+          <Route path="/dashboard" element={<Navigate to="/app" />} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>

@@ -10,37 +10,37 @@ export default function LandingPage() {
   const [menuAbierto, setMenuAbierto] = useState(false);
   const [faqAbierta, setFaqAbierta] = useState(null);
 
-  // Paleta Nórdica: Slate (Gris azulado), Stone (Gris cálido), Emerald (Verde bosque suave)
+  // Paleta Nórdica: Slate (Gris azulado), Stone (Gris cálido/piedra), Emerald (Verde bosque suave)
   const caracteristicas = [
     {
       icon: <WifiOff className="w-6 h-6 text-emerald-600" />,
-      titulo: "Offline First",
-      desc: "Vende sin internet. Tus datos se sincronizan automáticamente cuando recuperas la conexión.",
+      titulo: "100% Offline",
+      desc: "Vende sin internet. Todo se guarda localmente y se sincroniza cuando vuelvas a conectar.",
     },
     {
       icon: <Smartphone className="w-6 h-6 text-slate-600" />,
-      titulo: "Tu Celular es tu Caja",
-      desc: "Olvídate del hardware costoso. Funciona perfecto en cualquier smartphone o tablet.",
+      titulo: "Desde tu celular",
+      desc: "No necesitas computador ni caja registradora. Tu celular es tu POS.",
     },
     {
       icon: <Package className="w-6 h-6 text-stone-600" />,
-      titulo: "Stock Inteligente",
-      desc: "Controla inventario, lotes y vencimientos con alertas automáticas antes de que falte producto.",
+      titulo: "Control de stock",
+      desc: "Sabe exactamente qué tienes, qué se vende más y qué está por agotarse.",
     },
     {
       icon: <BarChart3 className="w-6 h-6 text-emerald-600" />,
-      titulo: "Reportes Claros",
-      desc: "Visualiza tus ventas diarias, productos top y fiados pendientes en gráficos limpios.",
+      titulo: "Reportes claros",
+      desc: "Ventas por día, producto, vendedor. Toma decisiones con datos reales.",
     },
     {
       icon: <Users className="w-6 h-6 text-slate-600" />,
-      titulo: "Multi-Vendedor",
-      desc: "Crea usuarios para tu equipo con permisos granulares. Sabrás quién vendió qué.",
+      titulo: "Multi-vendedor",
+      desc: "Cada vendedor con su usuario. Controla quién puede vender, editar o ver reportes.",
     },
     {
       icon: <ShieldCheck className="w-6 h-6 text-stone-600" />,
-      titulo: "Fiados Seguros",
-      desc: "Registra deudas de clientes de confianza con historial de pagos y recordatorios.",
+      titulo: "Fiados seguros",
+      desc: "Registra deudas de clientes con nombre, teléfono y dirección. Nunca pierdas una cuenta.",
     },
   ];
 
@@ -82,20 +82,24 @@ export default function LandingPage() {
 
   const faqs = [
     {
-      pregunta: "¿Realmente funciona sin internet?",
-      respuesta: "Sí, absolutamente. La aplicación guarda todo localmente en tu dispositivo. Puedes vender, registrar fiados y agregar productos sin señal. Todo se sube a la nube en segundo plano cuando tengas WiFi o datos.",
+      pregunta: "¿Necesito internet para usar Loventa?",
+      respuesta: "No. Loventa funciona 100% offline. Puedes vender, agregar productos y registrar fiados sin conexión. Todo se sincroniza automáticamente cuando recuperes internet.",
     },
     {
-      pregunta: "¿Necesito comprar una impresora especial?",
-      respuesta: "No es obligatorio, pero si quieres imprimir tickets, funciona con impresoras térmicas Bluetooth estándar (58mm u 80mm) que se conectan directo al celular.",
+      pregunta: "¿Puedo usarlo en mi computador?",
+      respuesta: "Sí, Loventa es una aplicación web responsive. Funciona perfectamente en celulares, tablets y computadores. Solo necesitas un navegador.",
     },
     {
-      pregunta: "¿Mis datos están seguros?",
-      respuesta: "Usamos Firebase de Google, la misma infraestructura que usan bancos y grandes empresas. Tus datos están encriptados y respaldados automáticamente.",
+      pregunta: "¿Qué pasa si pierdo mi celular?",
+      respuesta: "Tus datos están seguros en la nube de Firebase. Solo inicia sesión desde otro dispositivo y recuperas toda tu información al instante.",
     },
     {
-      pregunta: "¿Puedo probarlo gratis?",
-      respuesta: "Sí. Tenemos un programa Beta donde obtienes 30 días de Plan Pro gratis + 6 meses de Plan Básico gratuito. Solo necesitas un código de invitación.",
+      pregunta: "¿Puedo tener varias tiendas?",
+      respuesta: "Sí, con el Plan Pro puedes gestionar múltiples sucursales desde una sola cuenta, con reportes consolidados y stock por tienda.",
+    },
+    {
+      pregunta: "¿Cómo funciona el programa beta?",
+      respuesta: "Si tienes un código de invitación, obtienes 30 días de prueba completa del Plan Pro + 6 meses gratis. Después eliges si quedarte con el Plan Básico o Pro.",
     },
   ];
 
@@ -363,7 +367,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ─── FAQ ── */}
+      {/* ─── FAQ ─── */}
       <section id="faq" className="py-24 bg-white border-t border-stone-100">
         <div className="max-w-3xl mx-auto px-4">
           <div className="text-center mb-12">
