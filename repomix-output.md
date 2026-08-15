@@ -909,7 +909,6 @@ export default function InventoryAlert() {
   async function cargarAlertas() {
     const productos = await productsService.getProducts(almacenId);
     const alertasList = [];
-
     productos.forEach((p) => {
       // Stock crítico
       if (p.stockCritico && p.stock <= p.stockCritico && p.stock > 0) {
@@ -928,16 +927,18 @@ export default function InventoryAlert() {
           producto: p,
         });
       }
-
       // Vencimientos
       if (p.perecedero && p.lotes) {
         p.lotes.forEach((lote) => {
+          // 🔥 FIX #19: Ignorar lotes con cantidad 0 (agotados)
+          if ((lote.cantidad || 0) <= 0) return;
+
           const dias = diasHastaVencimiento(lote.fechaVencimiento);
           if (dias !== null && dias <= (p.diasAlertaVencimiento || 3) && dias >= 0) {
             alertasList.push({
               id: `venc-${p.id}-${lote.id}`,
               tipo: "vencimiento",
-              mensaje: `${p.nombre}: Vence en ${dias} días`,
+              mensaje: `${p.nombre}: Vence en ${dias} días (${lote.cantidad} ${p.unidad})`,
               producto: p,
             });
           }
@@ -945,14 +946,13 @@ export default function InventoryAlert() {
             alertasList.push({
               id: `vencido-${p.id}-${lote.id}`,
               tipo: "vencido",
-              mensaje: `${p.nombre}: Producto vencido`,
+              mensaje: `${p.nombre}: Producto vencido (${lote.cantidad} ${p.unidad})`,
               producto: p,
             });
           }
         });
       }
     });
-
     setAlertas(alertasList);
   }
 
@@ -1245,7 +1245,7 @@ import { useAuth } from "../hooks/useAuth";
 export default function Navbar() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, isDueño, logout } = useAuth();
+  const { user, isDueño, hasPrivilege, logout } = useAuth();
 
   const linkClass = (path) =>
     `px-3 py-2 rounded-lg text-sm font-medium transition ${
@@ -1253,6 +1253,19 @@ export default function Navbar() {
         ? "bg-blue-600 text-white"
         : "text-gray-700 hover:bg-gray-100"
     }`;
+
+  // 🔥 FIX #13: Filtrar enlaces por privilegios
+  const menuItems = [
+    { path: "/vender", label: "🛒 Vender", show: true },
+    { path: "/productos", label: "📦 Productos", show: isDueño || hasPrivilege("productos") },
+    { path: "/fiados", label: "📝 Fiados", show: true },
+    { path: "/ofertas", label: "🏷️ Ofertas", show: isDueño || hasPrivilege("ofertas") },
+    { path: "/mermas", label: "🗑️ Mermas", show: isDueño || hasPrivilege("mermas") },
+    { path: "/informes", label: "📊 Informes", show: true },
+    { path: "/admin-beta", label: "🔑 Códigos Beta", show: isDueño },
+    { path: "/vendedores", label: "👥 Vendedores", show: isDueño },
+    { path: "/configuracion", label: "⚙️ Config", show: isDueño },
+  ];
 
   return (
     <nav className="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-50">
@@ -1266,53 +1279,19 @@ export default function Navbar() {
             🏪 Almacén de Barrio
           </button>
 
-          {/* Links principales */}
+          {/* Links principales filtrados por privilegio */}
           <div className="hidden md:flex items-center gap-1">
-            <button onClick={() => navigate("/vender")} className={linkClass("/vender")}>
-              🛒 Vender
-            </button>
-            <button onClick={() => navigate("/productos")} className={linkClass("/productos")}>
-              📦 Productos
-            </button>
-            <button onClick={() => navigate("/fiados")} className={linkClass("/fiados")}>
-              📝 Fiados
-            </button>
-            <button onClick={() => navigate("/ofertas")} className={linkClass("/ofertas")}>
-              🏷️ Ofertas
-            </button>
-            <button onClick={() => navigate("/mermas")} className={linkClass("/mermas")}>
-              🗑️ Mermas
-            </button>
-            <button onClick={() => navigate("/informes")} className={linkClass("/informes")}>
-              📊 Informes
-            </button>
-
-            {/* 🔑 Botón Códigos Beta — solo para dueños */}
-            {isDueño && (
-              <button
-                onClick={() => navigate("/admin-beta")}
-                className={linkClass("/admin-beta")}
-              >
-                🔑 Códigos Beta
+            {menuItems.filter(item => item.show).map(item => (
+              <button key={item.path} onClick={() => navigate(item.path)} className={linkClass(item.path)}>
+                {item.label}
               </button>
-            )}
-
-            {isDueño && (
-              <button onClick={() => navigate("/vendedores")} className={linkClass("/vendedores")}>
-                👥 Vendedores
-              </button>
-            )}
-            {isDueño && (
-              <button onClick={() => navigate("/configuracion")} className={linkClass("/configuracion")}>
-                ⚙️ Config
-              </button>
-            )}
+            ))}
           </div>
 
           {/* Usuario + Logout */}
           <div className="flex items-center gap-3">
             <span className="text-sm text-gray-600 hidden sm:block">
-              {user?.nombre || user?.email || "Invitado"}
+              {user?.displayName || user?.email || "Invitado"}
               {isDueño && <span className="ml-1 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">Dueño</span>}
             </span>
             <button
@@ -2834,7 +2813,354 @@ export default function POS() {
 
 ## File: src/components/ProductManager.jsx
 ````javascript
-<div className="md:col-span-2">
+import { useState, useEffect } from "react";
+import { useAuth } from "../hooks/useAuth";
+import { productsService } from "../services/firestoreProducts";
+import { puedeCrearProducto, LIMITES } from "../services/planLimits";
+import { UNIDADES, CATEGORIAS, DIAS_ALERTA_VENCIMIENTO } from "../types/index";
+import { formatCurrency } from "../utils/format";
+import BarcodeScanner from "./BarcodeScanner";
+import InventoryAlert from "./InventoryAlert";
+import {
+  Search, Plus, Edit2, Trash2, Package, X, Check, ScanLine,
+  Loader2, Crown, AlertTriangle
+} from "lucide-react";
+
+function generateId() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+export default function ProductManager() {
+  const { almacenId, isDueño, hasPrivilege } = useAuth();
+  const puedeGestionar = isDueño || hasPrivilege("productos");
+  const [productos, setProductos] = useState([]);
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [mostrarForm, setMostrarForm] = useState(false);
+  const [editando, setEditando] = useState(null);
+  const [mostrarScanner, setMostrarScanner] = useState(false);
+  const [scannerMode, setScannerMode] = useState("");
+  const [productoStock, setProductoStock] = useState(null);
+  const [cantidadStock, setCantidadStock] = useState("");
+  const [loteVencimiento, setLoteVencimiento] = useState("");
+  const [planInfo, setPlanInfo] = useState({ plan: "basico", usados: 0, limite: 500, permitido: true });
+  const [form, setForm] = useState({
+    nombre: "", codigoBarras: "", precioVenta: "", precioCompra: "",
+    stock: "", stockCritico: "", unidad: "unidad", categoria: "Abarrotes",
+    perecedero: false, diasAlertaVencimiento: 3, enOferta: false, precioOferta: "", lotes: [],
+    fechaVencimiento: "",
+    cantidadOferta: "", cantidadOfertaVendida: 0,
+  });
+
+  useEffect(() => {
+    if (almacenId) {
+      cargarProductos();
+      cargarPlanInfo();
+    }
+  }, [almacenId]);
+
+  async function cargarProductos() {
+    setLoading(true);
+    const data = await productsService.getProducts(almacenId);
+    setProductos(data);
+    setLoading(false);
+  }
+
+  async function cargarPlanInfo() {
+    const r = await puedeCrearProducto(almacenId);
+    setPlanInfo({
+      plan: r.plan || "basico",
+      usados: r.usados ?? productos.length,
+      limite: r.limite ?? LIMITES.basico.productos,
+      permitido: r.permitido,
+    });
+  }
+
+  const productosFiltrados = search.trim()
+    ? productos.filter(
+        (p) =>
+          p.nombre?.toLowerCase().includes(search.toLowerCase()) ||
+          p.codigoBarras?.includes(search) ||
+          p.categoria?.toLowerCase().includes(search.toLowerCase())
+      )
+    : productos;
+
+  function resetForm() {
+    setForm({
+      nombre: "", codigoBarras: "", precioVenta: "", precioCompra: "",
+      stock: "", stockCritico: "", unidad: "unidad", categoria: "Abarrotes",
+      perecedero: false, diasAlertaVencimiento: 3, enOferta: false, precioOferta: "", lotes: [],
+      fechaVencimiento: "",
+      cantidadOferta: "", cantidadOfertaVendida: 0,
+    });
+    setEditando(null);
+  }
+
+  function handleEditar(producto) {
+    if (!puedeGestionar) return;
+    setForm({
+      nombre: producto.nombre || "", codigoBarras: producto.codigoBarras || "",
+      precioVenta: producto.precioVenta?.toString() || "",
+      precioCompra: producto.precioCompra?.toString() || "",
+      stock: producto.stock?.toString() || "",
+      stockCritico: producto.stockCritico?.toString() || "",
+      unidad: producto.unidad || "unidad", categoria: producto.categoria || "Abarrotes",
+      perecedero: producto.perecedero || false,
+      diasAlertaVencimiento: producto.diasAlertaVencimiento || 3,
+      enOferta: producto.enOferta || false,
+      precioOferta: producto.precioOferta?.toString() || "", lotes: producto.lotes || [],
+      fechaVencimiento: "",
+      cantidadOferta: producto.cantidadOferta?.toString() || "",
+      cantidadOfertaVendida: producto.cantidadOfertaVendida || 0,
+    });
+    setEditando(producto.id);
+    setMostrarForm(true);
+  }
+
+  async function handleGuardar() {
+    if (!puedeGestionar) { alert("Solo el dueño o vendedores con privilegio pueden gestionar productos"); return; }
+    const data = {
+      nombre: form.nombre.trim(), codigoBarras: form.codigoBarras.trim() || null,
+      precioVenta: Number(form.precioVenta) || 0, precioCompra: Number(form.precioCompra) || 0,
+      stock: Number(form.stock) || 0, stockCritico: Number(form.stockCritico) || 0,
+      unidad: form.unidad, categoria: form.categoria,
+      perecedero: form.perecedero, diasAlertaVencimiento: Number(form.diasAlertaVencimiento) || 3,
+      enOferta: form.enOferta, precioOferta: form.enOferta ? Number(form.precioOferta) || 0 : null,
+      lotes: form.lotes || [],
+    };
+
+    // 🔥 FIX #12: Incluir cantidadOferta correctamente en creación Y edición
+    if (form.enOferta) {
+      data.precioOferta = Number(form.precioOferta) || 0;
+      if (form.cantidadOferta !== "" && form.cantidadOferta != null) {
+        const cantidadOfertaNum = Number(form.cantidadOferta);
+        if (!isNaN(cantidadOfertaNum) && cantidadOfertaNum > 0) {
+          data.cantidadOferta = cantidadOfertaNum;
+          data.cantidadOfertaVendida = Number(form.cantidadOfertaVendida) || 0;
+        } else {
+          data.cantidadOferta = null;
+          data.cantidadOfertaVendida = null;
+        }
+      } else {
+        data.cantidadOferta = null;
+        data.cantidadOfertaVendida = null;
+      }
+    } else {
+      data.precioOferta = null;
+      data.cantidadOferta = null;
+      data.cantidadOfertaVendida = null;
+    }
+
+    if (form.perecedero && form.fechaVencimiento) {
+      data.lotes = [{
+        id: generateId(),
+        cantidad: data.stock,
+        fechaVencimiento: form.fechaVencimiento,
+        fechaIngreso: new Date().toISOString(),
+      }];
+    }
+
+    if (!data.nombre) { alert("El nombre es obligatorio"); return; }
+
+    // Validar duplicados por código de barras (excluyendo el producto que se está editando)
+    if (data.codigoBarras && data.codigoBarras.trim() !== "") {
+      const existente = await productsService.getProductByBarcode(almacenId, data.codigoBarras.trim());
+      if (existente && existente.id !== editando) {
+        alert(`Ya existe un producto con el código de barras "${data.codigoBarras}". Usa el producto existente o cambia el código.`);
+        return;
+      }
+    }
+
+    try {
+      if (editando) {
+        await productsService.updateProduct(editando, data);
+      } else {
+        await productsService.createProduct(almacenId, data);
+      }
+      await cargarProductos();
+      await cargarPlanInfo();
+      setMostrarForm(false); resetForm();
+    } catch (err) { alert("Error al guardar: " + err.message); }
+  }
+
+  async function handleEliminar(id) {
+    if (!puedeGestionar) return;
+    if (!confirm("¿Eliminar este producto permanentemente?")) return;
+    await productsService.deleteProduct(id);
+    await cargarProductos();
+    await cargarPlanInfo();
+  }
+
+  async function handleAgregarStock(producto) {
+    setProductoStock(producto);
+    setCantidadStock(""); setLoteVencimiento("");
+  }
+
+  async function confirmarAgregarStock() {
+    if (!productoStock || !cantidadStock) return;
+    const cantidad = Number(cantidadStock);
+    if (isNaN(cantidad) || cantidad <= 0) { alert("Ingresa una cantidad valida"); return; }
+    const loteData = productoStock.perecedero && loteVencimiento ? { fechaVencimiento: loteVencimiento } : null;
+    try {
+      await productsService.addStock(productoStock.id, cantidad, loteData);
+      await cargarProductos();
+      setProductoStock(null); setCantidadStock(""); setLoteVencimiento("");
+    } catch (err) { alert("Error al agregar stock"); }
+  }
+
+  async function handleScan(code) {
+    if (scannerMode === "nuevo") setForm({ ...form, codigoBarras: code });
+    else if (scannerMode === "stock") {
+      const producto = await productsService.getProductByBarcode(almacenId, code);
+      if (producto) { setProductoStock(producto); setCantidadStock(""); setLoteVencimiento(""); }
+      else alert("Producto no encontrado");
+    }
+    setMostrarScanner(false); setScannerMode("");
+  }
+
+  function getStockStatus(producto) {
+    if (producto.stock === 0) return { label: "Sin stock", bg: "bg-red-50", text: "text-red-700" };
+    if (producto.stockCritico && producto.stock <= producto.stockCritico) return { label: "Critico", bg: "bg-orange-50", text: "text-orange-700" };
+    return { label: "OK", bg: "bg-green-50", text: "text-green-700" };
+  }
+
+  const alLimite = planInfo.usados >= planInfo.limite && planInfo.limite !== Infinity;
+
+  return (
+    <div>
+      <InventoryAlert />
+      {mostrarScanner && <BarcodeScanner onScan={handleScan} onClose={() => { setMostrarScanner(false); setScannerMode(""); }} />}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+        <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+          <Package className="w-6 h-6 text-blue-600" /> Productos
+        </h1>
+        <div className="flex gap-2">
+          <button onClick={() => { resetForm(); setMostrarForm(true); }}
+            disabled={alLimite && !editando}
+            className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2">
+            <Plus size={18} /> Nuevo Producto
+          </button>
+          <button onClick={() => { setScannerMode("stock"); setMostrarScanner(true); }}
+            className="bg-green-100 hover:bg-green-200 text-green-700 px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2">
+            <ScanLine size={18} /> Escanear Stock
+          </button>
+        </div>
+      </div>
+      <div className={`flex items-center justify-between mb-4 p-3 rounded-lg border text-sm ${
+        planInfo.plan === "pro"
+          ? "bg-purple-50 border-purple-200 text-purple-700"
+          : "bg-gray-50 border-gray-200 text-gray-600"
+      }`}>
+        <div className="flex items-center gap-2">
+          <Crown size={16} />
+          <span className="font-medium">Plan {planInfo.plan.toUpperCase()}</span>
+          <span>• Productos: {planInfo.usados} / {planInfo.limite === Infinity ? "∞" : planInfo.limite}</span>
+        </div>
+        {planInfo.plan === "basico" && (
+          <span className="text-xs bg-white px-2 py-1 rounded border border-gray-200">
+            Upgrade a Pro para productos ilimitados
+          </span>
+        )}
+      </div>
+      {alLimite && (
+        <div className="bg-orange-50 border border-orange-200 text-orange-700 px-4 py-3 rounded-lg mb-4 text-sm flex items-center gap-2">
+          <AlertTriangle size={16} />
+          Has alcanzado el limite de productos de tu plan. Elimina productos o actualiza a Pro.
+        </div>
+      )}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-4">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+          <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
+            placeholder="Buscar por nombre, codigo o categoria..."
+            className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+        </div>
+      </div>
+      {mostrarForm && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-bold text-gray-800">{editando ? "Editar Producto" : "Nuevo Producto"}</h2>
+            <button onClick={() => { setMostrarForm(false); resetForm(); }} className="p-2 hover:bg-gray-100 rounded-lg"><X size={20} /></button>
+          </div>
+          <div className="grid md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Nombre *</label>
+              <input type="text" value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Ej: Harina 1kg" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Codigo de barras</label>
+              <div className="flex gap-2">
+                <input type="text" value={form.codigoBarras} onChange={(e) => setForm({ ...form, codigoBarras: e.target.value })}
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Escanea o escribe" />
+                <button onClick={() => { setScannerMode("nuevo"); setMostrarScanner(true); }} className="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg"><ScanLine size={18} /></button>
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Precio de venta *</label>
+              <input type="number" value={form.precioVenta} onChange={(e) => setForm({ ...form, precioVenta: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="0" min="0" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Precio de compra (costo)</label>
+              <input type="number" value={form.precioCompra} onChange={(e) => setForm({ ...form, precioCompra: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="0" min="0" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Stock inicial</label>
+              <input type="number" value={form.stock} onChange={(e) => setForm({ ...form, stock: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="0" min="0" step="0.01" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Stock critico (alerta)</label>
+              <input type="number" value={form.stockCritico} onChange={(e) => setForm({ ...form, stockCritico: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="5" min="0" step="0.01" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Unidad</label>
+              <select value={form.unidad} onChange={(e) => setForm({ ...form, unidad: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                {UNIDADES.map((u) => <option key={u} value={u}>{u}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Categoria</label>
+              <select value={form.categoria} onChange={(e) => setForm({ ...form, categoria: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                {CATEGORIAS.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <div className="md:col-span-2">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={form.perecedero} onChange={(e) => setForm({ ...form, perecedero: e.target.checked })}
+                  className="w-4 h-4 text-blue-600 rounded" />
+                <span className="text-sm font-medium text-gray-700">Producto perecedero</span>
+              </label>
+            </div>
+            {form.perecedero && (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Dias de alerta antes de vencer</label>
+                  <select value={form.diasAlertaVencimiento} onChange={(e) => setForm({ ...form, diasAlertaVencimiento: Number(e.target.value) })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                    {DIAS_ALERTA_VENCIMIENTO.map((d) => <option key={d} value={d}>{d} dias</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de vencimiento del producto</label>
+                  <input type="date" value={form.fechaVencimiento} onChange={(e) => setForm({ ...form, fechaVencimiento: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+                </div>
+              </>
+            )}
+            <div className="md:col-span-2">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" checked={form.enOferta} onChange={(e) => setForm({ ...form, enOferta: e.target.checked })}
                   className="w-4 h-4 text-blue-600 rounded" />
@@ -2862,6 +3188,121 @@ export default function POS() {
                 </div>
               </>
             )}
+          </div>
+          <div className="flex gap-3 mt-6">
+            <button onClick={() => { setMostrarForm(false); resetForm(); }}
+              className="px-4 py-2 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50">Cancelar</button>
+            <button onClick={handleGuardar}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center gap-2"><Check size={18} /> {editando ? "Actualizar" : "Guardar"}</button>
+          </div>
+        </div>
+      )}
+      {productoStock && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl p-6 w-full max-w-sm">
+            <h3 className="font-bold text-gray-800 mb-1">Agregar stock</h3>
+            <p className="text-sm text-gray-500 mb-4">{productoStock.nombre}</p>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Cantidad a agregar</label>
+                <div className="flex items-center gap-2">
+                  <input type="number" value={cantidadStock} onChange={(e) => setCantidadStock(e.target.value)}
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-lg font-mono text-center outline-none focus:ring-2 focus:ring-green-500"
+                    placeholder="0" min="0" step="0.01" autoFocus />
+                  <span className="text-gray-500 text-sm">{productoStock.unidad}</span>
+                </div>
+              </div>
+              {productoStock.perecedero && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de vencimiento del lote</label>
+                  <input type="date" value={loteVencimiento} onChange={(e) => setLoteVencimiento(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-green-500" />
+                </div>
+              )}
+            </div>
+            <div className="flex gap-2 mt-4">
+              <button onClick={() => setProductoStock(null)}
+                className="flex-1 py-2 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50">Cancelar</button>
+              <button onClick={confirmarAgregarStock}
+                className="flex-1 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center justify-center gap-2"><Plus size={16} /> Agregar</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {loading ? (
+        <div className="flex items-center justify-center h-40"><Loader2 className="w-8 h-8 animate-spin text-blue-600" /></div>
+      ) : (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">Producto</th>
+                  <th className="text-right px-4 py-3 font-medium text-gray-600">Precio</th>
+                  <th className="text-right px-4 py-3 font-medium text-gray-600">Stock</th>
+                  <th className="text-center px-4 py-3 font-medium text-gray-600">Estado</th>
+                  <th className="text-right px-4 py-3 font-medium text-gray-600">Acciones</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {productosFiltrados.map((p) => {
+                  const status = getStockStatus(p);
+                  return (
+                    <tr key={p.id} className="hover:bg-gray-50 transition">
+                      <td className="px-4 py-3">
+                        <div>
+                          <p className="font-medium text-gray-800">{p.nombre}</p>
+                          <p className="text-xs text-gray-400">{p.categoria} • {p.unidad}</p>
+                          {p.codigoBarras && <p className="text-xs text-gray-400 font-mono">{p.codigoBarras}</p>}
+                          {p.enOferta && (
+                            <span className="inline-block mt-1 text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded">
+                              OFERTA: {formatCurrency(p.precioOferta)}
+                              {p.cantidadOferta != null && p.cantidadOferta > 0
+                                ? ` (${Math.max(0, p.cantidadOferta - (p.cantidadOfertaVendida || 0))} restantes)`
+                                : " (todo el stock)"}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <p className="font-bold text-gray-800">{formatCurrency(p.precioVenta)}</p>
+                        <p className="text-xs text-gray-400">Costo: {formatCurrency(p.precioCompra)}</p>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <p className="font-medium text-gray-800">{p.stock} {p.unidad}</p>
+                        {p.stockCritico > 0 && <p className="text-xs text-gray-400">Min: {p.stockCritico}</p>}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${status.bg} ${status.text}`}>{status.label}</span>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <button onClick={() => handleAgregarStock(p)}
+                            className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg transition" title="Agregar stock"><Plus size={16} /></button>
+                          {puedeGestionar && (
+                            <>
+                              <button onClick={() => handleEditar(p)}
+                                className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition" title="Editar"><Edit2 size={16} /></button>
+                              <button onClick={() => handleEliminar(p.id)}
+                                className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition" title="Eliminar"><Trash2 size={16} /></button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {productosFiltrados.length === 0 && (
+            <div className="text-center py-8 text-gray-400"><Package size={40} className="mx-auto mb-2" /><p>No hay productos</p></div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 ````
 
 ## File: src/components/Reports.jsx
@@ -2878,6 +3319,8 @@ import { formatCurrency, formatDate, formatShortDate } from "../utils/format";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
+import { db } from "../firebase/firebase";
 import {
   BarChart3, Download, Calendar, TrendingUp, Package,
   DollarSign, CreditCard, Smartphone, Users, AlertTriangle,
@@ -2926,7 +3369,6 @@ export default function Reports() {
     setLoading(false);
   }
 
-  // ===== OBTENER DATOS DEL ALMACÉN =====
   async function getAlmacenInfo() {
     if (!almacenId) return { nombre: "Almacén de Barrio", rut: "", direccion: "", telefono: "", giro: "" };
     try {
@@ -2960,26 +3402,19 @@ export default function Reports() {
   const ventasFiltradas = fechaFiltro ? ventas.filter((v) => v.createdAt >= fechaFiltro) : ventas;
   const ventasNormales = ventasFiltradas.filter((v) => v.tipo !== "fiado-recuperado");
   const recuperacionesFiado = ventasFiltradas.filter((v) => v.tipo === "fiado-recuperado");
-
   const porMetodoVentas = { efectivo: 0, tarjeta: 0, transferencia: 0, fiado: 0 };
   ventasNormales.forEach((v) => { if (porMetodoVentas[v.metodoPago] !== undefined) porMetodoVentas[v.metodoPago] += v.total || 0; });
-
   const porMetodoRecuperacion = { efectivo: 0, tarjeta: 0, transferencia: 0 };
   recuperacionesFiado.forEach((v) => { if (porMetodoRecuperacion[v.metodoPago] !== undefined) porMetodoRecuperacion[v.metodoPago] += v.total || 0; });
-
   const totalVentasNormales = ventasNormales.reduce((s, v) => s + (v.total || 0), 0);
   const totalRecuperaciones = recuperacionesFiado.reduce((s, v) => s + (v.total || 0), 0);
   const totalVentasGlobal = totalVentasNormales + totalRecuperaciones;
-
   const chartData = [
     { name: "Efectivo", venta: porMetodoVentas.efectivo || 0, recuperacion: porMetodoRecuperacion.efectivo || 0 },
     { name: "Tarjeta", venta: porMetodoVentas.tarjeta || 0, recuperacion: porMetodoRecuperacion.tarjeta || 0 },
     { name: "Transferencia", venta: porMetodoVentas.transferencia || 0, recuperacion: porMetodoRecuperacion.transferencia || 0 },
   ];
 
-  // ===== RANKING DE PRODUCTOS VENDIDOS =====
-  // Cada venta ya guarda el detalle de items (v.productos[]) desde que se creó en POS.jsx;
-  // aquí solo se agrega esa información por producto para el período filtrado.
   const rankingProductos = (() => {
     const acumulado = {};
     ventasNormales.forEach((v) => {
@@ -2995,11 +3430,9 @@ export default function Reports() {
     });
     return Object.values(acumulado);
   })();
-
   const rankingOrdenado = [...rankingProductos].sort((a, b) => b[rankingSortKey] - a[rankingSortKey]);
   const top10Ranking = rankingOrdenado.slice(0, 10).map((p) => ({ name: p.nombre, cantidad: p.cantidad, ingresos: p.ingresos }));
   const totalUnidadesVendidas = rankingProductos.reduce((s, p) => s + p.cantidad, 0);
-
   const fiadosPendientes = fiados.filter((f) => f.estado === "pendiente" || f.estado === "parcial");
   const totalFiadoPendiente = fiadosPendientes.reduce((s, f) => s + ((f.total || 0) - (f.pagos?.reduce((p, pay) => p + (pay.monto || 0), 0) || 0)), 0);
   const totalRecuperado = fiados.reduce((s, f) => s + (f.pagos?.reduce((p, pay) => p + (pay.monto || 0), 0) || 0), 0);
@@ -3007,23 +3440,19 @@ export default function Reports() {
     const dias = Math.floor((new Date() - new Date(f.createdAt)) / (1000 * 60 * 60 * 24));
     return (f.estado === "pendiente" || f.estado === "parcial") && dias > 7;
   });
-
   const totalMermas = mermas.reduce((s, m) => s + (m.perdidaEstimada || 0), 0);
   const porMotivo = {};
   mermas.forEach((m) => { porMotivo[m.motivo] = (porMotivo[m.motivo] || 0) + (m.perdidaEstimada || 0); });
   const mermaChartData = Object.entries(porMotivo).map(([name, value]) => ({ name, value }));
-
   const totalProductos = productos.length;
   const valorStockCosto = productos.reduce((s, p) => s + (p.precioCompra || 0) * (p.stock || 0), 0);
   const valorStockVenta = productos.reduce((s, p) => s + (p.precioVenta || 0) * (p.stock || 0), 0);
   const stockCritico = productos.filter((p) => p.stockCritico && p.stock <= p.stockCritico && p.stock > 0).length;
-
   const productosFiltrados = searchInv.trim() ? productos.filter((p) =>
     p.nombre?.toLowerCase().includes(searchInv.toLowerCase()) ||
     p.codigoBarras?.includes(searchInv) ||
     p.categoria?.toLowerCase().includes(searchInv.toLowerCase())
   ) : productos;
-
   const sortedProductos = [...productosFiltrados].sort((a, b) => {
     const aVal = a[sortConfig.key] || 0;
     const bVal = b[sortConfig.key] || 0;
@@ -3037,32 +3466,29 @@ export default function Reports() {
 
   async function exportarPDF() {
     const almacen = await getAlmacenInfo();
-    const doc = new jsPDF();
-    doc.setFontSize(16);
-    doc.text(`Inventario - ${almacen.nombre}`, 14, 20);
-    doc.setFontSize(10);
-    if (almacen.rut) doc.text(`RUT: ${almacen.rut}`, 14, 28);
-    if (almacen.direccion) doc.text(`Dirección: ${almacen.direccion}`, 14, 34);
-    doc.text(`Generado: ${new Date().toLocaleDateString("es-CL")}`, 14, almacen.direccion ? 40 : 34);
-    doc.text(`Total productos: ${totalProductos}`, 14, almacen.direccion ? 46 : 40);
-    doc.text(`Valor stock (costo): ${formatCurrency(valorStockCosto)}`, 14, almacen.direccion ? 52 : 46);
-    doc.text(`Valor stock (venta): ${formatCurrency(valorStockVenta)}`, 14, almacen.direccion ? 58 : 52);
-
+    const pdfDoc = new jsPDF();
+    pdfDoc.setFontSize(16);
+    pdfDoc.text(`Inventario - ${almacen.nombre}`, 14, 20);
+    pdfDoc.setFontSize(10);
+    if (almacen.rut) pdfDoc.text(`RUT: ${almacen.rut}`, 14, 28);
+    if (almacen.direccion) pdfDoc.text(`Dirección: ${almacen.direccion}`, 14, 34);
+    pdfDoc.text(`Generado: ${new Date().toLocaleDateString("es-CL")}`, 14, almacen.direccion ? 40 : 34);
+    pdfDoc.text(`Total productos: ${totalProductos}`, 14, almacen.direccion ? 46 : 40);
+    pdfDoc.text(`Valor stock (costo): ${formatCurrency(valorStockCosto)}`, 14, almacen.direccion ? 52 : 46);
+    pdfDoc.text(`Valor stock (venta): ${formatCurrency(valorStockVenta)}`, 14, almacen.direccion ? 58 : 52);
     const body = sortedProductos.map((p) => [
       p.nombre, p.categoria, p.stock + " " + p.unidad,
       formatCurrency(p.precioVenta), formatCurrency(p.precioCompra),
       p.stock <= (p.stockCritico || 0) ? "Critico" : "OK",
     ]);
-
-    autoTable(doc, {
+    autoTable(pdfDoc, {
       head: [["Producto", "Categoria", "Stock", "Precio Venta", "Precio Costo", "Estado"]],
       body, startY: almacen.direccion ? 64 : 58, styles: { fontSize: 9 },
       headStyles: { fillColor: [59, 130, 246] },
     });
-    doc.save("inventario.pdf");
+    pdfDoc.save("inventario.pdf");
   }
 
-  // ===== LIBRO DE VENTAS =====
   function getVentasMes(anioMes) {
     return ventas.filter((v) => v.createdAt?.startsWith(anioMes));
   }
@@ -3072,138 +3498,145 @@ export default function Reports() {
     const ventasMes = getVentasMes(mesLibro);
     const normales = ventasMes.filter((v) => v.tipo !== "fiado-recuperado");
     const recups = ventasMes.filter((v) => v.tipo === "fiado-recuperado");
-
     const totNorm = normales.reduce((s, v) => s + (v.total || 0), 0);
     const totRec = recups.reduce((s, v) => s + (v.total || 0), 0);
-
     const porMet = { efectivo: 0, tarjeta: 0, transferencia: 0, fiado: 0 };
     normales.forEach((v) => { if (porMet[v.metodoPago] !== undefined) porMet[v.metodoPago] += v.total || 0; });
-
     const fiadosMes = fiados.filter((f) => f.createdAt?.startsWith(mesLibro));
     const fiadosEmitidos = fiadosMes.reduce((s, f) => s + (f.total || 0), 0);
     const fiadosRecuperados = fiadosMes.reduce((s, f) => s + (f.pagos?.reduce((p, pay) => p + (pay.monto || 0), 0) || 0), 0);
-
     const mermasMes = mermas.filter((m) => m.createdAt?.startsWith(mesLibro));
     const totalMermasMes = mermasMes.reduce((s, m) => s + (m.perdidaEstimada || 0), 0);
-
-    const doc = new jsPDF();
-    doc.setFontSize(18);
-    doc.text("LIBRO DE VENTAS", 105, 20, { align: "center" });
-    doc.setFontSize(12);
-    doc.text(almacen.nombre, 105, 28, { align: "center" });
-    if (almacen.rut) doc.text(`RUT: ${almacen.rut}`, 105, 33, { align: "center" });
-    if (almacen.direccion) doc.text(almacen.direccion, 105, 38, { align: "center" });
-    doc.setFontSize(10);
-    doc.text(`Periodo: ${mesLibro}`, 105, almacen.direccion ? 44 : 39, { align: "center" });
-    doc.text(`Generado: ${new Date().toLocaleDateString("es-CL")}`, 105, almacen.direccion ? 49 : 44, { align: "center" });
-
+    const pdfDoc = new jsPDF();
+    pdfDoc.setFontSize(18);
+    pdfDoc.text("LIBRO DE VENTAS", 105, 20, { align: "center" });
+    pdfDoc.setFontSize(12);
+    pdfDoc.text(almacen.nombre, 105, 28, { align: "center" });
+    if (almacen.rut) pdfDoc.text(`RUT: ${almacen.rut}`, 105, 33, { align: "center" });
+    if (almacen.direccion) pdfDoc.text(almacen.direccion, 105, 38, { align: "center" });
+    pdfDoc.setFontSize(10);
+    pdfDoc.text(`Periodo: ${mesLibro}`, 105, almacen.direccion ? 44 : 39, { align: "center" });
+    pdfDoc.text(`Generado: ${new Date().toLocaleDateString("es-CL")}`, 105, almacen.direccion ? 49 : 44, { align: "center" });
     let y = almacen.direccion ? 58 : 53;
-    doc.setFontSize(12);
-    doc.text("1. RESUMEN DE VENTAS", 14, y);
-    y += 8;
-    doc.setFontSize(10);
-    doc.text(`Ventas normales: ${formatCurrency(totNorm)}`, 14, y); y += 6;
-    doc.text(`Recuperacion fiados: ${formatCurrency(totRec)}`, 14, y); y += 6;
-    doc.text(`TOTAL VENTAS: ${formatCurrency(totNorm + totRec)}`, 14, y); y += 10;
-
-    doc.setFontSize(12);
-    doc.text("2. DESGLOSE POR METODO DE PAGO", 14, y);
-    y += 8;
-    doc.setFontSize(10);
-    doc.text(`Efectivo: ${formatCurrency(porMet.efectivo)}`, 14, y); y += 6;
-    doc.text(`Tarjeta: ${formatCurrency(porMet.tarjeta)}`, 14, y); y += 6;
-    doc.text(`Transferencia: ${formatCurrency(porMet.transferencia)}`, 14, y); y += 6;
-    doc.text(`Fiado (credito): ${formatCurrency(porMet.fiado)}`, 14, y); y += 10;
-
-    doc.setFontSize(12);
-    doc.text("3. FIADOS", 14, y);
-    y += 8;
-    doc.setFontSize(10);
-    doc.text(`Fiados emitidos: ${formatCurrency(fiadosEmitidos)}`, 14, y); y += 6;
-    doc.text(`Fiados recuperados: ${formatCurrency(fiadosRecuperados)}`, 14, y); y += 6;
-    doc.text(`Saldo pendiente: ${formatCurrency(fiadosEmitidos - fiadosRecuperados)}`, 14, y); y += 10;
-
-    doc.setFontSize(12);
-    doc.text("4. MERMAS", 14, y);
-    y += 8;
-    doc.setFontSize(10);
-    doc.text(`Perdida estimada: ${formatCurrency(totalMermasMes)}`, 14, y); y += 6;
-    doc.text(`Cantidad de mermas: ${mermasMes.length}`, 14, y); y += 10;
-
-    doc.setFontSize(12);
-    doc.text("5. VENTAS NETAS", 14, y);
-    y += 8;
-    doc.setFontSize(10);
+    pdfDoc.setFontSize(12);
+    pdfDoc.text("1. RESUMEN DE VENTAS", 14, y); y += 8;
+    pdfDoc.setFontSize(10);
+    pdfDoc.text(`Ventas normales: ${formatCurrency(totNorm)}`, 14, y); y += 6;
+    pdfDoc.text(`Recuperacion fiados: ${formatCurrency(totRec)}`, 14, y); y += 6;
+    pdfDoc.text(`TOTAL VENTAS: ${formatCurrency(totNorm + totRec)}`, 14, y); y += 10;
+    pdfDoc.setFontSize(12);
+    pdfDoc.text("2. DESGLOSE POR METODO DE PAGO", 14, y); y += 8;
+    pdfDoc.setFontSize(10);
+    pdfDoc.text(`Efectivo: ${formatCurrency(porMet.efectivo)}`, 14, y); y += 6;
+    pdfDoc.text(`Tarjeta: ${formatCurrency(porMet.tarjeta)}`, 14, y); y += 6;
+    pdfDoc.text(`Transferencia: ${formatCurrency(porMet.transferencia)}`, 14, y); y += 6;
+    pdfDoc.text(`Fiado (credito): ${formatCurrency(porMet.fiado)}`, 14, y); y += 10;
+    pdfDoc.setFontSize(12);
+    pdfDoc.text("3. FIADOS", 14, y); y += 8;
+    pdfDoc.setFontSize(10);
+    pdfDoc.text(`Fiados emitidos: ${formatCurrency(fiadosEmitidos)}`, 14, y); y += 6;
+    pdfDoc.text(`Fiados recuperados: ${formatCurrency(fiadosRecuperados)}`, 14, y); y += 6;
+    pdfDoc.text(`Saldo pendiente: ${formatCurrency(fiadosEmitidos - fiadosRecuperados)}`, 14, y); y += 10;
+    pdfDoc.setFontSize(12);
+    pdfDoc.text("4. MERMAS", 14, y); y += 8;
+    pdfDoc.setFontSize(10);
+    pdfDoc.text(`Perdida estimada: ${formatCurrency(totalMermasMes)}`, 14, y); y += 6;
+    pdfDoc.text(`Cantidad de mermas: ${mermasMes.length}`, 14, y); y += 10;
+    pdfDoc.setFontSize(12);
+    pdfDoc.text("5. VENTAS NETAS", 14, y); y += 8;
+    pdfDoc.setFontSize(10);
     const ventasNetas = (totNorm + totRec) - totalMermasMes;
-    doc.text(`Ventas netas (ventas - mermas): ${formatCurrency(ventasNetas)}`, 14, y);
-
-    doc.save(`libro-ventas-${mesLibro}.pdf`);
+    pdfDoc.text(`Ventas netas (ventas - mermas): ${formatCurrency(ventasNetas)}`, 14, y);
+    pdfDoc.save(`libro-ventas-${mesLibro}.pdf`);
   }
 
-  // ===== INFORME DE VENTAS PDF (Plan Básico y Pro) =====
+  // ===== INFORME DE VENTAS PDF =====
   function getMesActual() {
     return new Date().toISOString().slice(0, 7);
   }
 
-  function puedeDescargarInformeVentas() {
+  // 🔥 FIX #14: Control de límite de informes vía Firestore (no localStorage)
+  async function puedeDescargarInformeVentas() {
     if (plan === "pro") return true;
-    const mes = getMesActual();
-    return !localStorage.getItem(`informe_ventas_${mes}`);
+    if (!almacenId) return false;
+    try {
+      const mes = getMesActual();
+      const counterRef = doc(db, "almacenes", almacenId, "reportes", `ventas_${mes}`);
+      const snap = await getDoc(counterRef);
+      if (!snap.exists()) return true;
+      const data = snap.data();
+      return (data.descargas || 0) < 1;
+    } catch (err) {
+      console.error("Error verificando límite de informes:", err);
+      return true; // Fallback: permitir si hay error de red
+    }
   }
 
-  function marcarInformeVentasDescargado() {
-    const mes = getMesActual();
-    localStorage.setItem(`informe_ventas_${mes}`, "1");
+  // 🔥 FIX #14: Marcar descarga en Firestore
+  async function marcarInformeVentasDescargado() {
+    if (!almacenId) return;
+    try {
+      const mes = getMesActual();
+      const counterRef = doc(db, "almacenes", almacenId, "reportes", `ventas_${mes}`);
+      const snap = await getDoc(counterRef);
+      if (snap.exists()) {
+        await updateDoc(counterRef, {
+          descargas: (snap.data().descargas || 0) + 1,
+          ultimaDescarga: new Date().toISOString(),
+        });
+      } else {
+        await setDoc(counterRef, {
+          descargas: 1,
+          ultimaDescarga: new Date().toISOString(),
+          mes,
+        });
+      }
+    } catch (err) {
+      console.error("Error marcando informe como descargado:", err);
+    }
   }
 
   async function exportarVentasPDF() {
-    if (!puedeDescargarInformeVentas()) {
+    const puedeDescargar = await puedeDescargarInformeVentas();
+    if (!puedeDescargar) {
       alert("Ya usaste tu informe gratuito de este mes. Upgrade a Pro para informes ilimitados.");
       return;
     }
-
     const almacen = await getAlmacenInfo();
-    const doc = new jsPDF();
+    const pdfDoc = new jsPDF();
     const periodoLabel = {
       hoy: "Hoy",
       semana: "Última semana",
       mes: "Último mes",
       todo: "Todo el historial",
     }[filtroTiempo];
-
-    doc.setFontSize(18);
-    doc.text("Informe de Ventas", 14, 20);
-    doc.setFontSize(11);
-    doc.text(`Período: ${periodoLabel}`, 14, 28);
-    doc.text(`Generado: ${new Date().toLocaleDateString("es-CL")}`, 14, 34);
-    doc.text(`Almacén: ${almacen.nombre}`, 14, 40);
-    if (almacen.rut) doc.text(`RUT: ${almacen.rut}`, 14, 46);
-
+    pdfDoc.setFontSize(18);
+    pdfDoc.text("Informe de Ventas", 14, 20);
+    pdfDoc.setFontSize(11);
+    pdfDoc.text(`Período: ${periodoLabel}`, 14, 28);
+    pdfDoc.text(`Generado: ${new Date().toLocaleDateString("es-CL")}`, 14, 34);
+    pdfDoc.text(`Almacén: ${almacen.nombre}`, 14, 40);
+    if (almacen.rut) pdfDoc.text(`RUT: ${almacen.rut}`, 14, 46);
     let y = almacen.rut ? 56 : 50;
-    doc.setFontSize(12);
-    doc.text("1. RESUMEN", 14, y);
-    y += 7;
-    doc.setFontSize(10);
-    doc.text(`Total Ventas: ${formatCurrency(totalVentasGlobal)}`, 14, y); y += 6;
-    doc.text(`Ventas Normales: ${formatCurrency(totalVentasNormales)}`, 14, y); y += 6;
-    doc.text(`Recuperación Fiados: ${formatCurrency(totalRecuperaciones)}`, 14, y); y += 6;
-    doc.text(`Fiados (crédito): ${formatCurrency(porMetodoVentas.fiado || 0)}`, 14, y); y += 10;
-
-    doc.setFontSize(12);
-    doc.text("2. DESGLOSE POR MÉTODO DE PAGO", 14, y);
-    y += 7;
-    doc.setFontSize(10);
-    doc.text(`Efectivo (ventas): ${formatCurrency(porMetodoVentas.efectivo)}`, 14, y); y += 6;
-    doc.text(`Tarjeta (ventas): ${formatCurrency(porMetodoVentas.tarjeta)}`, 14, y); y += 6;
-    doc.text(`Transferencia (ventas): ${formatCurrency(porMetodoVentas.transferencia)}`, 14, y); y += 6;
-    doc.text(`Efectivo (recuperación): ${formatCurrency(porMetodoRecuperacion.efectivo)}`, 14, y); y += 6;
-    doc.text(`Tarjeta (recuperación): ${formatCurrency(porMetodoRecuperacion.tarjeta)}`, 14, y); y += 6;
-    doc.text(`Transferencia (recuperación): ${formatCurrency(porMetodoRecuperacion.transferencia)}`, 14, y); y += 10;
-
+    pdfDoc.setFontSize(12);
+    pdfDoc.text("1. RESUMEN", 14, y); y += 7;
+    pdfDoc.setFontSize(10);
+    pdfDoc.text(`Total Ventas: ${formatCurrency(totalVentasGlobal)}`, 14, y); y += 6;
+    pdfDoc.text(`Ventas Normales: ${formatCurrency(totalVentasNormales)}`, 14, y); y += 6;
+    pdfDoc.text(`Recuperación Fiados: ${formatCurrency(totalRecuperaciones)}`, 14, y); y += 6;
+    pdfDoc.text(`Fiados (crédito): ${formatCurrency(porMetodoVentas.fiado || 0)}`, 14, y); y += 10;
+    pdfDoc.setFontSize(12);
+    pdfDoc.text("2. DESGLOSE POR MÉTODO DE PAGO", 14, y); y += 7;
+    pdfDoc.setFontSize(10);
+    pdfDoc.text(`Efectivo (ventas): ${formatCurrency(porMetodoVentas.efectivo)}`, 14, y); y += 6;
+    pdfDoc.text(`Tarjeta (ventas): ${formatCurrency(porMetodoVentas.tarjeta)}`, 14, y); y += 6;
+    pdfDoc.text(`Transferencia (ventas): ${formatCurrency(porMetodoVentas.transferencia)}`, 14, y); y += 6;
+    pdfDoc.text(`Efectivo (recuperación): ${formatCurrency(porMetodoRecuperacion.efectivo)}`, 14, y); y += 6;
+    pdfDoc.text(`Tarjeta (recuperación): ${formatCurrency(porMetodoRecuperacion.tarjeta)}`, 14, y); y += 6;
+    pdfDoc.text(`Transferencia (recuperación): ${formatCurrency(porMetodoRecuperacion.transferencia)}`, 14, y); y += 10;
     if (ventasFiltradas.length > 0) {
-      doc.setFontSize(12);
-      doc.text("3. DETALLE DE VENTAS", 14, y);
-      y += 7;
+      pdfDoc.setFontSize(12);
+      pdfDoc.text("3. DETALLE DE VENTAS", 14, y); y += 7;
       const body = ventasFiltradas.slice(0, 100).map((v) => [
         formatDate(v.createdAt),
         v.vendedorNombre || "-",
@@ -3211,39 +3644,35 @@ export default function Reports() {
         v.tipo === "fiado-recuperado" ? "Recuperación" : v.metodoPago === "fiado" ? "Venta fiado" : "Venta normal",
         formatCurrency(v.total),
       ]);
-      autoTable(doc, {
+      autoTable(pdfDoc, {
         head: [["Fecha", "Vendedor", "Método", "Tipo", "Total"]],
-        body,
-        startY: y,
-        styles: { fontSize: 9 },
+        body, startY: y, styles: { fontSize: 9 },
         headStyles: { fillColor: [59, 130, 246] },
       });
     }
-
-    doc.save(`informe-ventas-${filtroTiempo}-${new Date().toISOString().split("T")[0]}.pdf`);
-    marcarInformeVentasDescargado();
+    pdfDoc.save(`informe-ventas-${filtroTiempo}-${new Date().toISOString().split("T")[0]}.pdf`);
+    await marcarInformeVentasDescargado();
   }
 
   async function exportarRankingPDF() {
     const almacen = await getAlmacenInfo();
-    const doc = new jsPDF();
+    const pdfDoc = new jsPDF();
     const periodoLabel = { hoy: "Hoy", semana: "Última semana", mes: "Último mes", todo: "Todo el historial" }[filtroTiempo];
-    doc.setFontSize(16);
-    doc.text(`Ranking de Productos - ${almacen.nombre}`, 14, 20);
-    doc.setFontSize(10);
-    doc.text(`Período: ${periodoLabel}`, 14, 28);
-    doc.text(`Generado: ${new Date().toLocaleDateString("es-CL")}`, 14, 34);
-    doc.text(`Unidades vendidas: ${totalUnidadesVendidas}`, 14, 40);
-
+    pdfDoc.setFontSize(16);
+    pdfDoc.text(`Ranking de Productos - ${almacen.nombre}`, 14, 20);
+    pdfDoc.setFontSize(10);
+    pdfDoc.text(`Período: ${periodoLabel}`, 14, 28);
+    pdfDoc.text(`Generado: ${new Date().toLocaleDateString("es-CL")}`, 14, 34);
+    pdfDoc.text(`Unidades vendidas: ${totalUnidadesVendidas}`, 14, 40);
     const body = rankingOrdenado.map((p, i) => [
       i + 1, p.nombre, p.cantidad, formatCurrency(p.ingresos), p.ventas,
     ]);
-    autoTable(doc, {
+    autoTable(pdfDoc, {
       head: [["#", "Producto", "Unidades vendidas", "Ingresos", "Ventas donde aparece"]],
       body, startY: 48, styles: { fontSize: 9 },
       headStyles: { fillColor: [217, 119, 6] },
     });
-    doc.save(`ranking-productos-${filtroTiempo}-${new Date().toISOString().split("T")[0]}.pdf`);
+    pdfDoc.save(`ranking-productos-${filtroTiempo}-${new Date().toISOString().split("T")[0]}.pdf`);
   }
 
   if (loading) {
@@ -3260,7 +3689,6 @@ export default function Reports() {
         <BarChart3 className="w-6 h-6 text-blue-600" />
         Informes
       </h1>
-
       <div className="flex gap-1 bg-gray-100 p-1 rounded-xl mb-6 overflow-x-auto">
         {[
           { id: "ventas", label: "Ventas", icon: TrendingUp },
@@ -3289,7 +3717,6 @@ export default function Reports() {
           </button>
         ))}
       </div>
-
       {activeTab === "ventas" && (
         <div className="space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -3309,11 +3736,9 @@ export default function Reports() {
             <div className="flex items-center gap-3">
               {plan === "basico" && (
                 <span className={`text-xs px-2 py-1 rounded border ${
-                  puedeDescargarInformeVentas()
-                    ? "bg-green-50 border-green-200 text-green-700"
-                    : "bg-gray-50 border-gray-200 text-gray-500"
+                  "bg-gray-50 border-gray-200 text-gray-500"
                 }`}>
-                  {puedeDescargarInformeVentas() ? "1 informe gratis este mes" : "Informe gratuito usado"}
+                  Plan Básico: 1 informe gratis/mes
                 </span>
               )}
               <button
@@ -3324,7 +3749,6 @@ export default function Reports() {
               </button>
             </div>
           </div>
-
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
               <p className="text-sm text-gray-500">Total Ventas</p>
@@ -3343,7 +3767,6 @@ export default function Reports() {
               <p className="text-2xl font-bold text-orange-600">{formatCurrency(porMetodoVentas.fiado || 0)}</p>
             </div>
           </div>
-
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
             <h3 className="font-semibold text-gray-800 mb-4">Desglose por metodo de pago</h3>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
@@ -3373,7 +3796,6 @@ export default function Reports() {
               </div>
             </div>
           </div>
-
           {chartData.some((d) => d.venta > 0 || d.recuperacion > 0) && (
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
               <h3 className="font-semibold text-gray-800 mb-4">Ventas vs Recuperacion por metodo</h3>
@@ -3389,7 +3811,6 @@ export default function Reports() {
               </ResponsiveContainer>
             </div>
           )}
-
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-200">
@@ -3428,7 +3849,6 @@ export default function Reports() {
           </div>
         </div>
       )}
-
       {activeTab === "productos" && (
         <div className="space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -3452,7 +3872,6 @@ export default function Reports() {
               <Download size={16} /> Descargar PDF
             </button>
           </div>
-
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
               <p className="text-sm text-gray-500">Productos distintos vendidos</p>
@@ -3469,7 +3888,6 @@ export default function Reports() {
               </p>
             </div>
           </div>
-
           {top10Ranking.length > 0 && (
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
               <div className="flex items-center justify-between mb-4">
@@ -3496,7 +3914,6 @@ export default function Reports() {
               </ResponsiveContainer>
             </div>
           )}
-
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-200">
@@ -3533,7 +3950,6 @@ export default function Reports() {
           </div>
         </div>
       )}
-
       {activeTab === "fiados" && (
         <div className="space-y-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -3554,7 +3970,6 @@ export default function Reports() {
               <p className="text-2xl font-bold text-gray-800">{fiadosPendientes.length}</p>
             </div>
           </div>
-
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-200">
@@ -3588,7 +4003,6 @@ export default function Reports() {
           </div>
         </div>
       )}
-
       {activeTab === "mermas" && (
         <div className="space-y-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -3609,7 +4023,6 @@ export default function Reports() {
               <p className="text-2xl font-bold text-gray-800">{formatCurrency(mermas.length ? totalMermas / mermas.length : 0)}</p>
             </div>
           </div>
-
           {mermaChartData.length > 0 && (
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
               <h3 className="font-semibold text-gray-800 mb-4">Mermas por motivo</h3>
@@ -3626,7 +4039,6 @@ export default function Reports() {
               </ResponsiveContainer>
             </div>
           )}
-
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-200">
@@ -3653,7 +4065,6 @@ export default function Reports() {
           </div>
         </div>
       )}
-
       {activeTab === "inventario" && (
         <div className="space-y-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -3674,7 +4085,6 @@ export default function Reports() {
               <p className="text-2xl font-bold text-orange-600">{stockCritico}</p>
             </div>
           </div>
-
           <div className="flex gap-2">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
@@ -3687,7 +4097,6 @@ export default function Reports() {
               <Download size={16} /> Exportar PDF
             </button>
           </div>
-
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-200">
@@ -3731,7 +4140,6 @@ export default function Reports() {
           </div>
         </div>
       )}
-
       {activeTab === "libro" && (
         <div>
           {plan !== "pro" ? (
@@ -3777,7 +4185,6 @@ export default function Reports() {
                   <Download size={16} /> Descargar PDF para Contador
                 </button>
               </div>
-
               <LibroVentasResumen mes={mesLibro} ventas={ventas} fiados={fiados} mermas={mermas} />
             </div>
           )}
@@ -3793,18 +4200,14 @@ function LibroVentasResumen({ mes, ventas, fiados, mermas }) {
   const recups = ventasMes.filter((v) => v.tipo === "fiado-recuperado");
   const totNorm = normales.reduce((s, v) => s + (v.total || 0), 0);
   const totRec = recups.reduce((s, v) => s + (v.total || 0), 0);
-
   const porMet = { efectivo: 0, tarjeta: 0, transferencia: 0, fiado: 0 };
   normales.forEach((v) => { if (porMet[v.metodoPago] !== undefined) porMet[v.metodoPago] += v.total || 0; });
-
   const fiadosMes = fiados.filter((f) => f.createdAt?.startsWith(mes));
   const fiadosEmitidos = fiadosMes.reduce((s, f) => s + (f.total || 0), 0);
   const fiadosRecuperados = fiadosMes.reduce((s, f) => s + (f.pagos?.reduce((p, pay) => p + (pay.monto || 0), 0) || 0), 0);
-
   const mermasMes = mermas.filter((m) => m.createdAt?.startsWith(mes));
   const totalMermasMes = mermasMes.reduce((s, m) => s + (m.perdidaEstimada || 0), 0);
   const ventasNetas = (totNorm + totRec) - totalMermasMes;
-
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -3825,7 +4228,6 @@ function LibroVentasResumen({ mes, ventas, fiados, mermas }) {
           <p className="text-2xl font-bold text-purple-600">{formatCurrency(ventasNetas)}</p>
         </div>
       </div>
-
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
         <h3 className="font-semibold text-gray-800 mb-4">Desglose por Metodo de Pago</h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -3847,7 +4249,6 @@ function LibroVentasResumen({ mes, ventas, fiados, mermas }) {
           </div>
         </div>
       </div>
-
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
         <h3 className="font-semibold text-gray-800 mb-4">Fiados del Mes</h3>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
@@ -4512,6 +4913,7 @@ export function AuthProvider({ children }) {
     }
   };
 
+  // 🔥 FIX LOGOUT: Redirigir a /login después de cerrar sesión
   const logout = async () => {
     await idbDel("session");
     clearOfflineSession();
@@ -4519,6 +4921,8 @@ export function AuthProvider({ children }) {
     setUser(null);
     setUserData(null);
     setSuscripcionInfo(null);
+    // Forzar redirección a login
+    window.location.href = "/login";
   };
 
   const isDueño = userData?.role === ROLES.DUEÑO;
@@ -6554,20 +6958,22 @@ import {
 } from "lucide-react";
 
 export default function PaymentPortal() {
-  const { user, userData, logout, isSuspendido, suscripcionInfo } = useAuth();
+  // 🔥 FIX #23: Agregamos loading del auth context
+  const { user, userData, logout, isSuspendido, suscripcionInfo, loading } = useAuth();
   const navigate = useNavigate();
   const [planSeleccionado, setPlanSeleccionado] = useState("basico");
   const [periodo, setPeriodo] = useState("mensual");
-  const [loading, setLoading] = useState(false);
+  const [loadingPago, setLoadingPago] = useState(false);
   const [exito, setExito] = useState(false);
   const [error, setError] = useState("");
 
-  // Si no está suspendido, redirigir al dashboard
+  // 🔥 FIX #23: Esperar a que loading sea false antes de redirigir
   useEffect(() => {
+    if (loading) return; // No redirigir mientras se carga el auth
     if (!isSuspendido && userData?.plan && userData.plan !== "suspendido") {
       navigate("/");
     }
-  }, [isSuspendido, userData, navigate]);
+  }, [isSuspendido, userData, navigate, loading]);
 
   const precioActual = PRECIOS[planSeleccionado][periodo];
   const ahorroAnual = periodo === "anual" 
@@ -6576,30 +6982,23 @@ export default function PaymentPortal() {
 
   async function handlePagar() {
     if (!user || !userData?.almacenId) return;
-    setLoading(true);
+    setLoadingPago(true);
     setError("");
-
     try {
-      // 🔥 SIMULACIÓN: En producción, aquí iría Stripe/MercadoPago
-      // Se abre el checkout, el usuario paga, y al confirmar se llama activarPlan
-
-      // Simulamos 2 segundos de "procesando pago"
       await new Promise(r => setTimeout(r, 2000));
-
       await activarPlan(user.uid, userData.almacenId, planSeleccionado, periodo, {
         monto: precioActual,
         metodo: "simulado",
         transactionId: `sim_${Date.now()}`,
       });
-
       setExito(true);
       setTimeout(() => {
-        window.location.reload(); // Recargar para que useAuth detecte el nuevo plan
+        window.location.reload();
       }, 2000);
     } catch (err) {
       setError(err.message || "Error al procesar el pago. Intenta de nuevo.");
     } finally {
-      setLoading(false);
+      setLoadingPago(false);
     }
   }
 
@@ -6635,7 +7034,6 @@ export default function PaymentPortal() {
           </button>
         </div>
       </div>
-
       <div className="max-w-5xl mx-auto px-4 py-12">
         {/* Alerta de suspensión */}
         <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-8 flex items-start gap-3">
@@ -6648,12 +7046,10 @@ export default function PaymentPortal() {
             </p>
           </div>
         </div>
-
         <div className="text-center mb-10">
           <h2 className="text-3xl font-bold text-gray-800">Elige tu plan</h2>
           <p className="text-gray-500 mt-2">Sin contratos. Cancela cuando quieras.</p>
         </div>
-
         {/* Selector de periodo */}
         <div className="flex justify-center mb-8">
           <div className="bg-gray-100 rounded-lg p-1 inline-flex">
@@ -6682,7 +7078,6 @@ export default function PaymentPortal() {
             </button>
           </div>
         </div>
-
         {/* Cards de planes */}
         <div className="grid md:grid-cols-2 gap-6 max-w-3xl mx-auto">
           {/* Plan Básico */}
@@ -6708,7 +7103,6 @@ export default function PaymentPortal() {
                 <p className="text-xs text-gray-500">Para almacenes de barrio</p>
               </div>
             </div>
-
             <div className="mb-4">
               <span className="text-3xl font-bold text-gray-800">{formatMoney(PRECIOS.basico[periodo])}</span>
               <span className="text-gray-500">/{periodo === "mensual" ? "mes" : "año"}</span>
@@ -6718,7 +7112,6 @@ export default function PaymentPortal() {
                 </p>
               )}
             </div>
-
             <ul className="space-y-2 text-sm text-gray-600">
               <li className="flex items-center gap-2"><Check size={14} className="text-green-500" /> Hasta 500 productos</li>
               <li className="flex items-center gap-2"><Check size={14} className="text-green-500" /> 1 vendedor</li>
@@ -6727,7 +7120,6 @@ export default function PaymentPortal() {
               <li className="flex items-center gap-2"><Check size={14} className="text-green-500" /> Control de stock</li>
             </ul>
           </button>
-
           {/* Plan Pro */}
           <button
             onClick={() => setPlanSeleccionado("pro")}
@@ -6756,7 +7148,6 @@ export default function PaymentPortal() {
                 <p className="text-xs text-gray-500">Para negocios en crecimiento</p>
               </div>
             </div>
-
             <div className="mb-4">
               <span className="text-3xl font-bold text-gray-800">{formatMoney(PRECIOS.pro[periodo])}</span>
               <span className="text-gray-500">/{periodo === "mensual" ? "mes" : "año"}</span>
@@ -6766,7 +7157,6 @@ export default function PaymentPortal() {
                 </p>
               )}
             </div>
-
             <ul className="space-y-2 text-sm text-gray-600">
               <li className="flex items-center gap-2"><Check size={14} className="text-green-500" /> <strong>Productos ilimitados</strong></li>
               <li className="flex items-center gap-2"><Check size={14} className="text-green-500" /> <strong>Vendedores ilimitados</strong></li>
@@ -6777,7 +7167,6 @@ export default function PaymentPortal() {
             </ul>
           </button>
         </div>
-
         {/* Resumen de pago */}
         <div className="max-w-md mx-auto mt-8 bg-white rounded-xl border border-gray-200 p-6">
           <h4 className="font-bold text-gray-800 mb-4">Resumen</h4>
@@ -6801,31 +7190,27 @@ export default function PaymentPortal() {
               <span>{formatMoney(precioActual)}</span>
             </div>
           </div>
-
           {error && (
             <div className="mt-4 bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded-lg text-sm">
               {error}
             </div>
           )}
-
           <button
             onClick={handlePagar}
-            disabled={loading}
+            disabled={loadingPago}
             className="w-full mt-4 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white font-bold py-3 rounded-xl transition flex items-center justify-center gap-2"
           >
-            {loading ? (
+            {loadingPago ? (
               <><Loader2 className="w-5 h-5 animate-spin" /> Procesando...</>
             ) : (
               <><CreditCard size={18} /> Pagar {formatMoney(precioActual)}</>
             )}
           </button>
-
           <p className="text-xs text-gray-400 text-center mt-3">
             🔒 Pago seguro. En producción se conectará con Webpay o MercadoPago.
             <br/>Por ahora es una simulación para pruebas.
           </p>
         </div>
-
         {/* FAQ */}
         <div className="max-w-2xl mx-auto mt-12 text-center">
           <h3 className="font-bold text-gray-800 mb-4">¿Tienes dudas?</h3>
@@ -8406,6 +8791,8 @@ import { AuthProvider } from "./hooks/useAuth";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import CanjearCodigo from "./components/CanjearCodigo";
+import BetaRegister from "./pages/BetaRegister";
+import Register from "./pages/Register";
 
 function App() {
   return (
@@ -8414,10 +8801,11 @@ function App() {
         <Routes>
           {/* Ruta pública: canjear código beta (no requiere login) */}
           <Route path="/canjear-beta" element={<CanjearCodigo />} />
-
+          {/* 🔥 FIX #24: Rutas faltantes para LandingPage */}
+          <Route path="/beta-registro" element={<BetaRegister />} />
+          <Route path="/registro" element={<Register />} />
           {/* Login */}
           <Route path="/login" element={<Login />} />
-
           {/* Dashboard con todas las rutas internas */}
           <Route path="/*" element={<Dashboard />} />
         </Routes>
