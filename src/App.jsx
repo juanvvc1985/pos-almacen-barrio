@@ -10,7 +10,7 @@ import LandingPage from "./pages/LandingPage";
 // Componente para proteger rutas privadas
 function PrivateRoute({ children }) {
   const { isAuthenticated, loading } = useAuth();
-  if (loading) return <div className="min-h-screen flex items-center justify-center bg-stone-50"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-slate-600"></div></div>;
+  if (loading) return <div className="min-h-screen flex items-center justify-center bg-slate-50"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600"></div></div>;
   return isAuthenticated ? children : <Navigate to="/login" />;
 }
 
@@ -28,14 +28,14 @@ function App() {
           <Route path="/beta-registro" element={<BetaRegister />} />
           <Route path="/canjear-beta" element={<CanjearCodigo />} />
           
-          {/* Rutas privadas (Dashboard) */}
+          {/* Rutas privadas (Dashboard) - Ahora bajo /app */}
           <Route path="/app/*" element={
             <PrivateRoute>
               <Dashboard />
             </PrivateRoute>
           } />
           
-          {/* Redirecciones legacy por si alguien entra a rutas viejas */}
+          {/* Redirecciones legacy */}
           <Route path="/vender" element={<Navigate to="/app/vender" />} />
           <Route path="/productos" element={<Navigate to="/app/productos" />} />
           <Route path="/dashboard" element={<Navigate to="/app" />} />

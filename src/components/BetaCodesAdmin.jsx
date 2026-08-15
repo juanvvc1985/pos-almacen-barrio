@@ -18,7 +18,7 @@ import { db } from "../firebase/firebase";
 // console.log(JSON.parse(localStorage.getItem("pos_offline_session")).uid)
 // ═══════════════════════════════════════════════════════════════
 const ADMIN_UIDS = [
-  // "PEGA-TU-UID-AQUI", // ← Descomenta y pega tu UID real
+  "BPx46wbO7AUDBJla0X2kgb21tDH3", // ← UID del dueño (tú)
 ];
 
 function generarCodigo(longitud = 8) {
@@ -39,7 +39,6 @@ export default function BetaCodesAdmin() {
   const [cargando, setCargando] = useState(false);
   const [mensaje, setMensaje] = useState("");
   const [error, setError] = useState("");
-
   const isAdmin = ADMIN_UIDS.includes(user?.uid);
 
   useEffect(() => {
@@ -66,7 +65,6 @@ export default function BetaCodesAdmin() {
     setCargando(true);
     setError("");
     setMensaje("");
-
     try {
       const codigosCreados = [];
       for (let i = 0; i < cantidad; i++) {
@@ -124,14 +122,12 @@ export default function BetaCodesAdmin() {
   return (
     <div className="max-w-4xl mx-auto p-4">
       <h1 className="text-2xl font-bold mb-6 flex items-center gap-2">🔑 Panel Admin — Códigos Beta</h1>
-
       {mensaje && (
         <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg mb-4">{mensaje}</div>
       )}
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4">{error}</div>
       )}
-
       <div className="bg-white rounded-lg shadow p-6 mb-6">
         <h2 className="text-lg font-semibold mb-4">Crear nuevo código</h2>
         <form onSubmit={crearCodigo} className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -162,7 +158,6 @@ export default function BetaCodesAdmin() {
           </div>
         </form>
       </div>
-
       <div className="bg-white rounded-lg shadow overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-200">
           <h2 className="text-lg font-semibold">Códigos existentes ({codigos.length})</h2>
