@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
+import { useAuth } from "../hooks/useAuth";
 import {
   Store, WifiOff, Smartphone, BarChart3, Users, Package,
   Check, ArrowRight, Menu, X, Gift, Star, ChevronDown,
-  ShieldCheck, Crown, Zap, NotebookPen, Wallet
+  NotebookPen, Wallet, Crown, Zap,
 } from "lucide-react";
 
-// ─── Mockup de celular hecho 100% con CSS (nunca se rompe) ───
+// Mockup de celular hecho 100% con CSS (sin imágenes que puedan fallar)
 function PhoneMockup() {
   const productos = [
     { nombre: "Pan", precio: "$1.500", emoji: "🥖" },
@@ -19,7 +20,7 @@ function PhoneMockup() {
   return (
     <div className="relative">
       <div className="absolute -inset-10 bg-sky-400/20 blur-3xl rounded-full"></div>
-      <div className="relative w-[280px] sm:w-[320px] mx-auto bg-slate-900 rounded-[2.5rem] border border-slate-700 shadow-2xl shadow-sky-900/40 p-3 rotate-3 hover:rotate-0 transition-transform duration-500">
+      <div className="relative w-[280px] sm:w-[320px] mx-auto bg-slate-900 rounded-[2.5rem] border border-slate-700 shadow-2xl p-3 rotate-3 hover:rotate-0 transition-transform duration-500">
         <div className="bg-slate-100 rounded-[2rem] overflow-hidden">
           <div className="bg-slate-900 h-6 flex items-center justify-center">
             <div className="w-16 h-3 bg-slate-800 rounded-full"></div>
@@ -47,45 +48,8 @@ function PhoneMockup() {
                 <div className="h-1.5 w-2/3 bg-sky-500 rounded-full"></div>
               </div>
             </div>
-            <div className="bg-sky-600 text-white text-center text-sm font-bold py-2.5 rounded-xl shadow-lg shadow-sky-600/30">
-              Cobrar
-            </div>
+            <div className="bg-sky-600 text-white text-center text-sm font-bold py-2.5 rounded-xl">Cobrar</div>
           </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Gráfico de ventas hecho 100% con CSS ───
-function ChartMockup() {
-  const barras = [45, 70, 55, 85, 65, 100, 80];
-  const dias = ["L", "M", "W", "J", "V", "S", "D"];
-  return (
-    <div className="relative">
-      <div className="absolute -inset-8 bg-blue-500/20 blur-3xl rounded-full"></div>
-      <div className="relative bg-slate-900 rounded-3xl border border-slate-700 shadow-2xl shadow-blue-900/40 p-6 w-full max-w-md mx-auto">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <p className="text-xs text-slate-400">Ventas de hoy</p>
-            <p className="text-2xl font-bold text-white">$248.900</p>
-          </div>
-          <span className="text-xs bg-sky-500/20 text-sky-400 px-2.5 py-1 rounded-full font-medium">+18%</span>
-        </div>
-        <div className="flex items-end justify-between gap-2 h-32 mb-3">
-          {barras.map((h, i) => (
-            <div key={i} className="flex-1 flex flex-col items-center gap-2">
-              <div
-                className={`w-full rounded-t-lg ${i === 5 ? "bg-sky-400" : "bg-sky-600/60"}`}
-                style={{ height: `${h}%` }}
-              ></div>
-            </div>
-          ))}
-        </div>
-        <div className="flex justify-between gap-2">
-          {dias.map((d, i) => (
-            <p key={i} className="flex-1 text-center text-[10px] text-slate-500">{d}</p>
-          ))}
         </div>
       </div>
     </div>
@@ -93,12 +57,9 @@ function ChartMockup() {
 }
 
 export default function LandingPage() {
+  const { isAuthenticated } = useAuth();
   const [menuAbierto, setMenuAbierto] = useState(false);
   const [faqAbierta, setFaqAbierta] = useState(null);
-
-  function volverArriba() {
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }
 
   const caracteristicas = [
     { icon: <WifiOff className="w-6 h-6 text-sky-600" />, titulo: "Funciona sin internet", desc: "¿Se cortó la señal? Sigue vendiendo. Todo se guarda en tu celular y se sincroniza solo cuando vuelve la conexión." },
@@ -131,203 +92,105 @@ export default function LandingPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-slate-100 font-sans text-slate-800 selection:bg-sky-100 selection:text-sky-900">
+    <div className="min-h-screen bg-slate-100 font-sans text-slate-800">
       {/* ─── NAVBAR ─── */}
       <nav className="fixed top-0 left-0 right-0 z-50 bg-slate-900/90 backdrop-blur-md border-b border-white/5">
         <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
-          <button onClick={volverArriba} className="flex items-center gap-2 group">
-            <div className="w-8 h-8 bg-white/10 rounded-lg flex items-center justify-center group-hover:bg-sky-500/20 transition">
+          <button onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-white/10 rounded-lg flex items-center justify-center">
               <Store className="w-4 h-4 text-sky-400" />
             </div>
-            <span className="text-lg font-bold text-white tracking-tight">
-              Loventa<span className="text-sky-400">.</span>
-            </span>
+            <span className="text-lg font-bold text-white">Loventa<span className="text-sky-400">.</span></span>
           </button>
-
           <div className="hidden md:flex items-center gap-7">
             <a href="#caracteristicas" className="text-sm text-slate-300 hover:text-white transition">Características</a>
             <a href="#precios" className="text-sm text-slate-300 hover:text-white transition">Precios</a>
             <a href="#faq" className="text-sm text-slate-300 hover:text-white transition">FAQ</a>
-            <Link to="/beta-registro" className="bg-sky-500 hover:bg-sky-400 text-slate-900 px-4 py-1.5 rounded-full text-sm font-bold transition">
-              Empezar Gratis
-            </Link>
-            <Link to="/login" className="text-sm text-white font-medium hover:text-sky-300 transition">
-              Iniciar sesión
-            </Link>
+            {isAuthenticated ? (
+              <Link to="/app" className="bg-sky-500 hover:bg-sky-400 text-slate-900 px-4 py-1.5 rounded-full text-sm font-bold transition">
+                Ir a mi panel
+              </Link>
+            ) : (
+              <>
+                <Link to="/beta-registro" className="bg-sky-500 hover:bg-sky-400 text-slate-900 px-4 py-1.5 rounded-full text-sm font-bold transition">
+                  Empezar Gratis
+                </Link>
+                <Link to="/login" className="text-sm text-white font-medium hover:text-sky-300 transition">
+                  Iniciar sesión
+                </Link>
+              </>
+            )}
           </div>
-
           <button onClick={() => setMenuAbierto(!menuAbierto)} className="md:hidden text-slate-300 p-2">
             {menuAbierto ? <X size={22} /> : <Menu size={22} />}
           </button>
         </div>
-
         {menuAbierto && (
-          <div className="md:hidden bg-slate-900/95 backdrop-blur-md border-t border-white/5 px-4 py-4 space-y-3">
+          <div className="md:hidden bg-slate-900/95 border-t border-white/5 px-4 py-4 space-y-3">
             <a href="#caracteristicas" onClick={() => setMenuAbierto(false)} className="block text-slate-300 py-2">Características</a>
             <a href="#precios" onClick={() => setMenuAbierto(false)} className="block text-slate-300 py-2">Precios</a>
             <a href="#faq" onClick={() => setMenuAbierto(false)} className="block text-slate-300 py-2">FAQ</a>
-            <Link to="/beta-registro" onClick={() => setMenuAbierto(false)} className="block bg-sky-500 text-slate-900 text-center py-2.5 rounded-full font-bold">Empezar Gratis</Link>
-            <Link to="/login" onClick={() => setMenuAbierto(false)} className="block text-center text-white py-2 font-medium">Iniciar sesión</Link>
+            {isAuthenticated ? (
+              <Link to="/app" onClick={() => setMenuAbierto(false)} className="block bg-sky-500 text-slate-900 text-center py-2.5 rounded-full font-bold">Ir a mi panel</Link>
+            ) : (
+              <>
+                <Link to="/beta-registro" onClick={() => setMenuAbierto(false)} className="block bg-sky-500 text-slate-900 text-center py-2.5 rounded-full font-bold">Empezar Gratis</Link>
+                <Link to="/login" onClick={() => setMenuAbierto(false)} className="block text-center text-white py-2 font-medium">Iniciar sesión</Link>
+              </>
+            )}
           </div>
         )}
       </nav>
 
-      {/* ─── HERO ─── */}
-      <header className="pt-28 pb-20 px-4 relative overflow-hidden">
-        <div className="absolute top-20 left-10 w-72 h-72 bg-sky-200/60 rounded-full blur-3xl pointer-events-none"></div>
-        <div className="absolute bottom-10 right-10 w-72 h-72 bg-blue-200/60 rounded-full blur-3xl pointer-events-none"></div>
-
+      {/* ─── HERO ── */}
+      <header className="pt-28 pb-20 px-4 bg-slate-900 relative overflow-hidden">
+        <div className="absolute top-20 left-10 w-72 h-72 bg-sky-500/10 rounded-full blur-3xl pointer-events-none"></div>
+        <div className="absolute bottom-10 right-10 w-72 h-72 bg-blue-500/10 rounded-full blur-3xl pointer-events-none"></div>
         <div className="max-w-6xl mx-auto grid lg:grid-cols-2 gap-16 items-center relative z-10">
           <div className="text-center lg:text-left">
-            <div className="inline-flex items-center gap-2 bg-white border border-slate-200 text-slate-600 px-4 py-1.5 rounded-full text-xs font-medium mb-6 shadow-sm">
-              <span className="flex h-2 w-2 rounded-full bg-sky-500"></span>
+            <div className="inline-flex items-center gap-2 bg-white/5 border border-white/10 text-sky-300 px-4 py-1.5 rounded-full text-xs font-medium mb-6">
+              <span className="flex h-2 w-2 rounded-full bg-sky-400"></span>
               Programa beta abierto — 7 meses gratis
             </div>
-
-            <h1 className="text-4xl md:text-6xl font-extrabold text-slate-900 leading-[1.1] mb-6 tracking-tight">
+            <h1 className="text-4xl md:text-6xl font-extrabold text-white leading-[1.1] mb-6 tracking-tight">
               Tu almacén ordenado
-              <span className="block text-transparent bg-clip-text bg-gradient-to-r from-sky-600 to-blue-500">
+              <span className="block text-transparent bg-clip-text bg-gradient-to-r from-sky-400 to-blue-400">
                 sin cuaderno ni calculadora
               </span>
             </h1>
-
-            <p className="text-lg md:text-xl text-slate-500 mb-8 leading-relaxed">
-              Cada venta, cada fiado y cada producto registrado en tu celular.
-              Funciona con o sin internet, y al cerrar el día
-              <strong className="text-slate-700"> la caja cuadra sola.</strong>
+            <p className="text-lg text-slate-400 mb-8 leading-relaxed">
+              Vende sin internet. Controla tu stock. Registra fiados. Todo desde tu celular.
+              <strong className="text-slate-200"> Sin computador, sin caja registradora.</strong>
             </p>
-
             <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4">
-              <Link to="/beta-registro" className="w-full sm:w-auto bg-slate-900 hover:bg-slate-800 text-white px-8 py-4 rounded-full text-lg font-bold transition shadow-lg hover:shadow-xl hover:-translate-y-0.5 flex items-center justify-center gap-2">
+              <Link to="/beta-registro" className="w-full sm:w-auto bg-sky-500 hover:bg-sky-400 text-slate-900 px-8 py-4 rounded-full text-lg font-bold transition flex items-center justify-center gap-2">
                 Empezar Gratis <ArrowRight size={20} />
               </Link>
-              <a href="#caracteristicas" className="w-full sm:w-auto bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 px-8 py-4 rounded-full text-lg font-medium transition flex items-center justify-center gap-2">
+              <a href="#caracteristicas" className="w-full sm:w-auto bg-white/5 hover:bg-white/10 text-white border border-white/10 px-8 py-4 rounded-full text-lg font-medium transition">
                 Ver cómo funciona
               </a>
             </div>
-
-            <div className="grid grid-cols-3 gap-6 max-w-md mx-auto lg:mx-0 mt-12 pt-8 border-t border-slate-200">
-              <div><p className="text-2xl md:text-3xl font-bold text-slate-900">100%</p><p className="text-sm text-slate-500 mt-1">Funciona sin señal</p></div>
-              <div><p className="text-2xl md:text-3xl font-bold text-slate-900">$5.990</p><p className="text-sm text-slate-500 mt-1">Desde /mes</p></div>
-              <div><p className="text-2xl md:text-3xl font-bold text-slate-900">0</p><p className="text-sm text-slate-500 mt-1">Cuadernos y planillas</p></div>
+            <div className="grid grid-cols-3 gap-6 max-w-md mx-auto lg:mx-0 mt-12 pt-8 border-t border-white/10">
+              <div><p className="text-2xl font-bold text-white">100%</p><p className="text-sm text-slate-400 mt-1">Funciona sin señal</p></div>
+              <div><p className="text-2xl font-bold text-white">$5.990</p><p className="text-sm text-slate-400 mt-1">Desde /mes</p></div>
+              <div><p className="text-2xl font-bold text-white">0</p><p className="text-sm text-slate-400 mt-1">Cuadernos y planillas</p></div>
             </div>
           </div>
-
           <PhoneMockup />
         </div>
       </header>
 
-      {/* ─── HECHO PARA EL BARRIO ─── */}
-      <section className="py-24 bg-white px-4">
-        <div className="max-w-6xl mx-auto grid md:grid-cols-2 gap-12 items-center">
-          <div className="bg-slate-100 rounded-3xl p-8 border border-slate-200 order-2 md:order-1">
-            <div className="flex items-center gap-4 mb-6">
-              <div className="w-14 h-14 rounded-full bg-sky-600 text-white flex items-center justify-center text-lg font-bold">JP</div>
-              <div>
-                <p className="font-bold text-slate-900">Juan Pérez</p>
-                <p className="text-sm text-slate-500">Almacén La Esquina · Santiago</p>
-              </div>
-            </div>
-            <p className="text-slate-600 leading-relaxed mb-6">
-              "Antes cerraba el día a las 11 de la noche contando billetes y anotando fiados en la libreta.
-              Ahora cierro en 5 minutos y lo que dice la pantalla es lo que hay en la caja."
-            </p>
-            <div className="flex items-center gap-1 text-sky-500">
-              {[...Array(5)].map((_, i) => <Star key={i} size={16} className="fill-current" />)}
-            </div>
-          </div>
-
-          <div className="order-1 md:order-2">
-            <p className="text-sky-600 font-semibold text-sm uppercase tracking-widest mb-4">Hecho para el barrio</p>
-            <h2 className="text-3xl md:text-5xl font-bold text-slate-900 tracking-tight mb-6">
-              Como tener una caja registradora. Pero en tu bolsillo.
-            </h2>
-            <p className="text-lg text-slate-500 mb-8 leading-relaxed">
-              Atiende, cobra y registra en segundos. Tus clientes no esperan,
-              tú no te equivales con las vueltas y todo queda anotado sin escribir una sola línea.
-            </p>
-            <ul className="space-y-4">
-              {[
-                "Cobras con un toque: efectivo, tarjeta, transferencia o fiado.",
-                "El stock se descuenta solo con cada venta.",
-                "Los fiados quedan con nombre, teléfono y dirección.",
-                "Al cerrar el día, ves exactamente cuánto hay en caja.",
-              ].map((t, i) => (
-                <li key={i} className="flex items-start gap-3 text-slate-700">
-                  <Check size={20} className="text-sky-600 shrink-0 mt-0.5" />
-                  {t}
-                </li>
-              ))}
-            </ul>
-          </div>
-        </div>
-      </section>
-
-      {/* ─── OFFLINE ─── */}
-      <section className="bg-slate-900 py-24 px-4 text-center relative overflow-hidden">
-        <div className="absolute top-0 left-1/4 w-96 h-96 bg-sky-500/10 rounded-full blur-3xl"></div>
-        <div className="max-w-3xl mx-auto relative z-10">
-          <div className="w-14 h-14 bg-sky-500/10 border border-sky-500/20 rounded-2xl flex items-center justify-center mx-auto mb-8">
-            <WifiOff className="w-6 h-6 text-sky-400" />
-          </div>
-          <h2 className="text-3xl md:text-5xl font-bold text-white tracking-tight mb-6">
-            ¿Se cortó el internet?
-            <span className="block text-transparent bg-clip-text bg-gradient-to-r from-sky-400 to-blue-400">Sigue vendiendo.</span>
-          </h2>
-          <p className="text-lg text-slate-400 leading-relaxed">
-            Loventa guarda cada venta en tu celular y la sube a la nube cuando vuelve la conexión.
-            Ni tú ni tus clientes notan la diferencia.
-          </p>
-        </div>
-      </section>
-
-      {/* ─── REPORTES ─── */}
-      <section className="py-24 bg-slate-100 px-4">
-        <div className="max-w-6xl mx-auto grid md:grid-cols-2 gap-12 items-center">
-          <div>
-            <p className="text-sky-600 font-semibold text-sm uppercase tracking-widest mb-4">Cuentas claras</p>
-            <h2 className="text-3xl md:text-5xl font-bold text-slate-900 tracking-tight mb-6">
-              La caja cuadra sola. Todo suma, nada se pierde.
-            </h2>
-            <p className="text-lg text-slate-500 leading-relaxed mb-8">
-              Efectivo, tarjeta, transferencia y fiados, separados y ordenados.
-              Al cerrar el turno sabes exactamente cuánto debería haber en el cajón,
-              y al fin de mes tienes el informe listo para tu contador.
-            </p>
-            <ul className="space-y-4">
-              {[
-                "Resumen del turno en 1 minuto.",
-                "Ranking de lo que más se vende.",
-                "Fiados pendientes y atrasados a la vista.",
-              ].map((t, i) => (
-                <li key={i} className="flex items-start gap-3 text-slate-700">
-                  <Check size={20} className="text-sky-600 shrink-0 mt-0.5" />
-                  {t}
-                </li>
-              ))}
-            </ul>
-          </div>
-          <ChartMockup />
-        </div>
-      </section>
-
       {/* ─── CARACTERÍSTICAS ─── */}
-      <section id="caracteristicas" className="py-24 bg-white px-4">
-        <div className="max-w-6xl mx-auto">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-4xl font-bold text-slate-900 tracking-tight mb-4">
-              Todo lo que tu almacén necesita. Nada que te sobre.
-            </h2>
-            <p className="text-slate-500 text-lg max-w-2xl mx-auto">
-              Diseñado para almacenes, minimarkets y negocios familiares de Chile.
-            </p>
+      <section id="caracteristicas" className="py-20 bg-slate-100">
+        <div className="max-w-6xl mx-auto px-4">
+          <div className="text-center mb-14">
+            <h2 className="text-3xl md:text-4xl font-bold text-slate-900 mb-4">Hecho para la realidad del barrio</h2>
+            <p className="text-slate-500 text-lg max-w-2xl mx-auto">Pensado para almacenes, minimarkets y negocios familiares de Chile.</p>
           </div>
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
             {caracteristicas.map((c, i) => (
-              <div key={i} className="bg-slate-50 rounded-2xl p-7 border border-slate-200 hover:shadow-lg hover:-translate-y-1 transition-all duration-300">
-                <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center mb-5 shadow-sm border border-slate-200">
-                  {c.icon}
-                </div>
+              <div key={i} className="bg-white rounded-2xl p-6 border border-slate-200 hover:shadow-lg hover:-translate-y-1 transition-all duration-300">
+                <div className="w-12 h-12 bg-sky-50 rounded-xl flex items-center justify-center mb-4">{c.icon}</div>
                 <h3 className="text-lg font-bold text-slate-900 mb-2">{c.titulo}</h3>
                 <p className="text-slate-500 text-sm leading-relaxed">{c.desc}</p>
               </div>
@@ -337,114 +200,91 @@ export default function LandingPage() {
       </section>
 
       {/* ─── BANNER BETA ─── */}
-      <section className="bg-slate-900 py-20 px-4 relative overflow-hidden">
-        <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl"></div>
-        <div className="max-w-4xl mx-auto text-center relative z-10">
+      <section className="py-16 bg-slate-900">
+        <div className="max-w-4xl mx-auto px-4 text-center">
           <div className="inline-flex items-center gap-2 bg-sky-500/10 border border-sky-500/20 text-sky-300 px-4 py-1.5 rounded-full text-sm font-medium mb-6">
-            <Star size={14} className="fill-current" />
-            Programa Beta Exclusivo
+            <Star size={14} className="fill-current" /> Programa Beta Exclusivo
           </div>
-          <h2 className="text-3xl md:text-5xl font-bold text-white tracking-tight mb-10">
-            Únete ahora y vende gratis por más de 6 meses
-          </h2>
+          <h2 className="text-3xl md:text-4xl font-bold text-white mb-10">Únete ahora y vende gratis por más de 6 meses</h2>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-6 mb-10">
-            <div className="bg-white/5 border border-white/10 rounded-2xl p-6 text-center min-w-[160px] w-full sm:w-auto">
-              <p className="text-4xl font-bold text-white mb-1">30</p>
-              <p className="text-sm text-slate-400">días con todo incluido</p>
+            <div className="bg-white/5 border border-white/10 rounded-2xl p-6 text-center min-w-[140px] w-full sm:w-auto">
+              <p className="text-3xl font-bold text-white">30</p><p className="text-sm text-slate-400">días con todo incluido</p>
             </div>
             <span className="text-slate-500 text-2xl hidden sm:block">+</span>
-            <div className="bg-white/5 border border-white/10 rounded-2xl p-6 text-center min-w-[160px] w-full sm:w-auto">
-              <p className="text-4xl font-bold text-white mb-1">6</p>
-              <p className="text-sm text-slate-400">meses gratis</p>
+            <div className="bg-white/5 border border-white/10 rounded-2xl p-6 text-center min-w-[140px] w-full sm:w-auto">
+              <p className="text-3xl font-bold text-white">6</p><p className="text-sm text-slate-400">meses gratis</p>
             </div>
             <span className="text-slate-500 text-2xl hidden sm:block">=</span>
-            <div className="bg-sky-500/10 border border-sky-500/30 rounded-2xl p-6 text-center min-w-[160px] w-full sm:w-auto">
-              <p className="text-4xl font-bold text-sky-400 mb-1">$0</p>
-              <p className="text-sm text-sky-200/70">por más de 7 meses</p>
+            <div className="bg-sky-500/10 border border-sky-500/30 rounded-2xl p-6 text-center min-w-[140px] w-full sm:w-auto">
+              <p className="text-3xl font-bold text-sky-400">$0</p><p className="text-sm text-sky-200/70">por más de 7 meses</p>
             </div>
           </div>
-          <Link to="/beta-registro" className="inline-flex items-center gap-2 bg-sky-500 hover:bg-sky-400 text-slate-900 px-8 py-4 rounded-full text-lg font-bold transition shadow-xl">
+          <Link to="/beta-registro" className="inline-flex items-center gap-2 bg-sky-500 hover:bg-sky-400 text-slate-900 px-8 py-4 rounded-full text-lg font-bold transition">
             Solicitar acceso beta <ArrowRight size={20} />
           </Link>
         </div>
       </section>
 
       {/* ─── PRECIOS ─── */}
-      <section id="precios" className="py-24 bg-slate-100 px-4">
-        <div className="max-w-4xl mx-auto">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-4xl font-bold text-slate-900 tracking-tight mb-4">Precios simples, sin sorpresas</h2>
+      <section id="precios" className="py-20 bg-slate-100">
+        <div className="max-w-4xl mx-auto px-4">
+          <div className="text-center mb-14">
+            <h2 className="text-3xl md:text-4xl font-bold text-slate-900 mb-4">Precios simples, sin sorpresas</h2>
             <p className="text-slate-500 text-lg">Elige el plan que se ajuste a tu negocio. Cancela cuando quieras.</p>
           </div>
-
-          <div className="grid md:grid-cols-2 gap-8 max-w-3xl mx-auto items-stretch">
+          <div className="grid md:grid-cols-2 gap-6 max-w-3xl mx-auto">
             {planes.map((plan) => (
-              <div key={plan.nombre} className={`relative rounded-3xl p-8 flex flex-col ${plan.popular ? "bg-slate-900 border-2 border-sky-500 shadow-2xl shadow-sky-500/10" : "bg-white border border-slate-200 shadow-sm"}`}>
+              <div key={plan.nombre} className={`relative rounded-2xl p-8 flex flex-col ${plan.popular ? "bg-slate-900 border-2 border-sky-500 shadow-xl" : "bg-white border border-slate-200 shadow-sm"}`}>
                 {plan.popular && (
-                  <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-sky-500 text-slate-900 text-xs font-bold px-4 py-1.5 rounded-full uppercase tracking-wide">
-                    Más popular
-                  </div>
+                  <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-sky-500 text-slate-900 text-xs font-bold px-4 py-1 rounded-full uppercase tracking-wide">Más popular</div>
                 )}
                 <div className="flex items-center gap-3 mb-6">
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${plan.popular ? "bg-sky-500/10 text-sky-400" : "bg-slate-100 text-slate-600"}`}>
-                    {plan.icon}
-                  </div>
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${plan.popular ? "bg-sky-500/10 text-sky-400" : "bg-slate-100 text-slate-600"}`}>{plan.icon}</div>
                   <div>
                     <h3 className={`text-xl font-bold ${plan.popular ? "text-white" : "text-slate-900"}`}>{plan.nombre}</h3>
                     <p className={`text-sm ${plan.popular ? "text-slate-400" : "text-slate-500"}`}>{plan.sub}</p>
                   </div>
                 </div>
-                <div className="mb-8">
+                <div className="mb-6">
                   <div className="flex items-baseline gap-1">
-                    <span className={`text-4xl font-bold ${plan.popular ? "text-white" : "text-slate-900"}`}>
-                      ${plan.precioMensual.toLocaleString("es-CL")}
-                    </span>
+                    <span className={`text-4xl font-bold ${plan.popular ? "text-white" : "text-slate-900"}`}>${plan.precioMensual.toLocaleString("es-CL")}</span>
                     <span className={plan.popular ? "text-slate-400" : "text-slate-500"}>/mes</span>
                   </div>
-                  <p className={`text-sm mt-2 ${plan.popular ? "text-slate-400" : "text-slate-400"}`}>
-                    o ${plan.precioAnual.toLocaleString("es-CL")}/año (ahorras 2 meses)
-                  </p>
+                  <p className="text-sm text-slate-400 mt-1">o ${plan.precioAnual.toLocaleString("es-CL")}/año (ahorras 2 meses)</p>
                 </div>
-                <ul className="space-y-4 mb-8 flex-1">
+                <ul className="space-y-3 mb-8 flex-1">
                   {plan.features.map((f, i) => (
-                    <li key={i} className={`flex items-start gap-3 text-sm ${plan.popular ? "text-slate-300" : "text-slate-600"}`}>
-                      <Check size={18} className="text-sky-500 shrink-0 mt-0.5" />
-                      {f}
+                    <li key={i} className={`flex items-start gap-2 text-sm ${plan.popular ? "text-slate-300" : "text-slate-600"}`}>
+                      <Check size={16} className="text-sky-500 shrink-0 mt-0.5" /> {f}
                     </li>
                   ))}
                 </ul>
-                <Link to="/beta-registro" className={`block w-full text-center py-3.5 rounded-full font-bold transition ${plan.popular ? "bg-sky-500 hover:bg-sky-400 text-slate-900" : "bg-slate-900 hover:bg-slate-800 text-white"}`}>
+                <Link to="/beta-registro" className={`block w-full text-center py-3 rounded-full font-bold transition ${plan.popular ? "bg-sky-500 hover:bg-sky-400 text-slate-900" : "bg-slate-900 hover:bg-slate-800 text-white"}`}>
                   {plan.popular ? "Empezar con Pro" : "Empezar con Básico"}
                 </Link>
               </div>
             ))}
           </div>
-
-          <p className="text-center text-sm text-slate-400 mt-10 flex items-center justify-center gap-2">
-            <ShieldCheck size={16} /> Pago seguro. Sin contratos de permanencia.
-          </p>
         </div>
       </section>
 
       {/* ─── FAQ ─── */}
-      <section id="faq" className="py-24 bg-white px-4">
-        <div className="max-w-3xl mx-auto">
+      <section id="faq" className="py-20 bg-white">
+        <div className="max-w-3xl mx-auto px-4">
           <div className="text-center mb-12">
-            <h2 className="text-3xl font-bold text-slate-900 tracking-tight mb-4">Preguntas frecuentes</h2>
+            <h2 className="text-3xl font-bold text-slate-900 mb-4">Preguntas frecuentes</h2>
             <p className="text-slate-500">Lo que cualquier dueño de almacén nos pregunta antes de partir.</p>
           </div>
-          <div className="space-y-4">
+          <div className="space-y-3">
             {faqs.map((faq, i) => (
-              <div key={i} className="bg-slate-50 rounded-2xl border border-slate-200 overflow-hidden">
-                <button onClick={() => setFaqAbierta(faqAbierta === i ? null : i)} className="w-full flex items-center justify-between p-6 text-left hover:bg-slate-100/50 transition">
-                  <span className="font-semibold text-slate-800 pr-4">{faq.pregunta}</span>
-                  <ChevronDown size={20} className={`text-slate-400 shrink-0 transition-transform duration-300 ${faqAbierta === i ? "rotate-180" : ""}`} />
+              <div key={i} className="bg-slate-50 rounded-xl border border-slate-200 overflow-hidden">
+                <button onClick={() => setFaqAbierta(faqAbierta === i ? null : i)} className="w-full flex items-center justify-between p-5 text-left hover:bg-slate-100 transition">
+                  <span className="font-medium text-slate-800">{faq.pregunta}</span>
+                  <ChevronDown size={18} className={`text-slate-400 transition-transform ${faqAbierta === i ? "rotate-180" : ""}`} />
                 </button>
-                <div className={`grid transition-all duration-300 ease-in-out ${faqAbierta === i ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`}>
-                  <div className="overflow-hidden">
-                    <div className="px-6 pb-6 text-slate-500 text-sm leading-relaxed">{faq.respuesta}</div>
-                  </div>
-                </div>
+                {faqAbierta === i && (
+                  <div className="px-5 pb-5 text-slate-500 text-sm leading-relaxed">{faq.respuesta}</div>
+                )}
               </div>
             ))}
           </div>
@@ -452,57 +292,25 @@ export default function LandingPage() {
       </section>
 
       {/* ─── CTA FINAL ─── */}
-      <section className="py-24 bg-slate-100 px-4 text-center">
-        <div className="max-w-3xl mx-auto">
-          <h2 className="text-3xl md:text-4xl font-bold text-slate-900 tracking-tight mb-6">Deja el cuaderno. Pásate al celular.</h2>
-          <p className="text-slate-500 text-lg mb-10 max-w-xl mx-auto">
-            Únete al programa beta y empieza a vender mejor hoy mismo. Sin tarjeta, sin compromiso.
-          </p>
-          <Link to="/beta-registro" className="inline-flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-8 py-4 rounded-full text-lg font-bold transition shadow-lg hover:shadow-xl hover:-translate-y-0.5">
-            Crear cuenta gratis <ArrowRight size={20} />
-          </Link>
-          <p className="text-sm text-slate-400 mt-6 flex items-center justify-center gap-2">
-            <Gift size={14} /> Cupos beta limitados. Pide tu código de invitación.
-          </p>
-        </div>
+      <section className="py-20 bg-slate-100 text-center px-4">
+        <h2 className="text-3xl md:text-4xl font-bold text-slate-900 mb-6">Deja el cuaderno. Pásate al celular.</h2>
+        <p className="text-slate-500 text-lg mb-10 max-w-xl mx-auto">Únete al programa beta y empieza a vender mejor hoy mismo. Sin tarjeta, sin compromiso.</p>
+        <Link to="/beta-registro" className="inline-flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-8 py-4 rounded-full text-lg font-bold transition">
+          Crear cuenta gratis <ArrowRight size={20} />
+        </Link>
       </section>
 
       {/* ─── FOOTER ─── */}
-      <footer className="bg-slate-900 text-slate-400 py-12 px-4 border-t border-slate-800">
-        <div className="max-w-6xl mx-auto">
-          <div className="grid md:grid-cols-4 gap-8 mb-8">
-            <div className="md:col-span-2">
-              <div className="flex items-center gap-2 mb-4">
-                <div className="w-8 h-8 bg-white/10 rounded-lg flex items-center justify-center">
-                  <Store className="w-4 h-4 text-sky-400" />
-                </div>
-                <span className="text-xl font-bold text-white">Loventa</span>
-              </div>
-              <p className="text-sm leading-relaxed max-w-sm">
-                El sistema hecho para almacenes de barrio en Chile.
-                Vende sin internet, controla tu stock y no pierdas ni un fiado.
-              </p>
+      <footer className="bg-slate-900 text-slate-400 py-12 px-4">
+        <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-white/10 rounded-lg flex items-center justify-center">
+              <Store className="w-4 h-4 text-sky-400" />
             </div>
-            <div>
-              <h4 className="text-white font-medium mb-4">Producto</h4>
-              <ul className="space-y-2 text-sm">
-                <li><a href="#caracteristicas" className="hover:text-sky-400 transition">Características</a></li>
-                <li><a href="#precios" className="hover:text-sky-400 transition">Precios</a></li>
-                <li><Link to="/beta-registro" className="hover:text-sky-400 transition">Programa Beta</Link></li>
-              </ul>
-            </div>
-            <div>
-              <h4 className="text-white font-medium mb-4">Cuenta</h4>
-              <ul className="space-y-2 text-sm">
-                <li><Link to="/login" className="hover:text-sky-400 transition">Iniciar sesión</Link></li>
-                <li><Link to="/beta-registro" className="hover:text-sky-400 transition">Registrarme</Link></li>
-              </ul>
-            </div>
+            <span className="text-lg font-bold text-white">Loventa</span>
           </div>
-          <div className="border-t border-slate-800 pt-8 flex flex-col md:flex-row items-center justify-between gap-4">
-            <p className="text-sm">© 2026 Loventa. Hecho con ❤️ en Chile.</p>
-            <p className="text-xs text-slate-500">Tu celular, tu caja registradora.</p>
-          </div>
+          <p className="text-sm">© 2026 Loventa. Hecho con ❤️ en Chile.</p>
+          <p className="text-xs text-slate-500">Tu celular, tu caja registradora.</p>
         </div>
       </footer>
     </div>

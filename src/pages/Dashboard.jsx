@@ -16,28 +16,28 @@ export default function Dashboard() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      <div className="min-h-screen flex items-center justify-center bg-slate-100">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-sky-600"></div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-slate-100">
       <Navbar />
       <main className="container mx-auto px-4 py-6 max-w-7xl">
         <Routes>
-          <Route path="/" element={<POS />} />
-          <Route path="/vender" element={<POS />} />
-          <Route path="/productos" element={isDueño || hasPrivilege("productos") ? <ProductManager /> : <Navigate to="/" />} />
-          <Route path="/fiados" element={<Fiados />} />
-          <Route path="/ofertas" element={isDueño || hasPrivilege("ofertas") ? <Offers /> : <Navigate to="/" />} />
-          <Route path="/mermas" element={isDueño || hasPrivilege("mermas") ? <Mermas /> : <Navigate to="/" />} />
-          <Route path="/informes" element={<Reports />} />
-          <Route path="/vendedores" element={isDueño ? <AdminVendedores /> : <Navigate to="/" />} />
-          <Route path="/configuracion" element={isDueño ? <ConfiguracionAlmacen /> : <Navigate to="/" />} />
-          <Route path="/admin-beta" element={isDueño ? <BetaCodesAdmin /> : <Navigate to="/" />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route index element={<POS />} />
+          <Route path="vender" element={<POS />} />
+          <Route path="productos" element={isDueño || hasPrivilege("productos") ? <ProductManager /> : <Navigate to="/app" replace />} />
+          <Route path="fiados" element={<Fiados />} />
+          <Route path="ofertas" element={isDueño || hasPrivilege("ofertas") ? <Offers /> : <Navigate to="/app" replace />} />
+          <Route path="mermas" element={isDueño || hasPrivilege("mermas") ? <Mermas /> : <Navigate to="/app" replace />} />
+          <Route path="informes" element={<Reports />} />
+          <Route path="vendedores" element={isDueño ? <AdminVendedores /> : <Navigate to="/app" replace />} />
+          <Route path="configuracion" element={isDueño ? <ConfiguracionAlmacen /> : <Navigate to="/app" replace />} />
+          <Route path="admin-beta" element={isDueño ? <BetaCodesAdmin /> : <Navigate to="/app" replace />} />
+          <Route path="*" element={<Navigate to="/app" replace />} />
         </Routes>
       </main>
     </div>

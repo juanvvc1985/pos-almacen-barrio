@@ -144,7 +144,6 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const [suscripcionInfo, setSuscripcionInfo] = useState(null);
 
-  // 🔥 FIX #9: Función refreshUser para recargar datos desde Firestore
   const refreshUser = useCallback(async () => {
     if (user) {
       try {
@@ -153,7 +152,6 @@ export function AuthProvider({ children }) {
           const data = userDoc.data();
           setUserData(data);
           setSuscripcionInfo(verificarEstadoV2(data));
-
           const session = {
             uid: user.uid,
             email: user.email?.toLowerCase(),
@@ -185,8 +183,7 @@ export function AuthProvider({ children }) {
           photoURL: offline.photoURL,
         });
         setUserData(offline.userData);
-        const info = verificarEstadoV2(offline.userData);
-        setSuscripcionInfo(info);
+        setSuscripcionInfo(verificarEstadoV2(offline.userData));
       }
 
       unsub = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -198,7 +195,6 @@ export function AuthProvider({ children }) {
             const userDoc = await getDoc(doc(db, "users", firebaseUser.uid));
             if (userDoc.exists()) {
               let data = userDoc.data();
-
               const estadoInfo = verificarEstadoV2(data);
               if (
                 estadoInfo.necesitaUpgrade ||
@@ -213,9 +209,7 @@ export function AuthProvider({ children }) {
                   console.error("Error en auto-upgrade:", upgradeErr);
                 }
               }
-
-              const finalInfo = verificarEstadoV2(data);
-              setSuscripcionInfo(finalInfo);
+              setSuscripcionInfo(verificarEstadoV2(data));
 
               if (data.passwordPending && data.role === "vendedor") {
                 try {
@@ -281,7 +275,6 @@ export function AuthProvider({ children }) {
     for (const uid in users) {
       if (users[uid].username === clean) return users[uid].email;
     }
-
     const offlineSession = getOfflineSession();
     const almacenId = offlineSession?.userData?.almacenId;
     if (almacenId) {
@@ -293,7 +286,6 @@ export function AuthProvider({ children }) {
         /* noop */
       }
     }
-
     if (navigator.onLine) {
       try {
         const snap = await getDoc(doc(db, "publicUsernames", clean));
@@ -325,7 +317,6 @@ export function AuthProvider({ children }) {
       if (userDoc.exists()) {
         let data = userDoc.data();
         const estadoInfo = verificarEstadoV2(data);
-
         if (
           estadoInfo.necesitaUpgrade ||
           (data.plan === "pro_gratis" && estadoInfo.suspendido) ||
@@ -339,9 +330,7 @@ export function AuthProvider({ children }) {
             console.error("Error en auto-upgrade:", upgradeErr);
           }
         }
-
-        const finalInfo = verificarEstadoV2(data);
-        setSuscripcionInfo(finalInfo);
+        setSuscripcionInfo(verificarEstadoV2(data));
 
         if (data.activo === false) {
           await signOut(auth);
@@ -386,7 +375,6 @@ export function AuthProvider({ children }) {
             offline = session;
           }
         }
-
         if (offline) {
           setUser({
             uid: offline.uid,
@@ -404,11 +392,9 @@ export function AuthProvider({ children }) {
     }
   };
 
-  // 🔥 FIX #7: Rollback si falla la creación en Firestore
   const registerDueño = async (email, password, nombre, nombreAlmacen) => {
     const result = await createUserWithEmailAndPassword(auth, email, password);
     await updateProfile(result.user, { displayName: nombre });
-
     try {
       const almacenRef = doc(collection(db, "almacenes"));
       await setDoc(almacenRef, {
@@ -417,7 +403,6 @@ export function AuthProvider({ children }) {
         plan: PLANES.BASICO,
         createdAt: new Date().toISOString(),
       });
-
       await setDoc(doc(db, "users", result.user.uid), {
         email,
         nombre,
@@ -426,7 +411,6 @@ export function AuthProvider({ children }) {
         plan: PLANES.BASICO,
         createdAt: new Date().toISOString(),
       });
-
       const newUserData = {
         email,
         nombre,
@@ -434,10 +418,8 @@ export function AuthProvider({ children }) {
         almacenId: almacenRef.id,
         plan: PLANES.BASICO,
       };
-
       setUserData(newUserData);
       setSuscripcionInfo(verificarEstadoV2(newUserData));
-
       const session = {
         uid: result.user.uid,
         email: result.user.email?.toLowerCase(),
@@ -449,7 +431,6 @@ export function AuthProvider({ children }) {
       await idbSet("session", session);
       saveOfflineSession(result.user, newUserData);
       saveOfflineUser(result.user.uid, newUserData);
-
       return result;
     } catch (err) {
       console.error("Error creando almacén, revirtiendo usuario:", err);
@@ -458,7 +439,7 @@ export function AuthProvider({ children }) {
     }
   };
 
-  // 🔥 FIX LOGOUT: Redirigir a /login después de cerrar sesión
+  // 🔥 LOGOUT CORREGIDO: limpia TODA la sesión guardada y vuelve a la portada pública
   const logout = async () => {
     await idbDel("session");
     clearOfflineSession();
@@ -466,8 +447,7 @@ export function AuthProvider({ children }) {
     setUser(null);
     setUserData(null);
     setSuscripcionInfo(null);
-    // Forzar redirección a login
-    window.location.href = "/login";
+    window.location.href = "/";
   };
 
   const isDueño = userData?.role === ROLES.DUEÑO;
@@ -519,10 +499,8 @@ export function useAuth() {
 export async function crearVendedorDirecto(almacenId, nombre, username, password) {
   const cleanUser = username.toLowerCase().trim();
   const email = `vendedor.${cleanUser}.${almacenId}@pos-almacen.local`;
-
   const snapCheck = await getDoc(doc(db, "publicUsernames", cleanUser));
   if (snapCheck.exists()) throw new Error("El nombre de usuario ya existe");
-
   const response = await fetch(
     `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${FIREBASE_API_KEY}`,
     {
@@ -532,14 +510,12 @@ export async function crearVendedorDirecto(almacenId, nombre, username, password
     }
   );
   const data = await response.json();
-
   if (data.error) {
     if (data.error.message === "EMAIL_EXISTS") throw new Error("El usuario ya existe");
     if (data.error.message === "WEAK_PASSWORD")
       throw new Error("Contraseña muy débil (mínimo 6 caracteres)");
     throw new Error(data.error.message);
   }
-
   const uid = data.localId;
   await setDoc(doc(db, "users", uid), {
     email,
@@ -550,13 +526,11 @@ export async function crearVendedorDirecto(almacenId, nombre, username, password
     activo: true,
     createdAt: new Date().toISOString(),
   });
-
   await setDoc(doc(db, "publicUsernames", cleanUser), {
     email,
     almacenId,
     uid,
   });
-
   return { uid, email, username: cleanUser };
 }
 
@@ -570,9 +544,7 @@ export async function toggleVendedorEstado(vendedorId, activo) {
 export async function getVendedores(almacenId) {
   const q = query(collection(db, "users"), where("almacenId", "==", almacenId));
   const snap = await getDocs(q);
-  return snap.docs
-    .map((d) => ({ id: d.id, ...d.data() }))
-    .filter((u) => u.role === "vendedor");
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((u) => u.role === "vendedor");
 }
 
 export async function sendPasswordReset(email) {
