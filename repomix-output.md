@@ -132,72 +132,90 @@ vite.config.js
 
 ## File: src/components/BarcodeScanner.jsx
 ````javascript
-import { useState, useRef, useCallback, useEffect } from 'react';
-import { BrowserMultiFormatReader } from '@zxing/browser';
-import { BarcodeFormat, DecodeHintType } from '@zxing/library';
-import { X, Camera, Scan, AlertTriangle, Keyboard } from 'lucide-react';
+import { useState, useRef, useCallback, useEffect } from "react";
+import { BrowserMultiFormatReader } from "@zxing/browser";
+import { BarcodeFormat, DecodeHintType } from "@zxing/library";
+import { X, Camera, Scan, AlertTriangle, Keyboard } from "lucide-react";
 
 const createZXingReader = () => {
   const hints = new Map();
   const formats = [
-    BarcodeFormat.EAN_13, BarcodeFormat.EAN_8, BarcodeFormat.UPC_A,
-    BarcodeFormat.UPC_E, BarcodeFormat.CODE_128, BarcodeFormat.CODE_39,
-    BarcodeFormat.CODE_93, BarcodeFormat.ITF, BarcodeFormat.QR_CODE,
+    BarcodeFormat.EAN_13,
+    BarcodeFormat.EAN_8,
+    BarcodeFormat.UPC_A,
+    BarcodeFormat.UPC_E,
+    BarcodeFormat.CODE_128,
+    BarcodeFormat.CODE_39,
+    BarcodeFormat.CODE_93,
+    BarcodeFormat.ITF,
+    BarcodeFormat.QR_CODE,
     BarcodeFormat.DATA_MATRIX,
   ];
   hints.set(DecodeHintType.POSSIBLE_FORMATS, formats);
   hints.set(DecodeHintType.TRY_HARDER, true);
   const reader = new BrowserMultiFormatReader(hints);
-  reader.timeBetweenDecodingAttempts = 100;
   return reader;
 };
 
 export default function BarcodeScanner({ onScan, onClose, products = [] }) {
-  const [activeTab, setActiveTab] = useState('camera');
-  const [error, setError] = useState('');
+  const [activeTab, setActiveTab] = useState("camera");
+  const [error, setError] = useState("");
   const [scannerReady, setScannerReady] = useState(false);
-  const [manualCode, setManualCode] = useState('');
-  
+  const [manualCode, setManualCode] = useState("");
   const videoRef = useRef(null);
   const controlsRef = useRef(null);
   const pauseRef = useRef(false);
+  const isProcessingRef = useRef(false);
   const onScanRef = useRef(onScan);
   const onCloseRef = useRef(onClose);
 
-  useEffect(() => { onScanRef.current = onScan; }, [onScan]);
-  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
+  useEffect(() => {
+    onScanRef.current = onScan;
+  }, [onScan]);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   const stopLiveScanner = useCallback(() => {
     if (controlsRef.current) {
-      try { controlsRef.current.stop(); } catch {}
+      try {
+        controlsRef.current.stop();
+      } catch {
+        /* noop */
+      }
       controlsRef.current = null;
     }
     if (videoRef.current) {
       const stream = videoRef.current.srcObject;
       if (stream) {
-        stream.getTracks().forEach(track => track.stop());
+        stream.getTracks().forEach((track) => track.stop());
         videoRef.current.srcObject = null;
       }
     }
     setScannerReady(false);
   }, []);
 
-  const handleCodeFound = useCallback((code) => {
-    stopLiveScanner();
-    onScanRef.current(code);
-    onCloseRef.current();
-  }, [stopLiveScanner]);
+  const handleCodeFound = useCallback(
+    (code) => {
+      stopLiveScanner();
+      onScanRef.current(code);
+      onCloseRef.current();
+    },
+    [stopLiveScanner]
+  );
 
   const startLiveScanner = useCallback(async () => {
-    setError('');
+    setError("");
     try {
       const reader = createZXingReader();
       const controls = await reader.decodeFromConstraints(
-        { audio: false, video: { facingMode: 'environment' } },
+        { audio: false, video: { facingMode: "environment" } },
         videoRef.current,
         (result) => {
-          if (result && !pauseRef.current) {
+          if (result && !pauseRef.current && !isProcessingRef.current) {
             pauseRef.current = true;
+            isProcessingRef.current = true;
             handleCodeFound(result.getText());
           }
         }
@@ -205,8 +223,8 @@ export default function BarcodeScanner({ onScan, onClose, products = [] }) {
       controlsRef.current = controls;
       setScannerReady(true);
     } catch (err) {
-      console.error('[SCANNER] Error:', err);
-      setError('No se pudo iniciar la cámara. Intenta recargar la página.');
+      console.error("[SCANNER] Error:", err);
+      setError("No se pudo iniciar la cámara. Intenta recargar la página.");
       setScannerReady(false);
     }
   }, [handleCodeFound]);
@@ -219,8 +237,8 @@ export default function BarcodeScanner({ onScan, onClose, products = [] }) {
 
   const handleTabChange = (tab) => {
     setActiveTab(tab);
-    setError('');
-    if (tab === 'camera') {
+    setError("");
+    if (tab === "camera") {
       startLiveScanner();
     } else {
       stopLiveScanner();
@@ -242,25 +260,35 @@ export default function BarcodeScanner({ onScan, onClose, products = [] }) {
             <Scan className="w-5 h-5" />
             Escanear código
           </h2>
-          <button onClick={() => { stopLiveScanner(); onClose(); }} className="text-gray-400 hover:text-white">
+          <button
+            onClick={() => {
+              stopLiveScanner();
+              onClose();
+            }}
+            className="text-gray-400 hover:text-white"
+          >
             <X className="w-6 h-6" />
           </button>
         </div>
 
         <div className="flex border-b border-gray-700">
           <button
-            onClick={() => handleTabChange('camera')}
+            onClick={() => handleTabChange("camera")}
             className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 transition-colors ${
-              activeTab === 'camera' ? 'text-blue-400 border-b-2 border-blue-400 bg-gray-800' : 'text-gray-400 hover:text-gray-200'
+              activeTab === "camera"
+                ? "text-blue-400 border-b-2 border-blue-400 bg-gray-800"
+                : "text-gray-400 hover:text-gray-200"
             }`}
           >
             <Camera className="w-4 h-4" />
             Cámara en vivo
           </button>
           <button
-            onClick={() => handleTabChange('manual')}
+            onClick={() => handleTabChange("manual")}
             className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 transition-colors ${
-              activeTab === 'manual' ? 'text-blue-400 border-b-2 border-blue-400 bg-gray-800' : 'text-gray-400 hover:text-gray-200'
+              activeTab === "manual"
+                ? "text-blue-400 border-b-2 border-blue-400 bg-gray-800"
+                : "text-gray-400 hover:text-gray-200"
             }`}
           >
             <Keyboard className="w-4 h-4" />
@@ -278,7 +306,7 @@ export default function BarcodeScanner({ onScan, onClose, products = [] }) {
         )}
 
         <div className="p-4">
-          {activeTab === 'camera' && (
+          {activeTab === "camera" && (
             <div>
               <video
                 ref={videoRef}
@@ -295,7 +323,7 @@ export default function BarcodeScanner({ onScan, onClose, products = [] }) {
             </div>
           )}
 
-          {activeTab === 'manual' && (
+          {activeTab === "manual" && (
             <form onSubmit={handleManualSubmit} className="space-y-4">
               <div>
                 <label className="block text-gray-400 text-sm mb-2">
@@ -323,9 +351,7 @@ export default function BarcodeScanner({ onScan, onClose, products = [] }) {
         </div>
 
         <div className="px-4 pb-4 text-center">
-          <p className="text-gray-500 text-xs">
-            Carrito · {products.length} items
-          </p>
+          <p className="text-gray-500 text-xs">Carrito · {products.length} items</p>
         </div>
       </div>
     </div>
@@ -2808,493 +2834,34 @@ export default function POS() {
 
 ## File: src/components/ProductManager.jsx
 ````javascript
-import { useState, useEffect } from "react";
-import { useAuth } from "../hooks/useAuth";
-import { productsService } from "../services/firestoreProducts";
-import { puedeCrearProducto, LIMITES } from "../services/planLimits";
-import { UNIDADES, CATEGORIAS, DIAS_ALERTA_VENCIMIENTO } from "../types/index";
-import { formatCurrency } from "../utils/format";
-import BarcodeScanner from "./BarcodeScanner";
-import InventoryAlert from "./InventoryAlert";
-import {
-  Search, Plus, Edit2, Trash2, Package, X, Check, ScanLine,
-  Loader2, Crown, AlertTriangle
-} from "lucide-react";
-
-function generateId() {
-  if (typeof crypto !== "undefined" && crypto.randomUUID) {
-    return crypto.randomUUID();
-  }
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === "x" ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
-}
-
-export default function ProductManager() {
-  const { almacenId, isDueño, hasPrivilege } = useAuth();
-  const puedeGestionar = isDueño || hasPrivilege("productos");
-  const [productos, setProductos] = useState([]);
-  const [search, setSearch] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [mostrarForm, setMostrarForm] = useState(false);
-  const [editando, setEditando] = useState(null);
-  const [mostrarScanner, setMostrarScanner] = useState(false);
-  const [scannerMode, setScannerMode] = useState("");
-  const [productoStock, setProductoStock] = useState(null);
-  const [cantidadStock, setCantidadStock] = useState("");
-  const [loteVencimiento, setLoteVencimiento] = useState("");
-  const [planInfo, setPlanInfo] = useState({ plan: "basico", usados: 0, limite: 500, permitido: true });
-
-  const [form, setForm] = useState({
-    nombre: "", codigoBarras: "", precioVenta: "", precioCompra: "",
-    stock: "", stockCritico: "", unidad: "unidad", categoria: "Abarrotes",
-    perecedero: false, diasAlertaVencimiento: 3, enOferta: false, precioOferta: "", lotes: [],
-    fechaVencimiento: "",
-    // 🔥 FIX: Preservar campos de oferta al editar
-    cantidadOferta: "", cantidadOfertaVendida: 0,
-  });
-
-  useEffect(() => {
-    if (almacenId) {
-      cargarProductos();
-      cargarPlanInfo();
-    }
-  }, [almacenId]);
-
-  async function cargarProductos() {
-    setLoading(true);
-    const data = await productsService.getProducts(almacenId);
-    setProductos(data);
-    setLoading(false);
-  }
-
-  async function cargarPlanInfo() {
-    const r = await puedeCrearProducto(almacenId);
-    setPlanInfo({
-      plan: r.plan || "basico",
-      usados: r.usados ?? productos.length,
-      limite: r.limite ?? LIMITES.basico.productos,
-      permitido: r.permitido,
-    });
-  }
-
-  const productosFiltrados = search.trim()
-    ? productos.filter(
-        (p) =>
-          p.nombre?.toLowerCase().includes(search.toLowerCase()) ||
-          p.codigoBarras?.includes(search) ||
-          p.categoria?.toLowerCase().includes(search.toLowerCase())
-      )
-    : productos;
-
-  function resetForm() {
-    setForm({
-      nombre: "", codigoBarras: "", precioVenta: "", precioCompra: "",
-      stock: "", stockCritico: "", unidad: "unidad", categoria: "Abarrotes",
-      perecedero: false, diasAlertaVencimiento: 3, enOferta: false, precioOferta: "", lotes: [],
-      fechaVencimiento: "",
-      cantidadOferta: "", cantidadOfertaVendida: 0,
-    });
-    setEditando(null);
-  }
-
-  function handleEditar(producto) {
-    if (!puedeGestionar) return;
-    setForm({
-      nombre: producto.nombre || "", codigoBarras: producto.codigoBarras || "",
-      precioVenta: producto.precioVenta?.toString() || "",
-      precioCompra: producto.precioCompra?.toString() || "",
-      stock: producto.stock?.toString() || "",
-      stockCritico: producto.stockCritico?.toString() || "",
-      unidad: producto.unidad || "unidad", categoria: producto.categoria || "Abarrotes",
-      perecedero: producto.perecedero || false,
-      diasAlertaVencimiento: producto.diasAlertaVencimiento || 3,
-      enOferta: producto.enOferta || false,
-      precioOferta: producto.precioOferta?.toString() || "", lotes: producto.lotes || [],
-      fechaVencimiento: "",
-      // 🔥 FIX: Preservar cantidadOferta y cantidadOfertaVendida al editar
-      cantidadOferta: producto.cantidadOferta?.toString() || "",
-      cantidadOfertaVendida: producto.cantidadOfertaVendida || 0,
-    });
-    setEditando(producto.id);
-    setMostrarForm(true);
-  }
-
-  // 🔥 FIX: Validar duplicados por código de barras y preservar campos de oferta
-  async function handleGuardar() {
-    if (!puedeGestionar) { alert("Solo el dueño o vendedores con privilegio pueden gestionar productos"); return; }
-
-    const data = {
-      nombre: form.nombre.trim(), codigoBarras: form.codigoBarras.trim() || null,
-      precioVenta: Number(form.precioVenta) || 0, precioCompra: Number(form.precioCompra) || 0,
-      stock: Number(form.stock) || 0, stockCritico: Number(form.stockCritico) || 0,
-      unidad: form.unidad, categoria: form.categoria,
-      perecedero: form.perecedero, diasAlertaVencimiento: Number(form.diasAlertaVencimiento) || 3,
-      enOferta: form.enOferta, precioOferta: form.enOferta ? Number(form.precioOferta) || 0 : null,
-      lotes: form.lotes || [],
-    };
-
-    // 🔥 FIX: Incluir cantidadOferta y cantidadOfertaVendida para no perderlos al editar
-    if (form.enOferta && form.cantidadOferta !== "" && form.cantidadOferta != null) {
-      const cantidadOfertaNum = Number(form.cantidadOferta);
-      if (!isNaN(cantidadOfertaNum) && cantidadOfertaNum > 0) {
-        data.cantidadOferta = cantidadOfertaNum;
-        data.cantidadOfertaVendida = Number(form.cantidadOfertaVendida) || 0;
-      }
-    } else if (!form.enOferta) {
-      data.cantidadOferta = null;
-      data.cantidadOfertaVendida = null;
-    }
-
-    if (form.perecedero && form.fechaVencimiento) {
-      data.lotes = [{
-        id: generateId(),
-        cantidad: data.stock,
-        fechaVencimiento: form.fechaVencimiento,
-        fechaIngreso: new Date().toISOString(),
-      }];
-    }
-
-    if (!data.nombre) { alert("El nombre es obligatorio"); return; }
-
-    // 🔥 FIX: Validar duplicados por código de barras (excluyendo el producto que se está editando)
-    if (data.codigoBarras && data.codigoBarras.trim() !== "") {
-      const existente = await productsService.getProductByBarcode(almacenId, data.codigoBarras.trim());
-      if (existente && existente.id !== editando) {
-        alert(`Ya existe un producto con el código de barras "${data.codigoBarras}". Usa el producto existente o cambia el código.`);
-        return;
-      }
-    }
-
-    try {
-      if (editando) {
-        await productsService.updateProduct(editando, data);
-      } else {
-        await productsService.createProduct(almacenId, data);
-      }
-      await cargarProductos();
-      await cargarPlanInfo();
-      setMostrarForm(false); resetForm();
-    } catch (err) { alert("Error al guardar: " + err.message); }
-  }
-
-  async function handleEliminar(id) {
-    if (!puedeGestionar) return;
-    if (!confirm("¿Eliminar este producto permanentemente?")) return;
-    await productsService.deleteProduct(id);
-    await cargarProductos();
-    await cargarPlanInfo();
-  }
-
-  async function handleAgregarStock(producto) {
-    setProductoStock(producto);
-    setCantidadStock(""); setLoteVencimiento("");
-  }
-
-  async function confirmarAgregarStock() {
-    if (!productoStock || !cantidadStock) return;
-    const cantidad = Number(cantidadStock);
-    if (isNaN(cantidad) || cantidad <= 0) { alert("Ingresa una cantidad valida"); return; }
-    const loteData = productoStock.perecedero && loteVencimiento ? { fechaVencimiento: loteVencimiento } : null;
-    try {
-      await productsService.addStock(productoStock.id, cantidad, loteData);
-      await cargarProductos();
-      setProductoStock(null); setCantidadStock(""); setLoteVencimiento("");
-    } catch (err) { alert("Error al agregar stock"); }
-  }
-
-  async function handleScan(code) {
-    if (scannerMode === "nuevo") setForm({ ...form, codigoBarras: code });
-    else if (scannerMode === "stock") {
-      const producto = await productsService.getProductByBarcode(almacenId, code);
-      if (producto) { setProductoStock(producto); setCantidadStock(""); setLoteVencimiento(""); }
-      else alert("Producto no encontrado");
-    }
-    setMostrarScanner(false); setScannerMode("");
-  }
-
-  function getStockStatus(producto) {
-    if (producto.stock === 0) return { label: "Sin stock", bg: "bg-red-50", text: "text-red-700" };
-    if (producto.stockCritico && producto.stock <= producto.stockCritico) return { label: "Critico", bg: "bg-orange-50", text: "text-orange-700" };
-    return { label: "OK", bg: "bg-green-50", text: "text-green-700" };
-  }
-
-  const alLimite = planInfo.usados >= planInfo.limite && planInfo.limite !== Infinity;
-
-  return (
-    <div>
-      <InventoryAlert />
-      {mostrarScanner && <BarcodeScanner onScan={handleScan} onClose={() => { setMostrarScanner(false); setScannerMode(""); }} />}
-
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-        <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-          <Package className="w-6 h-6 text-blue-600" /> Productos
-        </h1>
-        <div className="flex gap-2">
-          <button onClick={() => { resetForm(); setMostrarForm(true); }}
-            disabled={alLimite && !editando}
-            className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2">
-            <Plus size={18} /> Nuevo Producto
-          </button>
-          <button onClick={() => { setScannerMode("stock"); setMostrarScanner(true); }}
-            className="bg-green-100 hover:bg-green-200 text-green-700 px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2">
-            <ScanLine size={18} /> Escanear Stock
-          </button>
-        </div>
-      </div>
-
-      <div className={`flex items-center justify-between mb-4 p-3 rounded-lg border text-sm ${
-        planInfo.plan === "pro"
-          ? "bg-purple-50 border-purple-200 text-purple-700"
-          : "bg-gray-50 border-gray-200 text-gray-600"
-      }`}>
-        <div className="flex items-center gap-2">
-          <Crown size={16} />
-          <span className="font-medium">Plan {planInfo.plan.toUpperCase()}</span>
-          <span>• Productos: {planInfo.usados} / {planInfo.limite === Infinity ? "∞" : planInfo.limite}</span>
-        </div>
-        {planInfo.plan === "basico" && (
-          <span className="text-xs bg-white px-2 py-1 rounded border border-gray-200">
-            Upgrade a Pro para productos ilimitados
-          </span>
-        )}
-      </div>
-
-      {alLimite && (
-        <div className="bg-orange-50 border border-orange-200 text-orange-700 px-4 py-3 rounded-lg mb-4 text-sm flex items-center gap-2">
-          <AlertTriangle size={16} />
-          Has alcanzado el limite de productos de tu plan. Elimina productos o actualiza a Pro.
-        </div>
-      )}
-
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-4">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-          <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar por nombre, codigo o categoria..."
-            className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
-        </div>
-      </div>
-
-      {mostrarForm && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-bold text-gray-800">{editando ? "Editar Producto" : "Nuevo Producto"}</h2>
-            <button onClick={() => { setMostrarForm(false); resetForm(); }} className="p-2 hover:bg-gray-100 rounded-lg"><X size={20} /></button>
-          </div>
-          <div className="grid md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Nombre *</label>
-              <input type="text" value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Ej: Harina 1kg" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Codigo de barras</label>
-              <div className="flex gap-2">
-                <input type="text" value={form.codigoBarras} onChange={(e) => setForm({ ...form, codigoBarras: e.target.value })}
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Escanea o escribe" />
-                <button onClick={() => { setScannerMode("nuevo"); setMostrarScanner(true); }} className="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg"><ScanLine size={18} /></button>
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Precio de venta *</label>
-              <input type="number" value={form.precioVenta} onChange={(e) => setForm({ ...form, precioVenta: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="0" min="0" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Precio de compra (costo)</label>
-              <input type="number" value={form.precioCompra} onChange={(e) => setForm({ ...form, precioCompra: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="0" min="0" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Stock inicial</label>
-              <input type="number" value={form.stock} onChange={(e) => setForm({ ...form, stock: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="0" min="0" step="0.01" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Stock critico (alerta)</label>
-              <input type="number" value={form.stockCritico} onChange={(e) => setForm({ ...form, stockCritico: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="5" min="0" step="0.01" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Unidad</label>
-              <select value={form.unidad} onChange={(e) => setForm({ ...form, unidad: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
-                {UNIDADES.map((u) => <option key={u} value={u}>{u}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Categoria</label>
-              <select value={form.categoria} onChange={(e) => setForm({ ...form, categoria: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
-                {CATEGORIAS.map((c) => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </div>
-            <div className="md:col-span-2">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={form.perecedero} onChange={(e) => setForm({ ...form, perecedero: e.target.checked })}
-                  className="w-4 h-4 text-blue-600 rounded" />
-                <span className="text-sm font-medium text-gray-700">Producto perecedero</span>
-              </label>
-            </div>
-            {form.perecedero && (
-              <>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Dias de alerta antes de vencer</label>
-                  <select value={form.diasAlertaVencimiento} onChange={(e) => setForm({ ...form, diasAlertaVencimiento: Number(e.target.value) })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
-                    {DIAS_ALERTA_VENCIMIENTO.map((d) => <option key={d} value={d}>{d} dias</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de vencimiento del producto</label>
-                  <input type="date" value={form.fechaVencimiento} onChange={(e) => setForm({ ...form, fechaVencimiento: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
-                </div>
-              </>
-            )}
-            <div className="md:col-span-2">
+<div className="md:col-span-2">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" checked={form.enOferta} onChange={(e) => setForm({ ...form, enOferta: e.target.checked })}
                   className="w-4 h-4 text-blue-600 rounded" />
                 <span className="text-sm font-medium text-gray-700">Producto en oferta</span>
               </label>
             </div>
+            {/* 🔥 FIX #12: Mostrar campos de oferta SIEMPRE que enOferta sea true */}
             {form.enOferta && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Precio de oferta</label>
-                <input type="number" value={form.precioOferta} onChange={(e) => setForm({ ...form, precioOferta: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="0" min="0" />
-              </div>
-            )}
-            {/* 🔥 FIX: Mostrar campos de cantidadOferta en modo edición si ya existen */}
-            {editando && form.enOferta && form.cantidadOferta !== "" && form.cantidadOferta != null && Number(form.cantidadOferta) > 0 && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Cantidad en oferta (ya configurada)</label>
-                <input type="number" value={form.cantidadOferta} onChange={(e) => setForm({ ...form, cantidadOferta: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="0" min="1" />
-                <p className="text-xs text-gray-400 mt-1">Vendidas: {form.cantidadOfertaVendida || 0} de {form.cantidadOferta}</p>
-              </div>
-            )}
-          </div>
-          <div className="flex gap-3 mt-6">
-            <button onClick={() => { setMostrarForm(false); resetForm(); }}
-              className="px-4 py-2 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50">Cancelar</button>
-            <button onClick={handleGuardar}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center gap-2"><Check size={18} /> {editando ? "Actualizar" : "Guardar"}</button>
-          </div>
-        </div>
-      )}
-
-      {productoStock && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl p-6 w-full max-w-sm">
-            <h3 className="font-bold text-gray-800 mb-1">Agregar stock</h3>
-            <p className="text-sm text-gray-500 mb-4">{productoStock.nombre}</p>
-            <div className="space-y-3">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Cantidad a agregar</label>
-                <div className="flex items-center gap-2">
-                  <input type="number" value={cantidadStock} onChange={(e) => setCantidadStock(e.target.value)}
-                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-lg font-mono text-center outline-none focus:ring-2 focus:ring-green-500"
-                    placeholder="0" min="0" step="0.01" autoFocus />
-                  <span className="text-gray-500 text-sm">{productoStock.unidad}</span>
-                </div>
-              </div>
-              {productoStock.perecedero && (
+              <>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de vencimiento del lote</label>
-                  <input type="date" value={loteVencimiento} onChange={(e) => setLoteVencimiento(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-green-500" />
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Precio de oferta</label>
+                  <input type="number" value={form.precioOferta} onChange={(e) => setForm({ ...form, precioOferta: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="0" min="0" />
                 </div>
-              )}
-            </div>
-            <div className="flex gap-2 mt-4">
-              <button onClick={() => setProductoStock(null)}
-                className="flex-1 py-2 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50">Cancelar</button>
-              <button onClick={confirmarAgregarStock}
-                className="flex-1 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center justify-center gap-2"><Plus size={16} /> Agregar</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {loading ? (
-        <div className="flex items-center justify-center h-40"><Loader2 className="w-8 h-8 animate-spin text-blue-600" /></div>
-      ) : (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b border-gray-200">
-                <tr>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">Producto</th>
-                  <th className="text-right px-4 py-3 font-medium text-gray-600">Precio</th>
-                  <th className="text-right px-4 py-3 font-medium text-gray-600">Stock</th>
-                  <th className="text-center px-4 py-3 font-medium text-gray-600">Estado</th>
-                  <th className="text-right px-4 py-3 font-medium text-gray-600">Acciones</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {productosFiltrados.map((p) => {
-                  const status = getStockStatus(p);
-                  return (
-                    <tr key={p.id} className="hover:bg-gray-50 transition">
-                      <td className="px-4 py-3">
-                        <div>
-                          <p className="font-medium text-gray-800">{p.nombre}</p>
-                          <p className="text-xs text-gray-400">{p.categoria} • {p.unidad}</p>
-                          {p.codigoBarras && <p className="text-xs text-gray-400 font-mono">{p.codigoBarras}</p>}
-                          {p.enOferta && (
-                            <span className="inline-block mt-1 text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded">
-                              OFERTA: {formatCurrency(p.precioOferta)}
-                              {p.cantidadOferta != null && p.cantidadOferta > 0
-                                ? ` (${Math.max(0, p.cantidadOferta - (p.cantidadOfertaVendida || 0))} restantes)`
-                                : " (todo el stock)"}
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <p className="font-bold text-gray-800">{formatCurrency(p.precioVenta)}</p>
-                        <p className="text-xs text-gray-400">Costo: {formatCurrency(p.precioCompra)}</p>
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <p className="font-medium text-gray-800">{p.stock} {p.unidad}</p>
-                        {p.stockCritico > 0 && <p className="text-xs text-gray-400">Min: {p.stockCritico}</p>}
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${status.bg} ${status.text}`}>{status.label}</span>
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          <button onClick={() => handleAgregarStock(p)}
-                            className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg transition" title="Agregar stock"><Plus size={16} /></button>
-                          {puedeGestionar && (
-                            <>
-                              <button onClick={() => handleEditar(p)}
-                                className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition" title="Editar"><Edit2 size={16} /></button>
-                              <button onClick={() => handleEliminar(p.id)}
-                                className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition" title="Eliminar"><Trash2 size={16} /></button>
-                            </>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          {productosFiltrados.length === 0 && (
-            <div className="text-center py-8 text-gray-400"><Package size={40} className="mx-auto mb-2" /><p>No hay productos</p></div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Cantidad en oferta <span className="text-gray-400 font-normal">(opcional)</span>
+                  </label>
+                  <input type="number" value={form.cantidadOferta} onChange={(e) => setForm({ ...form, cantidadOferta: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Todo el stock" min="1" />
+                  <p className="text-xs text-gray-400 mt-1">
+                    Vacío = todo el stock queda en oferta
+                    {editando && form.cantidadOfertaVendida > 0 && ` • Vendidas: ${form.cantidadOfertaVendida}`}
+                  </p>
+                </div>
+              </>
+            )}
 ````
 
 ## File: src/components/Reports.jsx
@@ -4543,8 +4110,8 @@ function openIDB() {
 }
 
 async function idbSet(key, value) {
-  const db = await openIDB();
-  const tx = db.transaction(IDB_STORE, "readwrite");
+  const database = await openIDB();
+  const tx = database.transaction(IDB_STORE, "readwrite");
   const store = tx.objectStore(IDB_STORE);
   return new Promise((resolve, reject) => {
     const req = store.put(value, key);
@@ -4555,8 +4122,8 @@ async function idbSet(key, value) {
 
 async function idbGet(key) {
   try {
-    const db = await openIDB();
-    const tx = db.transaction(IDB_STORE, "readonly");
+    const database = await openIDB();
+    const tx = database.transaction(IDB_STORE, "readonly");
     const store = tx.objectStore(IDB_STORE);
     return new Promise((resolve, reject) => {
       const req = store.get(key);
@@ -4570,8 +4137,8 @@ async function idbGet(key) {
 
 async function idbDel(key) {
   try {
-    const db = await openIDB();
-    const tx = db.transaction(IDB_STORE, "readwrite");
+    const database = await openIDB();
+    const tx = database.transaction(IDB_STORE, "readwrite");
     const store = tx.objectStore(IDB_STORE);
     return new Promise((resolve, reject) => {
       const req = store.delete(key);
@@ -4631,6 +4198,33 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const [suscripcionInfo, setSuscripcionInfo] = useState(null);
 
+  // 🔥 FIX #9: Función refreshUser para recargar datos desde Firestore
+  const refreshUser = useCallback(async () => {
+    if (user) {
+      try {
+        const userDoc = await getDoc(doc(db, "users", user.uid));
+        if (userDoc.exists()) {
+          const data = userDoc.data();
+          setUserData(data);
+          setSuscripcionInfo(verificarEstadoV2(data));
+
+          const session = {
+            uid: user.uid,
+            email: user.email?.toLowerCase(),
+            displayName: user.displayName,
+            photoURL: user.photoURL,
+            userData: data,
+            savedAt: new Date().toISOString(),
+          };
+          await idbSet("session", session);
+          saveOfflineSession(user, data);
+        }
+      } catch (err) {
+        console.error("Error refrescando usuario:", err);
+      }
+    }
+  }, [user]);
+
   useEffect(() => {
     let unsub = null;
     let mounted = true;
@@ -4659,14 +4253,14 @@ export function AuthProvider({ children }) {
             if (userDoc.exists()) {
               let data = userDoc.data();
 
-              // 🔥 FIX: Verificar y auto-actualizar fases de suscripción
               const estadoInfo = verificarEstadoV2(data);
-
-              if (estadoInfo.necesitaUpgrade || 
-                  (data.plan === "pro_gratis" && estadoInfo.suspendido) ||
-                  ((data.plan === "basico" || data.plan === "pro") && estadoInfo.suspendido)) {
+              if (
+                estadoInfo.necesitaUpgrade ||
+                (data.plan === "pro_gratis" && estadoInfo.suspendido) ||
+                ((data.plan === "basico" || data.plan === "pro") && estadoInfo.suspendido)
+              ) {
                 try {
-                  const nuevoPlan = await autoUpgradeFases(firebaseUser.uid, data);
+                  await autoUpgradeFases(firebaseUser.uid, data);
                   const updatedDoc = await getDoc(doc(db, "users", firebaseUser.uid));
                   if (updatedDoc.exists()) data = updatedDoc.data();
                 } catch (upgradeErr) {
@@ -4724,13 +4318,11 @@ export function AuthProvider({ children }) {
             setSuscripcionInfo(null);
           }
         }
-
         if (mounted) setLoading(false);
       });
     }
 
     init();
-
     return () => {
       mounted = false;
       if (unsub) unsub();
@@ -4743,6 +4335,7 @@ export function AuthProvider({ children }) {
     for (const uid in users) {
       if (users[uid].username === clean) return users[uid].email;
     }
+
     const offlineSession = getOfflineSession();
     const almacenId = offlineSession?.userData?.almacenId;
     if (almacenId) {
@@ -4750,8 +4343,11 @@ export function AuthProvider({ children }) {
         const cache = JSON.parse(localStorage.getItem(`pos_vendedores_cache_${almacenId}`) || "[]");
         const found = cache.find((v) => v.username === clean);
         if (found) return found.email;
-      } catch { /* noop */ }
+      } catch {
+        /* noop */
+      }
     }
+
     if (navigator.onLine) {
       try {
         const snap = await getDoc(doc(db, "publicUsernames", clean));
@@ -4762,7 +4358,9 @@ export function AuthProvider({ children }) {
             return `vendedor.${clean}.${data.almacenId}@pos-almacen.local`;
           }
         }
-      } catch { /* noop */ }
+      } catch {
+        /* noop */
+      }
     }
     return null;
   }
@@ -4780,12 +4378,13 @@ export function AuthProvider({ children }) {
       const userDoc = await getDoc(doc(db, "users", result.user.uid));
       if (userDoc.exists()) {
         let data = userDoc.data();
-
         const estadoInfo = verificarEstadoV2(data);
 
-        if (estadoInfo.necesitaUpgrade || 
-            (data.plan === "pro_gratis" && estadoInfo.suspendido) ||
-            ((data.plan === "basico" || data.plan === "pro") && estadoInfo.suspendido)) {
+        if (
+          estadoInfo.necesitaUpgrade ||
+          (data.plan === "pro_gratis" && estadoInfo.suspendido) ||
+          ((data.plan === "basico" || data.plan === "pro") && estadoInfo.suspendido)
+        ) {
           try {
             await autoUpgradeFases(result.user.uid, data);
             const updatedDoc = await getDoc(doc(db, "users", result.user.uid));
@@ -4841,6 +4440,7 @@ export function AuthProvider({ children }) {
             offline = session;
           }
         }
+
         if (offline) {
           setUser({
             uid: offline.uid,
@@ -4858,45 +4458,58 @@ export function AuthProvider({ children }) {
     }
   };
 
+  // 🔥 FIX #7: Rollback si falla la creación en Firestore
   const registerDueño = async (email, password, nombre, nombreAlmacen) => {
     const result = await createUserWithEmailAndPassword(auth, email, password);
     await updateProfile(result.user, { displayName: nombre });
-    const almacenRef = doc(collection(db, "almacenes"));
-    await setDoc(almacenRef, {
-      nombre: nombreAlmacen,
-      dueñoId: result.user.uid,
-      plan: PLANES.BASICO,
-      createdAt: new Date().toISOString(),
-    });
-    await setDoc(doc(db, "users", result.user.uid), {
-      email,
-      nombre,
-      role: ROLES.DUEÑO,
-      almacenId: almacenRef.id,
-      plan: PLANES.BASICO,
-      createdAt: new Date().toISOString(),
-    });
-    const newUserData = {
-      email,
-      nombre,
-      role: ROLES.DUEÑO,
-      almacenId: almacenRef.id,
-      plan: PLANES.BASICO,
-    };
-    setUserData(newUserData);
-    setSuscripcionInfo(verificarEstadoV2(newUserData));
-    const session = {
-      uid: result.user.uid,
-      email: result.user.email?.toLowerCase(),
-      displayName: result.user.displayName,
-      photoURL: result.user.photoURL,
-      userData: newUserData,
-      savedAt: new Date().toISOString(),
-    };
-    await idbSet("session", session);
-    saveOfflineSession(result.user, newUserData);
-    saveOfflineUser(result.user.uid, newUserData);
-    return result;
+
+    try {
+      const almacenRef = doc(collection(db, "almacenes"));
+      await setDoc(almacenRef, {
+        nombre: nombreAlmacen,
+        dueñoId: result.user.uid,
+        plan: PLANES.BASICO,
+        createdAt: new Date().toISOString(),
+      });
+
+      await setDoc(doc(db, "users", result.user.uid), {
+        email,
+        nombre,
+        role: ROLES.DUEÑO,
+        almacenId: almacenRef.id,
+        plan: PLANES.BASICO,
+        createdAt: new Date().toISOString(),
+      });
+
+      const newUserData = {
+        email,
+        nombre,
+        role: ROLES.DUEÑO,
+        almacenId: almacenRef.id,
+        plan: PLANES.BASICO,
+      };
+
+      setUserData(newUserData);
+      setSuscripcionInfo(verificarEstadoV2(newUserData));
+
+      const session = {
+        uid: result.user.uid,
+        email: result.user.email?.toLowerCase(),
+        displayName: result.user.displayName,
+        photoURL: result.user.photoURL,
+        userData: newUserData,
+        savedAt: new Date().toISOString(),
+      };
+      await idbSet("session", session);
+      saveOfflineSession(result.user, newUserData);
+      saveOfflineUser(result.user.uid, newUserData);
+
+      return result;
+    } catch (err) {
+      console.error("Error creando almacén, revirtiendo usuario:", err);
+      await result.user.delete().catch((e) => console.error("No se pudo borrar usuario huérfano:", e));
+      throw err;
+    }
   };
 
   const logout = async () => {
@@ -4914,11 +4527,14 @@ export function AuthProvider({ children }) {
   const isSuspendido = suscripcionInfo?.suspendido || false;
   const planReal = suscripcionInfo?.planReal || null;
 
-  const hasPrivilege = useCallback((privilege) => {
-    if (isDueño) return true;
-    if (!userData?.privilegios) return false;
-    return !!userData.privilegios[privilege];
-  }, [isDueño, userData]);
+  const hasPrivilege = useCallback(
+    (privilege) => {
+      if (isDueño) return true;
+      if (!userData?.privilegios) return false;
+      return !!userData.privilegios[privilege];
+    },
+    [isDueño, userData]
+  );
 
   return (
     <AuthContext.Provider
@@ -4937,6 +4553,7 @@ export function AuthProvider({ children }) {
         suscripcionInfo,
         isSuspendido,
         planReal,
+        refreshUser,
       }}
     >
       {children}
@@ -4953,6 +4570,7 @@ export function useAuth() {
 export async function crearVendedorDirecto(almacenId, nombre, username, password) {
   const cleanUser = username.toLowerCase().trim();
   const email = `vendedor.${cleanUser}.${almacenId}@pos-almacen.local`;
+
   const snapCheck = await getDoc(doc(db, "publicUsernames", cleanUser));
   if (snapCheck.exists()) throw new Error("El nombre de usuario ya existe");
 
@@ -4965,11 +4583,14 @@ export async function crearVendedorDirecto(almacenId, nombre, username, password
     }
   );
   const data = await response.json();
+
   if (data.error) {
     if (data.error.message === "EMAIL_EXISTS") throw new Error("El usuario ya existe");
-    if (data.error.message === "WEAK_PASSWORD") throw new Error("Contraseña muy débil (mínimo 6 caracteres)");
+    if (data.error.message === "WEAK_PASSWORD")
+      throw new Error("Contraseña muy débil (mínimo 6 caracteres)");
     throw new Error(data.error.message);
   }
+
   const uid = data.localId;
   await setDoc(doc(db, "users", uid), {
     email,
@@ -4980,11 +4601,13 @@ export async function crearVendedorDirecto(almacenId, nombre, username, password
     activo: true,
     createdAt: new Date().toISOString(),
   });
+
   await setDoc(doc(db, "publicUsernames", cleanUser), {
     email,
     almacenId,
     uid,
   });
+
   return { uid, email, username: cleanUser };
 }
 
@@ -5039,7 +4662,7 @@ export function useOffline() {
     setPendingCount(queue.length);
   }, [isOnline, syncing]);
 
-  // Sincronizar cola automáticamente al reconectar
+  // 🔥 FIX #3: Sincronizar cola con actualización de cantidadOfertaVendida
   useEffect(() => {
     if (!isOnline) return;
 
@@ -5049,15 +4672,13 @@ export function useOffline() {
 
       setSyncing(true);
       const remaining = [];
-      const turnoIdMap = {}; // Mapeo: tempId -> realId
+      const turnoIdMap = {};
 
       for (const op of queue) {
         try {
           if (op.type === "turno_abrir") {
-            // Crear turno en Firestore primero (obtiene ID real)
             const nuevoTurno = await salesService.createTurno(op.almacenId, op.data);
             turnoIdMap[op.tempId] = nuevoTurno.id;
-            // Actualizar turno offline guardado con el ID real
             const offlineTurno = JSON.parse(localStorage.getItem(OFFLINE_TURNO_KEY) || "null");
             if (offlineTurno && offlineTurno.id === op.tempId) {
               localStorage.setItem(OFFLINE_TURNO_KEY, JSON.stringify({
@@ -5065,24 +4686,45 @@ export function useOffline() {
                 id: nuevoTurno.id,
               }));
             }
-          } else if (op.type === "venta") {
+          } else if (op.type === "venta" || op.type === "fiado") {
             const turnoId = turnoIdMap[op.data.turnoId] || op.data.turnoId;
+
+            // Descontar stock
             await productsService.discountStockBatch(op.data.productos.map(p => ({
               id: p.id,
               cantidad: p.cantidad
             })));
-            await salesService.createSale(op.almacenId, { ...op.data, turnoId });
-          } else if (op.type === "fiado") {
-            const turnoId = turnoIdMap[op.data.turnoId] || op.data.turnoId;
-            await productsService.discountStockBatch(op.data.productos.map(p => ({
-              id: p.id,
-              cantidad: p.cantidad
-            })));
-            await fiadosService.createFiado(op.almacenId, { ...op.data, turnoId });
+
+            // 🔥 FIX #3: Actualizar cantidadOfertaVendida para productos en oferta
+            if (op.data.productos) {
+              for (const prod of op.data.productos) {
+                if (prod.unidadesOferta && prod.unidadesOferta > 0 && prod.cantidadOferta != null) {
+                  try {
+                    // Leer el producto actual para obtener el valor actual de cantidadOfertaVendida
+                    const productoActual = await productsService.getProduct(prod.id);
+                    if (productoActual) {
+                      const nuevaCantidadVendida = (productoActual.cantidadOfertaVendida || 0) + prod.unidadesOferta;
+                      await productsService.updateProduct(prod.id, {
+                        cantidadOfertaVendida: nuevaCantidadVendida
+                      });
+                    }
+                  } catch (offerErr) {
+                    console.error(`No se pudo actualizar cupo de oferta para producto ${prod.id}:`, offerErr);
+                    // No fallar la sync completa por un error de oferta
+                  }
+                }
+              }
+            }
+
+            // Crear la venta o fiado
+            if (op.type === "venta") {
+              await salesService.createSale(op.almacenId, { ...op.data, turnoId });
+            } else {
+              await fiadosService.createFiado(op.almacenId, { ...op.data, turnoId });
+            }
           } else if (op.type === "turno_cerrar") {
             const turnoId = turnoIdMap[op.turnoId] || op.turnoId;
             await salesService.updateTurno(turnoId, op.data);
-            // Limpiar turno offline si se cerró correctamente
             localStorage.removeItem(OFFLINE_TURNO_KEY);
           }
         } catch (err) {
@@ -5156,9 +4798,9 @@ export function useOffline() {
 ````javascript
 import { useState, useEffect, useCallback } from "react";
 import {
-  getActiveTurno,
-  closeTurno as closeTurnoService,
-  openTurno as openTurnoService,
+  getTurnoActivo,
+  createTurno as openTurnoService,
+  updateTurno,
 } from "../services/firestoreSales";
 
 export function useTurno(almacenId, vendedorId) {
@@ -5174,7 +4816,7 @@ export function useTurno(almacenId, vendedorId) {
     setLoading(true);
     setError("");
     try {
-      const t = await getActiveTurno(almacenId, vendedorId);
+      const t = await getTurnoActivo(almacenId);
       setTurno(t);
     } catch (e) {
       console.error(e);
@@ -5196,12 +4838,14 @@ export function useTurno(almacenId, vendedorId) {
       setLoading(true);
       setError("");
       try {
-        const res = await openTurnoService(
-          almacenId,
+        const turnoData = {
+          estado: "abierto",
           vendedorId,
           vendedorNombre,
-          efectivoInicial
-        );
+          montoInicial: efectivoInicial,
+          ventas: { efectivo: 0, tarjeta: 0, transferencia: 0, fiado: 0 },
+        };
+        const res = await openTurnoService(almacenId, turnoData);
         await refresh();
         return res;
       } catch (e) {
@@ -5216,15 +4860,18 @@ export function useTurno(almacenId, vendedorId) {
   );
 
   const cerrar = useCallback(async () => {
-    if (!almacenId || !vendedorId) {
-      throw new Error("Falta almacenId o vendedorId");
+    if (!almacenId || !vendedorId || !turno?.id) {
+      throw new Error("Falta turno activo");
     }
     setLoading(true);
     setError("");
     try {
-      const resumen = await closeTurnoService(almacenId, vendedorId);
+      await updateTurno(turno.id, {
+        estado: "cerrado",
+        cerradoEn: new Date().toISOString(),
+      });
       setTurno(null);
-      return resumen;
+      return { mensaje: "Turno cerrado" };
     } catch (e) {
       console.error(e);
       setError(e.message || "Error al cerrar turno");
@@ -5232,7 +4879,7 @@ export function useTurno(almacenId, vendedorId) {
     } finally {
       setLoading(false);
     }
-  }, [almacenId, vendedorId]);
+  }, [almacenId, vendedorId, turno]);
 
   return { turno, loading, error, refresh, abrir, cerrar };
 }
@@ -6738,20 +6385,16 @@ export default function LandingPage() {
 
 ## File: src/pages/Login.jsx
 ````javascript
-// pages/Login.jsx
-// Login accesible con id, name y htmlFor correctos
-
 import { useState } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { useNavigate } from "react-router-dom";
 
 export default function Login() {
-  const { login, loginAnonimo, error: authError } = useAuth();
+  const { login, registerDueño, error: authError } = useAuth();
   const navigate = useNavigate();
-
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [modo, setModo] = useState("login"); // "login" | "registro"
+  const [modo, setModo] = useState("login");
   const [nombre, setNombre] = useState("");
   const [nombreNegocio, setNombreNegocio] = useState("");
   const [cargando, setCargando] = useState(false);
@@ -6761,29 +6404,15 @@ export default function Login() {
     e.preventDefault();
     setErrorLocal("");
     setCargando(true);
-
     try {
       if (modo === "login") {
         await login(email, password);
       } else {
-        // Registro — ajusta según tu flujo real
-        await login(email, password); // o tu función de registro
+        await registerDueño(email, password, nombre, nombreNegocio);
       }
-      navigate("/dashboard");
+      navigate("/");
     } catch (err) {
       setErrorLocal(err.message || "Error al iniciar sesión");
-    } finally {
-      setCargando(false);
-    }
-  }
-
-  async function handleAnonimo() {
-    setCargando(true);
-    try {
-      await loginAnonimo();
-      navigate("/dashboard");
-    } catch (err) {
-      setErrorLocal(err.message || "Error al entrar como invitado");
     } finally {
       setCargando(false);
     }
@@ -6799,9 +6428,7 @@ export default function Login() {
           <h1 className="text-2xl font-bold text-gray-800">
             {modo === "login" ? "Iniciar Sesión" : "Crear Cuenta"}
           </h1>
-          <p className="text-gray-500 text-sm mt-1">
-            Almacén de Barrio — POS
-          </p>
+          <p className="text-gray-500 text-sm mt-1">Almacén de Barrio — POS</p>
         </div>
 
         {error && (
@@ -6907,17 +6534,6 @@ export default function Login() {
             {modo === "login"
               ? "¿No tienes cuenta? Regístrate"
               : "¿Ya tienes cuenta? Inicia sesión"}
-          </button>
-        </div>
-
-        <div className="mt-4 pt-4 border-t border-gray-200">
-          <button
-            type="button"
-            onClick={handleAnonimo}
-            disabled={cargando}
-            className="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium py-2.5 rounded-lg transition disabled:opacity-50"
-          >
-            👤 Entrar como invitado
           </button>
         </div>
       </div>
@@ -7608,26 +7224,10 @@ export default function RegisterVendedor() {
 ## File: src/services/betaAuth.js
 ````javascript
 import { auth, db } from "../firebase/firebase";
-import {
-  createUserWithEmailAndPassword,
-  updateProfile,
-} from "firebase/auth";
-import {
-  doc,
-  getDoc,
-  setDoc,
-  updateDoc,
-  runTransaction,
-  collection,
-  query,
-  where,
-  getDocs,
-  deleteDoc,
-} from "firebase/firestore";
+import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
+import { doc, getDoc, setDoc, updateDoc, runTransaction, collection } from "firebase/firestore";
 
-const ROLES = {
-  DUEÑO: "dueño",
-};
+const ROLES = { DUEÑO: "dueño" };
 
 function getTrialDates() {
   const now = new Date();
@@ -7640,176 +7240,54 @@ function getTrialDates() {
   };
 }
 
-// ─── VALIDAR CÓDIGO BETA ───
+// 🔥 FIX #2: Unificado a "codigosBeta"
 export async function validarCodigoBeta(codigo) {
-  if (!codigo || codigo.trim() === "") {
-    return { valido: false, mensaje: "Ingresa un código de invitación." };
-  }
-
+  if (!codigo || codigo.trim() === "") return { valido: false, mensaje: "Ingresa un código de invitación." };
   const cleanCode = codigo.trim().toUpperCase();
-  const codeRef = doc(db, "beta_codes", cleanCode);
+  const codeRef = doc(db, "codigosBeta", cleanCode);
   const snap = await getDoc(codeRef);
-
-  if (!snap.exists()) {
-    return { valido: false, mensaje: "Código de invitación no válido." };
-  }
-
+  if (!snap.exists()) return { valido: false, mensaje: "Código de invitación no válido." };
   const data = snap.data();
-
-  if (data.activo === false) {
-    return { valido: false, mensaje: "Este código de invitación ha sido desactivado." };
-  }
-
+  if (data.activo === false) return { valido: false, mensaje: "Este código ha sido desactivado." };
   const usados = data.usados || 0;
   const maximo = data.usosMaximos || 1;
-
-  if (usados >= maximo) {
-    return { valido: false, mensaje: "Este código ya alcanzó el límite de usos." };
-  }
-
+  if (usados >= maximo) return { valido: false, mensaje: "Este código ya alcanzó el límite de usos." };
   return { valido: true, codigoDoc: { id: snap.id, ...data } };
 }
 
-// ─── REGISTRO BETA ───
 export async function registerBetaDueño({ email, password, nombre, nombreAlmacen, codigoBeta }) {
   const validation = await validarCodigoBeta(codigoBeta);
-  if (!validation.valido) {
-    throw new Error(validation.mensaje);
-  }
-
+  if (!validation.valido) throw new Error(validation.mensaje);
   const { trialStartedAt, trialExpiresAt, proGratisUntil } = getTrialDates();
-
   const result = await createUserWithEmailAndPassword(auth, email.trim().toLowerCase(), password);
   await updateProfile(result.user, { displayName: nombre });
-
   const uid = result.user.uid;
-
   const almacenRef = doc(collection(db, "almacenes"));
-  await setDoc(almacenRef, {
-    nombre: nombreAlmacen.trim(),
-    dueñoId: uid,
-    plan: "trial_pro",
-    trialStartedAt,
-    trialExpiresAt,
-    proGratisUntil,
-    createdAt: new Date().toISOString(),
-  });
-
-  const userData = {
-    email: email.trim().toLowerCase(),
-    nombre,
-    role: ROLES.DUEÑO,
-    almacenId: almacenRef.id,
-    plan: "trial_pro",
-    trialStartedAt,
-    trialExpiresAt,
-    proGratisUntil,
-    createdAt: new Date().toISOString(),
-  };
+  
+  await setDoc(almacenRef, { nombre: nombreAlmacen.trim(), dueñoId: uid, plan: "trial_pro", trialStartedAt, trialExpiresAt, proGratisUntil, createdAt: new Date().toISOString() });
+  
+  const userData = { email: email.trim().toLowerCase(), nombre, role: ROLES.DUEÑO, almacenId: almacenRef.id, plan: "trial_pro", trialStartedAt, trialExpiresAt, proGratisUntil, createdAt: new Date().toISOString() };
   await setDoc(doc(db, "users", uid), userData);
-
-  const codeRef = doc(db, "beta_codes", codigoBeta.trim().toUpperCase());
+  
+  // 🔥 FIX #2: Unificado a "codigosBeta"
+  const codeRef = doc(db, "codigosBeta", codigoBeta.trim().toUpperCase());
   await runTransaction(db, async (transaction) => {
     const codeSnap = await transaction.get(codeRef);
     if (!codeSnap.exists()) throw new Error("Código no encontrado");
     const codeData = codeSnap.data();
     const usados = (codeData.usados || 0) + 1;
-    if (usados > (codeData.usosMaximos || 1)) {
-      throw new Error("Código agotado");
-    }
+    if (usados > (codeData.usosMaximos || 1)) throw new Error("Código agotado");
     transaction.update(codeRef, { usados, updatedAt: new Date().toISOString() });
   });
-
-  return {
-    user: result.user,
-    userData,
-    almacenId: almacenRef.id,
-  };
+  return { user: result.user, userData, almacenId: almacenRef.id };
 }
 
-// ═══════════════════════════════════════════════
-// 🔥 ADMIN: GESTIÓN DE CÓDIGOS BETA
-// ═══════════════════════════════════════════════
-
-/**
- * Crea un nuevo código beta.
- * Solo el dueño del sistema (tú) debería poder ejecutar esto.
- */
 export async function crearCodigoBeta({ codigo, usosMaximos = 1, notas = "" }) {
   const cleanCode = codigo.trim().toUpperCase();
-
-  // Verificar que no exista
-  const existing = await getDoc(doc(db, "beta_codes", cleanCode));
-  if (existing.exists()) {
-    throw new Error(`El código "${cleanCode}" ya existe.`);
-  }
-
-  await setDoc(doc(db, "beta_codes", cleanCode), {
-    codigo: cleanCode,
-    usosMaximos: Number(usosMaximos) || 1,
-    usados: 0,
-    activo: true,
-    notas: notas || "",
-    createdAt: new Date().toISOString(),
-  });
-
+  const existing = await getDoc(doc(db, "codigosBeta", cleanCode));
+  if (existing.exists()) throw new Error(`El código "${cleanCode}" ya existe.`);
+  await setDoc(doc(db, "codigosBeta", cleanCode), { codigo: cleanCode, usosMaximos: Number(usosMaximos) || 1, usados: 0, activo: true, notas: notas || "", createdAt: new Date().toISOString() });
   return { id: cleanCode, codigo: cleanCode, usosMaximos, usados: 0, activo: true };
-}
-
-/**
- * Genera un código beta aleatorio.
- */
-export function generarCodigoAleatorio(prefijo = "BETA") {
-  const timestamp = Date.now().toString(36).toUpperCase();
-  const random = Math.random().toString(36).substring(2, 6).toUpperCase();
-  return `${prefijo}-${timestamp}-${random}`;
-}
-
-/**
- * Lista todos los códigos beta.
- */
-export async function listarCodigosBeta() {
-  const snap = await getDocs(collection(db, "beta_codes"));
-  return snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => {
-    return new Date(b.createdAt || 0) - new Date(a.createdAt || 0);
-  });
-}
-
-/**
- * Activa/desactiva un código beta.
- */
-export async function toggleCodigoBeta(codigoId, activo) {
-  await updateDoc(doc(db, "beta_codes", codigoId), {
-    activo,
-    updatedAt: new Date().toISOString(),
-  });
-}
-
-/**
- * Elimina un código beta.
- */
-export async function eliminarCodigoBeta(codigoId) {
-  await deleteDoc(doc(db, "beta_codes", codigoId));
-}
-
-/**
- * Obtiene estadísticas de uso de códigos beta.
- */
-export async function estadisticasBeta() {
-  const codigos = await listarCodigosBeta();
-  const total = codigos.length;
-  const activos = codigos.filter(c => c.activo).length;
-  const inactivos = total - activos;
-  const usadosTotal = codigos.reduce((sum, c) => sum + (c.usados || 0), 0);
-  const disponiblesTotal = codigos.reduce((sum, c) => sum + Math.max(0, (c.usosMaximos || 0) - (c.usados || 0)), 0);
-
-  return {
-    total,
-    activos,
-    inactivos,
-    usadosTotal,
-    disponiblesTotal,
-  };
 }
 ````
 
@@ -7992,7 +7470,6 @@ export function getCachedProducts(almacenId) {
 
 export async function getProducts(almacenId) {
   if (!almacenId) return [];
-
   try {
     const q = query(
       collection(db, COLLECTION),
@@ -8001,8 +7478,6 @@ export async function getProducts(almacenId) {
     const snap = await getDocs(q);
     const products = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     const sorted = products.sort((a, b) => (a.nombre || "").localeCompare(b.nombre || ""));
-
-    // Guardar en cache para uso offline
     saveProductsToCache(almacenId, sorted);
     return sorted;
   } catch (err) {
@@ -8019,12 +7494,11 @@ export async function getProduct(productId) {
   return null;
 }
 
-// 🔥 FIX: Validar duplicados por código de barras antes de crear
+// 🔥 FIX #4: Validar duplicados por código de barras antes de crear
 export async function createProduct(almacenId, productData) {
   const check = await puedeCrearProducto(almacenId);
   if (!check.permitido) throw new Error(check.mensaje);
 
-  // Si tiene código de barras, verificar que no exista otro producto con el mismo código
   if (productData.codigoBarras && productData.codigoBarras.trim() !== "") {
     const existente = await getProductByBarcode(almacenId, productData.codigoBarras.trim());
     if (existente) {
@@ -8042,7 +7516,23 @@ export async function createProduct(almacenId, productData) {
   return { id: ref.id, ...data };
 }
 
+// 🔥 FIX #4: Validar duplicados por código de barras al actualizar (excluyendo el propio producto)
 export async function updateProduct(productId, updates) {
+  // Si se actualiza el código de barras, verificar que no exista otro producto con el mismo código
+  if (updates.codigoBarras && updates.codigoBarras.trim() !== "") {
+    // Necesitamos el almacenId para buscar duplicados
+    const currentProduct = await getProduct(productId);
+    if (!currentProduct) throw new Error("Producto no encontrado");
+
+    const almacenId = currentProduct.almacenId;
+    const existente = await getProductByBarcode(almacenId, updates.codigoBarras.trim());
+
+    // Si existe OTRO producto (distinto al que se está editando) con el mismo código
+    if (existente && existente.id !== productId) {
+      throw new Error(`Ya existe otro producto con el código de barras "${updates.codigoBarras}".`);
+    }
+  }
+
   const data = { ...updates, updatedAt: new Date().toISOString() };
   await updateDoc(doc(db, COLLECTION, productId), data);
   return { id: productId, ...updates };
@@ -8054,15 +7544,12 @@ export async function deleteProduct(productId) {
 
 export async function addStock(productId, cantidad, loteData = null) {
   const productRef = doc(db, COLLECTION, productId);
-
   return await runTransaction(db, async (transaction) => {
     const productSnap = await transaction.get(productRef);
     if (!productSnap.exists()) throw new Error("Producto no encontrado");
-
     const product = productSnap.data();
     const nuevoStock = (product.stock || 0) + cantidad;
     const updates = { stock: nuevoStock, updatedAt: new Date().toISOString() };
-
     if (product.perecedero && loteData) {
       const lotes = product.lotes ? [...product.lotes] : [];
       lotes.push({
@@ -8073,7 +7560,6 @@ export async function addStock(productId, cantidad, loteData = null) {
       });
       updates.lotes = lotes;
     }
-
     transaction.update(productRef, updates);
     return { id: productId, ...product, ...updates };
   });
@@ -8081,23 +7567,18 @@ export async function addStock(productId, cantidad, loteData = null) {
 
 export async function discountStock(productId, cantidad) {
   const productRef = doc(db, COLLECTION, productId);
-
   return await runTransaction(db, async (transaction) => {
     const productSnap = await transaction.get(productRef);
     if (!productSnap.exists()) throw new Error("Producto no encontrado");
-
     const product = productSnap.data();
-
     if ((product.stock || 0) < cantidad) {
       throw new Error(`Stock insuficiente: ${product.nombre || productId}`);
     }
-
     const nuevoStock = (product.stock || 0) - cantidad;
     const updates = {
       stock: nuevoStock,
       updatedAt: new Date().toISOString(),
     };
-
     if (product.perecedero && product.lotes) {
       let restante = cantidad;
       const lotes = [...product.lotes].sort(
@@ -8114,7 +7595,6 @@ export async function discountStock(productId, cantidad) {
       }
       updates.lotes = lotes.filter((l) => l.cantidad > 0);
     }
-
     transaction.update(productRef, updates);
     return { id: productId, ...product, ...updates };
   });
@@ -8130,7 +7610,6 @@ export async function discountStockBatch(carritoItems) {
 }
 
 // 🔥 FIX: Si hay múltiples productos con el mismo código, devolver el que tenga stock > 0
-// para evitar vender productos duplicados con stock 0
 export async function getProductByBarcode(almacenId, barcode) {
   if (!almacenId || !barcode) return null;
   try {
@@ -8141,18 +7620,12 @@ export async function getProductByBarcode(almacenId, barcode) {
     );
     const snap = await getDocs(q);
     if (snap.empty) return null;
-
-    // Si hay múltiples resultados, priorizar el que tenga stock disponible
     const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     if (docs.length === 1) return docs[0];
-
     const conStock = docs.find(p => (p.stock || 0) > 0);
     if (conStock) return conStock;
-
-    // Si ninguno tiene stock, devolver el primero (para mostrarlo como agotado)
     return docs[0];
   } catch (err) {
-    // Fallback: buscar en cache local
     const cached = getCachedProducts(almacenId);
     if (cached) {
       const matches = cached.filter(p => p.codigoBarras === barcode);
@@ -8390,173 +7863,141 @@ export const usersService = {
 
 ## File: src/services/paymentService.js
 ````javascript
-// services/paymentService.js
-// ─── Compatibilidad hacia atrás: usuarios antiguos sin fechas de expiración se consideran ACTIVOS ───
-
 import { doc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "../firebase/firebase";
 
-/**
- * Verifica el estado de suscripción de un usuario.
- * Compatibilidad: usuarios creados antes de los cambios de pago
- * (sin trialExpiresAt, proGratisUntil ni planExpiresAt) se consideran ACTIVOS.
- */
-export async function verificarEstadoV2(uid) {
-  const ref = doc(db, "usuarios", uid);
-  const snap = await getDoc(ref);
-  if (!snap.exists()) {
-    return { estado: "no_encontrado", activo: false, suspendido: true, mensaje: "Usuario no encontrado" };
-  }
+// 🔥 FIX #10: Exportaciones faltantes para PlanUpgrade y PaymentPortal
+export const PRECIOS = {
+  basico: { label: "Plan Básico", mensual: 5990, anual: 59900 },
+  pro: { label: "Plan Pro", mensual: 11990, anual: 119900 }
+};
 
-  const u = snap.data();
+export function formatMoney(val) {
+  if (val === undefined || val === null) return "$0";
+  return new Intl.NumberFormat("es-CL", {
+    style: "currency", currency: "CLP", minimumFractionDigits: 0
+  }).format(val);
+}
+
+export function calcularCompensacion(planActual, periodoActual, planDestino, periodoDestino, fechaInicioActual) {
+  const precioNuevo = PRECIOS[planDestino]?.[periodoDestino] || 0;
+  const precioActual = PRECIOS[planActual]?.[periodoActual] || 0;
+  const inicio = new Date(fechaInicioActual).getTime();
+  const ahora = Date.now();
+  const diasTranscurridos = Math.max(0, Math.floor((ahora - inicio) / (1000 * 60 * 60 * 24)));
+  const diasTotales = periodoActual === "anual" ? 365 : 30;
+  const diasRestantes = Math.max(0, diasTotales - diasTranscurridos);
+  const valorRestante = (precioActual / diasTotales) * diasRestantes;
+  
+  const monto = Math.max(0, precioNuevo - valorRestante);
+  return {
+    monto: Math.round(monto),
+    mensaje: `Se prorratean los ${diasRestantes} días restantes de tu plan actual.`,
+    prorrateo: true,
+    detalle: { precioNuevo, valorRestante: Math.round(valorRestante) }
+  };
+}
+
+export async function activarPlan(uid, almacenId, plan, periodo, pagoData) {
+  const ahora = Date.now();
+  const dias = periodo === "anual" ? 365 : 30;
+  const planExpiresAt = ahora + (dias * 24 * 60 * 60 * 1000);
+  
+  await updateDoc(doc(db, "users", uid), {
+    plan,
+    planPeriodo: periodo,
+    planStartedAt: new Date(ahora).toISOString(),
+    planExpiresAt: new Date(planExpiresAt).toISOString(),
+    ultimoPago: pagoData,
+    updatedAt: serverTimestamp()
+  });
+  
+  await updateDoc(doc(db, "almacenes", almacenId), {
+    plan,
+    updatedAt: serverTimestamp()
+  });
+}
+
+// 🔥 FIX #1: Comparación de fechas segura (convierte strings ISO a timestamps)
+export async function verificarEstadoV2(userData) {
+  // Acepta objeto userData directo (evita lectura extra a Firestore)
+  const u = userData;
+  if (!u) return { estado: "no_encontrado", activo: false, suspendido: true, mensaje: "Usuario no encontrado" };
+  
   const ahora = Date.now();
   const plan = u.plan || "basico";
 
-  // ─── ADMIN SIEMPRE ACTIVO ───
   if (u.role === "admin" || u.isAdmin === true) {
     return { estado: "admin", activo: true, suspendido: false, plan: "admin", mensaje: "Admin ilimitado" };
   }
 
-  // ─── COMPATIBILIDAD: usuarios antiguos sin fechas de expiración ───
   const tieneFechas = u.trialExpiresAt || u.proGratisUntil || u.planExpiresAt;
   if (!tieneFechas) {
-    // Usuario antiguo: activo con su plan actual
-    return {
-      estado: "activo_legacy",
-      activo: true,
-      suspendido: false,
-      plan: plan,
-      mensaje: "Plan activo (usuario legacy)"
-    };
+    return { estado: "activo_legacy", activo: true, suspendido: false, plan, mensaje: "Plan activo (usuario legacy)" };
   }
 
-  // ─── TRIAL ───
+  // 🔥 FIX #1: Usamos new Date().getTime() para comparar correctamente strings ISO
   if (plan === "trial" && u.trialExpiresAt) {
-    const activo = ahora < u.trialExpiresAt;
-    return {
-      estado: activo ? "trial_activo" : "trial_expirado",
-      activo,
-      suspendido: !activo,
-      plan: "trial",
-      mensaje: activo ? "Trial activo" : "Trial expirado"
-    };
+    const expira = new Date(u.trialExpiresAt).getTime();
+    const activo = ahora < expira;
+    return { estado: activo ? "trial_activo" : "trial_expirado", activo, suspendido: !activo, plan: "trial", mensaje: activo ? "Trial activo" : "Trial expirado" };
   }
 
-  // ─── PRO GRATIS ───
   if (plan === "pro_gratis" && u.proGratisUntil) {
-    const activo = ahora < u.proGratisUntil;
-    return {
-      estado: activo ? "pro_gratis_activo" : "pro_gratis_expirado",
-      activo,
-      suspendido: !activo,
-      plan: "pro_gratis",
-      mensaje: activo ? "Pro gratis activo" : "Pro gratis expirado"
-    };
+    const expira = new Date(u.proGratisUntil).getTime();
+    const activo = ahora < expira;
+    return { estado: activo ? "pro_gratis_activo" : "pro_gratis_expirado", activo, suspendido: !activo, plan: "pro_gratis", mensaje: activo ? "Pro gratis activo" : "Pro gratis expirado" };
   }
 
-  // ─── BÁSICO / PRO CON PLAN EXPIRADO ───
   if ((plan === "basico" || plan === "pro") && u.planExpiresAt) {
-    const activo = ahora < u.planExpiresAt;
-    return {
-      estado: activo ? `${plan}_activo` : `${plan}_expirado`,
-      activo,
-      suspendido: !activo,
-      plan,
-      mensaje: activo ? `Plan ${plan} activo` : `Plan ${plan} expirado`
-    };
+    const expira = new Date(u.planExpiresAt).getTime();
+    const activo = ahora < expira;
+    return { estado: activo ? `${plan}_activo` : `${plan}_expirado`, activo, suspendido: !activo, plan, mensaje: activo ? `Plan ${plan} activo` : `Plan ${plan} expirado` };
   }
 
-  // ─── Fallback: si tiene fechas pero ninguna condición aplica, activo por defecto ───
-  return {
-    estado: "activo_fallback",
-    activo: true,
-    suspendido: false,
-    plan: plan,
-    mensaje: "Plan activo (fallback)"
-  };
+  return { estado: "activo_fallback", activo: true, suspendido: false, plan, mensaje: "Plan activo (fallback)" };
 }
 
-/**
- * Actualiza automáticamente la fase de suscripción según el estado actual.
- */
-export async function autoUpgradeFases(uid) {
-  const estado = await verificarEstadoV2(uid);
-  const ref = doc(db, "usuarios", uid);
-
+export async function autoUpgradeFases(uid, userData) {
+  const estado = await verificarEstadoV2(userData);
+  const ref = doc(db, "users", uid);
   if (estado.estado === "trial_expirado") {
-    await updateDoc(ref, {
-      plan: "basico",
-      trialExpirado: true,
-      updatedAt: serverTimestamp()
-    });
+    await updateDoc(ref, { plan: "basico", trialExpirado: true, updatedAt: serverTimestamp() });
   }
-
   if (estado.estado === "pro_gratis_expirado") {
-    await updateDoc(ref, {
-      plan: "basico",
-      proGratisExpirado: true,
-      updatedAt: serverTimestamp()
-    });
+    await updateDoc(ref, { plan: "basico", proGratisExpirado: true, updatedAt: serverTimestamp() });
   }
-
   return estado;
 }
 
-/**
- * Activa trial de 14 días para un nuevo usuario.
- */
 export async function activarTrial(uid) {
   const trialExpiresAt = Date.now() + 14 * 24 * 60 * 60 * 1000;
-  const ref = doc(db, "usuarios", uid);
-  await updateDoc(ref, {
-    plan: "trial",
-    trialExpiresAt,
-    trialIniciado: serverTimestamp(),
-    updatedAt: serverTimestamp()
-  });
+  const ref = doc(db, "users", uid);
+  await updateDoc(ref, { plan: "trial", trialExpiresAt: new Date(trialExpiresAt).toISOString(), trialIniciado: serverTimestamp(), updatedAt: serverTimestamp() });
   return trialExpiresAt;
 }
 
-/**
- * Activa plan Pro gratis por N días (para códigos beta).
- */
 export async function activarProGratis(uid, dias = 30) {
   const proGratisUntil = Date.now() + dias * 24 * 60 * 60 * 1000;
-  const ref = doc(db, "usuarios", uid);
-  await updateDoc(ref, {
-    plan: "pro_gratis",
-    proGratisUntil,
-    proGratisActivado: serverTimestamp(),
-    updatedAt: serverTimestamp()
-  });
+  const ref = doc(db, "users", uid);
+  await updateDoc(ref, { plan: "pro_gratis", proGratisUntil: new Date(proGratisUntil).toISOString(), proGratisActivado: serverTimestamp(), updatedAt: serverTimestamp() });
   return proGratisUntil;
 }
 
-/**
- * Verifica si un código beta es válido y no ha sido usado.
- */
+// 🔥 FIX #2: Unificado a colección "codigosBeta"
 export async function validarCodigoBeta(codigo) {
   const ref = doc(db, "codigosBeta", codigo.toUpperCase().trim());
   const snap = await getDoc(ref);
   if (!snap.exists()) return { valido: false, mensaje: "Código no encontrado" };
-
   const data = snap.data();
   if (data.usado) return { valido: false, mensaje: "Código ya utilizado" };
-  if (data.expiresAt && Date.now() > data.expiresAt) return { valido: false, mensaje: "Código expirado" };
-
+  if (data.expiresAt && Date.now() > new Date(data.expiresAt).getTime()) return { valido: false, mensaje: "Código expirado" };
   return { valido: true, data, mensaje: "Código válido" };
 }
 
-/**
- * Marca un código beta como usado por un usuario.
- */
 export async function usarCodigoBeta(codigo, uid) {
   const ref = doc(db, "codigosBeta", codigo.toUpperCase().trim());
-  await updateDoc(ref, {
-    usado: true,
-    usadoPor: uid,
-    usadoEn: serverTimestamp()
-  });
+  await updateDoc(ref, { usado: true, usadoPor: uid, usadoEn: serverTimestamp() });
 }
 ````
 
