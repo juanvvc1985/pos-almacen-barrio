@@ -4,7 +4,7 @@ import { useAuth } from "../hooks/useAuth";
 export default function Navbar() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, isDueño, logout } = useAuth();
+  const { user, isDueño, hasPrivilege, logout } = useAuth();
 
   const linkClass = (path) =>
     `px-3 py-2 rounded-lg text-sm font-medium transition ${
@@ -12,6 +12,19 @@ export default function Navbar() {
         ? "bg-blue-600 text-white"
         : "text-gray-700 hover:bg-gray-100"
     }`;
+
+  // 🔥 FIX #13: Filtrar enlaces por privilegios
+  const menuItems = [
+    { path: "/vender", label: "🛒 Vender", show: true },
+    { path: "/productos", label: "📦 Productos", show: isDueño || hasPrivilege("productos") },
+    { path: "/fiados", label: "📝 Fiados", show: true },
+    { path: "/ofertas", label: "🏷️ Ofertas", show: isDueño || hasPrivilege("ofertas") },
+    { path: "/mermas", label: "🗑️ Mermas", show: isDueño || hasPrivilege("mermas") },
+    { path: "/informes", label: "📊 Informes", show: true },
+    { path: "/admin-beta", label: "🔑 Códigos Beta", show: isDueño },
+    { path: "/vendedores", label: "👥 Vendedores", show: isDueño },
+    { path: "/configuracion", label: "⚙️ Config", show: isDueño },
+  ];
 
   return (
     <nav className="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-50">
@@ -24,50 +37,14 @@ export default function Navbar() {
           >
             🏪 Almacén de Barrio
           </button>
-
-          {/* Links principales */}
+          {/* Links principales filtrados por privilegio */}
           <div className="hidden md:flex items-center gap-1">
-            <button onClick={() => navigate("/vender")} className={linkClass("/vender")}>
-              🛒 Vender
-            </button>
-            <button onClick={() => navigate("/productos")} className={linkClass("/productos")}>
-              📦 Productos
-            </button>
-            <button onClick={() => navigate("/fiados")} className={linkClass("/fiados")}>
-              📝 Fiados
-            </button>
-            <button onClick={() => navigate("/ofertas")} className={linkClass("/ofertas")}>
-              🏷️ Ofertas
-            </button>
-            <button onClick={() => navigate("/mermas")} className={linkClass("/mermas")}>
-              🗑️ Mermas
-            </button>
-            <button onClick={() => navigate("/informes")} className={linkClass("/informes")}>
-              📊 Informes
-            </button>
-
-            {/* 🔑 Botón Códigos Beta — solo para dueños */}
-            {isDueño && (
-              <button
-                onClick={() => navigate("/admin-beta")}
-                className={linkClass("/admin-beta")}
-              >
-                🔑 Códigos Beta
+            {menuItems.filter(item => item.show).map(item => (
+              <button key={item.path} onClick={() => navigate(item.path)} className={linkClass(item.path)}>
+                {item.label}
               </button>
-            )}
-
-            {isDueño && (
-              <button onClick={() => navigate("/vendedores")} className={linkClass("/vendedores")}>
-                👥 Vendedores
-              </button>
-            )}
-            {isDueño && (
-              <button onClick={() => navigate("/configuracion")} className={linkClass("/configuracion")}>
-                ⚙️ Config
-              </button>
-            )}
+            ))}
           </div>
-
           {/* Usuario + Logout */}
           <div className="flex items-center gap-3">
             <span className="text-sm text-gray-600 hidden sm:block">

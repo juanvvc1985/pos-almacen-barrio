@@ -8,20 +8,22 @@ import {
 } from "lucide-react";
 
 export default function PaymentPortal() {
-  const { user, userData, logout, isSuspendido, suscripcionInfo } = useAuth();
+  // 🔥 FIX #23: Agregamos loading del auth context
+  const { user, userData, logout, isSuspendido, suscripcionInfo, loading } = useAuth();
   const navigate = useNavigate();
   const [planSeleccionado, setPlanSeleccionado] = useState("basico");
   const [periodo, setPeriodo] = useState("mensual");
-  const [loading, setLoading] = useState(false);
+  const [loadingPago, setLoadingPago] = useState(false);
   const [exito, setExito] = useState(false);
   const [error, setError] = useState("");
 
-  // Si no está suspendido, redirigir al dashboard
+  // 🔥 FIX #23: Esperar a que loading sea false antes de redirigir
   useEffect(() => {
+    if (loading) return; // No redirigir mientras se carga el auth
     if (!isSuspendido && userData?.plan && userData.plan !== "suspendido") {
       navigate("/");
     }
-  }, [isSuspendido, userData, navigate]);
+  }, [isSuspendido, userData, navigate, loading]);
 
   const precioActual = PRECIOS[planSeleccionado][periodo];
   const ahorroAnual = periodo === "anual" 
@@ -30,30 +32,23 @@ export default function PaymentPortal() {
 
   async function handlePagar() {
     if (!user || !userData?.almacenId) return;
-    setLoading(true);
+    setLoadingPago(true);
     setError("");
-
     try {
-      // 🔥 SIMULACIÓN: En producción, aquí iría Stripe/MercadoPago
-      // Se abre el checkout, el usuario paga, y al confirmar se llama activarPlan
-
-      // Simulamos 2 segundos de "procesando pago"
       await new Promise(r => setTimeout(r, 2000));
-
       await activarPlan(user.uid, userData.almacenId, planSeleccionado, periodo, {
         monto: precioActual,
         metodo: "simulado",
         transactionId: `sim_${Date.now()}`,
       });
-
       setExito(true);
       setTimeout(() => {
-        window.location.reload(); // Recargar para que useAuth detecte el nuevo plan
+        window.location.reload();
       }, 2000);
     } catch (err) {
       setError(err.message || "Error al procesar el pago. Intenta de nuevo.");
     } finally {
-      setLoading(false);
+      setLoadingPago(false);
     }
   }
 
@@ -89,7 +84,6 @@ export default function PaymentPortal() {
           </button>
         </div>
       </div>
-
       <div className="max-w-5xl mx-auto px-4 py-12">
         {/* Alerta de suspensión */}
         <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-8 flex items-start gap-3">
@@ -102,12 +96,10 @@ export default function PaymentPortal() {
             </p>
           </div>
         </div>
-
         <div className="text-center mb-10">
           <h2 className="text-3xl font-bold text-gray-800">Elige tu plan</h2>
           <p className="text-gray-500 mt-2">Sin contratos. Cancela cuando quieras.</p>
         </div>
-
         {/* Selector de periodo */}
         <div className="flex justify-center mb-8">
           <div className="bg-gray-100 rounded-lg p-1 inline-flex">
@@ -136,7 +128,6 @@ export default function PaymentPortal() {
             </button>
           </div>
         </div>
-
         {/* Cards de planes */}
         <div className="grid md:grid-cols-2 gap-6 max-w-3xl mx-auto">
           {/* Plan Básico */}
@@ -162,7 +153,6 @@ export default function PaymentPortal() {
                 <p className="text-xs text-gray-500">Para almacenes de barrio</p>
               </div>
             </div>
-
             <div className="mb-4">
               <span className="text-3xl font-bold text-gray-800">{formatMoney(PRECIOS.basico[periodo])}</span>
               <span className="text-gray-500">/{periodo === "mensual" ? "mes" : "año"}</span>
@@ -172,7 +162,6 @@ export default function PaymentPortal() {
                 </p>
               )}
             </div>
-
             <ul className="space-y-2 text-sm text-gray-600">
               <li className="flex items-center gap-2"><Check size={14} className="text-green-500" /> Hasta 500 productos</li>
               <li className="flex items-center gap-2"><Check size={14} className="text-green-500" /> 1 vendedor</li>
@@ -181,7 +170,6 @@ export default function PaymentPortal() {
               <li className="flex items-center gap-2"><Check size={14} className="text-green-500" /> Control de stock</li>
             </ul>
           </button>
-
           {/* Plan Pro */}
           <button
             onClick={() => setPlanSeleccionado("pro")}
@@ -210,7 +198,6 @@ export default function PaymentPortal() {
                 <p className="text-xs text-gray-500">Para negocios en crecimiento</p>
               </div>
             </div>
-
             <div className="mb-4">
               <span className="text-3xl font-bold text-gray-800">{formatMoney(PRECIOS.pro[periodo])}</span>
               <span className="text-gray-500">/{periodo === "mensual" ? "mes" : "año"}</span>
@@ -220,7 +207,6 @@ export default function PaymentPortal() {
                 </p>
               )}
             </div>
-
             <ul className="space-y-2 text-sm text-gray-600">
               <li className="flex items-center gap-2"><Check size={14} className="text-green-500" /> <strong>Productos ilimitados</strong></li>
               <li className="flex items-center gap-2"><Check size={14} className="text-green-500" /> <strong>Vendedores ilimitados</strong></li>
@@ -231,7 +217,6 @@ export default function PaymentPortal() {
             </ul>
           </button>
         </div>
-
         {/* Resumen de pago */}
         <div className="max-w-md mx-auto mt-8 bg-white rounded-xl border border-gray-200 p-6">
           <h4 className="font-bold text-gray-800 mb-4">Resumen</h4>
@@ -255,31 +240,27 @@ export default function PaymentPortal() {
               <span>{formatMoney(precioActual)}</span>
             </div>
           </div>
-
           {error && (
             <div className="mt-4 bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded-lg text-sm">
               {error}
             </div>
           )}
-
           <button
             onClick={handlePagar}
-            disabled={loading}
+            disabled={loadingPago}
             className="w-full mt-4 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white font-bold py-3 rounded-xl transition flex items-center justify-center gap-2"
           >
-            {loading ? (
+            {loadingPago ? (
               <><Loader2 className="w-5 h-5 animate-spin" /> Procesando...</>
             ) : (
               <><CreditCard size={18} /> Pagar {formatMoney(precioActual)}</>
             )}
           </button>
-
           <p className="text-xs text-gray-400 text-center mt-3">
             🔒 Pago seguro. En producción se conectará con Webpay o MercadoPago.
             <br/>Por ahora es una simulación para pruebas.
           </p>
         </div>
-
         {/* FAQ */}
         <div className="max-w-2xl mx-auto mt-12 text-center">
           <h3 className="font-bold text-gray-800 mb-4">¿Tienes dudas?</h3>

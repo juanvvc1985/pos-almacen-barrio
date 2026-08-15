@@ -19,7 +19,6 @@ export default function InventoryAlert() {
   async function cargarAlertas() {
     const productos = await productsService.getProducts(almacenId);
     const alertasList = [];
-
     productos.forEach((p) => {
       // Stock crítico
       if (p.stockCritico && p.stock <= p.stockCritico && p.stock > 0) {
@@ -38,16 +37,18 @@ export default function InventoryAlert() {
           producto: p,
         });
       }
-
       // Vencimientos
       if (p.perecedero && p.lotes) {
         p.lotes.forEach((lote) => {
+          // 🔥 FIX #19: Ignorar lotes con cantidad 0 (agotados)
+          if ((lote.cantidad || 0) <= 0) return;
+
           const dias = diasHastaVencimiento(lote.fechaVencimiento);
           if (dias !== null && dias <= (p.diasAlertaVencimiento || 3) && dias >= 0) {
             alertasList.push({
               id: `venc-${p.id}-${lote.id}`,
               tipo: "vencimiento",
-              mensaje: `${p.nombre}: Vence en ${dias} días`,
+              mensaje: `${p.nombre}: Vence en ${dias} días (${lote.cantidad} ${p.unidad})`,
               producto: p,
             });
           }
@@ -55,14 +56,13 @@ export default function InventoryAlert() {
             alertasList.push({
               id: `vencido-${p.id}-${lote.id}`,
               tipo: "vencido",
-              mensaje: `${p.nombre}: Producto vencido`,
+              mensaje: `${p.nombre}: Producto vencido (${lote.cantidad} ${p.unidad})`,
               producto: p,
             });
           }
         });
       }
     });
-
     setAlertas(alertasList);
   }
 

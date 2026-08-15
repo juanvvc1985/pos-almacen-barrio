@@ -10,6 +10,8 @@ import { formatCurrency, formatDate, formatShortDate } from "../utils/format";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
+import { db } from "../firebase/firebase";
 import {
   BarChart3, Download, Calendar, TrendingUp, Package,
   DollarSign, CreditCard, Smartphone, Users, AlertTriangle,
@@ -58,7 +60,6 @@ export default function Reports() {
     setLoading(false);
   }
 
-  // ===== OBTENER DATOS DEL ALMACÉN =====
   async function getAlmacenInfo() {
     if (!almacenId) return { nombre: "Almacén de Barrio", rut: "", direccion: "", telefono: "", giro: "" };
     try {
@@ -92,26 +93,19 @@ export default function Reports() {
   const ventasFiltradas = fechaFiltro ? ventas.filter((v) => v.createdAt >= fechaFiltro) : ventas;
   const ventasNormales = ventasFiltradas.filter((v) => v.tipo !== "fiado-recuperado");
   const recuperacionesFiado = ventasFiltradas.filter((v) => v.tipo === "fiado-recuperado");
-
   const porMetodoVentas = { efectivo: 0, tarjeta: 0, transferencia: 0, fiado: 0 };
   ventasNormales.forEach((v) => { if (porMetodoVentas[v.metodoPago] !== undefined) porMetodoVentas[v.metodoPago] += v.total || 0; });
-
   const porMetodoRecuperacion = { efectivo: 0, tarjeta: 0, transferencia: 0 };
   recuperacionesFiado.forEach((v) => { if (porMetodoRecuperacion[v.metodoPago] !== undefined) porMetodoRecuperacion[v.metodoPago] += v.total || 0; });
-
   const totalVentasNormales = ventasNormales.reduce((s, v) => s + (v.total || 0), 0);
   const totalRecuperaciones = recuperacionesFiado.reduce((s, v) => s + (v.total || 0), 0);
   const totalVentasGlobal = totalVentasNormales + totalRecuperaciones;
-
   const chartData = [
     { name: "Efectivo", venta: porMetodoVentas.efectivo || 0, recuperacion: porMetodoRecuperacion.efectivo || 0 },
     { name: "Tarjeta", venta: porMetodoVentas.tarjeta || 0, recuperacion: porMetodoRecuperacion.tarjeta || 0 },
     { name: "Transferencia", venta: porMetodoVentas.transferencia || 0, recuperacion: porMetodoRecuperacion.transferencia || 0 },
   ];
 
-  // ===== RANKING DE PRODUCTOS VENDIDOS =====
-  // Cada venta ya guarda el detalle de items (v.productos[]) desde que se creó en POS.jsx;
-  // aquí solo se agrega esa información por producto para el período filtrado.
   const rankingProductos = (() => {
     const acumulado = {};
     ventasNormales.forEach((v) => {
@@ -127,11 +121,9 @@ export default function Reports() {
     });
     return Object.values(acumulado);
   })();
-
   const rankingOrdenado = [...rankingProductos].sort((a, b) => b[rankingSortKey] - a[rankingSortKey]);
   const top10Ranking = rankingOrdenado.slice(0, 10).map((p) => ({ name: p.nombre, cantidad: p.cantidad, ingresos: p.ingresos }));
   const totalUnidadesVendidas = rankingProductos.reduce((s, p) => s + p.cantidad, 0);
-
   const fiadosPendientes = fiados.filter((f) => f.estado === "pendiente" || f.estado === "parcial");
   const totalFiadoPendiente = fiadosPendientes.reduce((s, f) => s + ((f.total || 0) - (f.pagos?.reduce((p, pay) => p + (pay.monto || 0), 0) || 0)), 0);
   const totalRecuperado = fiados.reduce((s, f) => s + (f.pagos?.reduce((p, pay) => p + (pay.monto || 0), 0) || 0), 0);
@@ -139,23 +131,19 @@ export default function Reports() {
     const dias = Math.floor((new Date() - new Date(f.createdAt)) / (1000 * 60 * 60 * 24));
     return (f.estado === "pendiente" || f.estado === "parcial") && dias > 7;
   });
-
   const totalMermas = mermas.reduce((s, m) => s + (m.perdidaEstimada || 0), 0);
   const porMotivo = {};
   mermas.forEach((m) => { porMotivo[m.motivo] = (porMotivo[m.motivo] || 0) + (m.perdidaEstimada || 0); });
   const mermaChartData = Object.entries(porMotivo).map(([name, value]) => ({ name, value }));
-
   const totalProductos = productos.length;
   const valorStockCosto = productos.reduce((s, p) => s + (p.precioCompra || 0) * (p.stock || 0), 0);
   const valorStockVenta = productos.reduce((s, p) => s + (p.precioVenta || 0) * (p.stock || 0), 0);
   const stockCritico = productos.filter((p) => p.stockCritico && p.stock <= p.stockCritico && p.stock > 0).length;
-
   const productosFiltrados = searchInv.trim() ? productos.filter((p) =>
     p.nombre?.toLowerCase().includes(searchInv.toLowerCase()) ||
     p.codigoBarras?.includes(searchInv) ||
     p.categoria?.toLowerCase().includes(searchInv.toLowerCase())
   ) : productos;
-
   const sortedProductos = [...productosFiltrados].sort((a, b) => {
     const aVal = a[sortConfig.key] || 0;
     const bVal = b[sortConfig.key] || 0;
@@ -169,32 +157,29 @@ export default function Reports() {
 
   async function exportarPDF() {
     const almacen = await getAlmacenInfo();
-    const doc = new jsPDF();
-    doc.setFontSize(16);
-    doc.text(`Inventario - ${almacen.nombre}`, 14, 20);
-    doc.setFontSize(10);
-    if (almacen.rut) doc.text(`RUT: ${almacen.rut}`, 14, 28);
-    if (almacen.direccion) doc.text(`Dirección: ${almacen.direccion}`, 14, 34);
-    doc.text(`Generado: ${new Date().toLocaleDateString("es-CL")}`, 14, almacen.direccion ? 40 : 34);
-    doc.text(`Total productos: ${totalProductos}`, 14, almacen.direccion ? 46 : 40);
-    doc.text(`Valor stock (costo): ${formatCurrency(valorStockCosto)}`, 14, almacen.direccion ? 52 : 46);
-    doc.text(`Valor stock (venta): ${formatCurrency(valorStockVenta)}`, 14, almacen.direccion ? 58 : 52);
-
+    const pdfDoc = new jsPDF();
+    pdfDoc.setFontSize(16);
+    pdfDoc.text(`Inventario - ${almacen.nombre}`, 14, 20);
+    pdfDoc.setFontSize(10);
+    if (almacen.rut) pdfDoc.text(`RUT: ${almacen.rut}`, 14, 28);
+    if (almacen.direccion) pdfDoc.text(`Dirección: ${almacen.direccion}`, 14, 34);
+    pdfDoc.text(`Generado: ${new Date().toLocaleDateString("es-CL")}`, 14, almacen.direccion ? 40 : 34);
+    pdfDoc.text(`Total productos: ${totalProductos}`, 14, almacen.direccion ? 46 : 40);
+    pdfDoc.text(`Valor stock (costo): ${formatCurrency(valorStockCosto)}`, 14, almacen.direccion ? 52 : 46);
+    pdfDoc.text(`Valor stock (venta): ${formatCurrency(valorStockVenta)}`, 14, almacen.direccion ? 58 : 52);
     const body = sortedProductos.map((p) => [
       p.nombre, p.categoria, p.stock + " " + p.unidad,
       formatCurrency(p.precioVenta), formatCurrency(p.precioCompra),
       p.stock <= (p.stockCritico || 0) ? "Critico" : "OK",
     ]);
-
-    autoTable(doc, {
+    autoTable(pdfDoc, {
       head: [["Producto", "Categoria", "Stock", "Precio Venta", "Precio Costo", "Estado"]],
       body, startY: almacen.direccion ? 64 : 58, styles: { fontSize: 9 },
       headStyles: { fillColor: [59, 130, 246] },
     });
-    doc.save("inventario.pdf");
+    pdfDoc.save("inventario.pdf");
   }
 
-  // ===== LIBRO DE VENTAS =====
   function getVentasMes(anioMes) {
     return ventas.filter((v) => v.createdAt?.startsWith(anioMes));
   }
@@ -204,138 +189,145 @@ export default function Reports() {
     const ventasMes = getVentasMes(mesLibro);
     const normales = ventasMes.filter((v) => v.tipo !== "fiado-recuperado");
     const recups = ventasMes.filter((v) => v.tipo === "fiado-recuperado");
-
     const totNorm = normales.reduce((s, v) => s + (v.total || 0), 0);
     const totRec = recups.reduce((s, v) => s + (v.total || 0), 0);
-
     const porMet = { efectivo: 0, tarjeta: 0, transferencia: 0, fiado: 0 };
     normales.forEach((v) => { if (porMet[v.metodoPago] !== undefined) porMet[v.metodoPago] += v.total || 0; });
-
     const fiadosMes = fiados.filter((f) => f.createdAt?.startsWith(mesLibro));
     const fiadosEmitidos = fiadosMes.reduce((s, f) => s + (f.total || 0), 0);
     const fiadosRecuperados = fiadosMes.reduce((s, f) => s + (f.pagos?.reduce((p, pay) => p + (pay.monto || 0), 0) || 0), 0);
-
     const mermasMes = mermas.filter((m) => m.createdAt?.startsWith(mesLibro));
     const totalMermasMes = mermasMes.reduce((s, m) => s + (m.perdidaEstimada || 0), 0);
-
-    const doc = new jsPDF();
-    doc.setFontSize(18);
-    doc.text("LIBRO DE VENTAS", 105, 20, { align: "center" });
-    doc.setFontSize(12);
-    doc.text(almacen.nombre, 105, 28, { align: "center" });
-    if (almacen.rut) doc.text(`RUT: ${almacen.rut}`, 105, 33, { align: "center" });
-    if (almacen.direccion) doc.text(almacen.direccion, 105, 38, { align: "center" });
-    doc.setFontSize(10);
-    doc.text(`Periodo: ${mesLibro}`, 105, almacen.direccion ? 44 : 39, { align: "center" });
-    doc.text(`Generado: ${new Date().toLocaleDateString("es-CL")}`, 105, almacen.direccion ? 49 : 44, { align: "center" });
-
+    const pdfDoc = new jsPDF();
+    pdfDoc.setFontSize(18);
+    pdfDoc.text("LIBRO DE VENTAS", 105, 20, { align: "center" });
+    pdfDoc.setFontSize(12);
+    pdfDoc.text(almacen.nombre, 105, 28, { align: "center" });
+    if (almacen.rut) pdfDoc.text(`RUT: ${almacen.rut}`, 105, 33, { align: "center" });
+    if (almacen.direccion) pdfDoc.text(almacen.direccion, 105, 38, { align: "center" });
+    pdfDoc.setFontSize(10);
+    pdfDoc.text(`Periodo: ${mesLibro}`, 105, almacen.direccion ? 44 : 39, { align: "center" });
+    pdfDoc.text(`Generado: ${new Date().toLocaleDateString("es-CL")}`, 105, almacen.direccion ? 49 : 44, { align: "center" });
     let y = almacen.direccion ? 58 : 53;
-    doc.setFontSize(12);
-    doc.text("1. RESUMEN DE VENTAS", 14, y);
-    y += 8;
-    doc.setFontSize(10);
-    doc.text(`Ventas normales: ${formatCurrency(totNorm)}`, 14, y); y += 6;
-    doc.text(`Recuperacion fiados: ${formatCurrency(totRec)}`, 14, y); y += 6;
-    doc.text(`TOTAL VENTAS: ${formatCurrency(totNorm + totRec)}`, 14, y); y += 10;
-
-    doc.setFontSize(12);
-    doc.text("2. DESGLOSE POR METODO DE PAGO", 14, y);
-    y += 8;
-    doc.setFontSize(10);
-    doc.text(`Efectivo: ${formatCurrency(porMet.efectivo)}`, 14, y); y += 6;
-    doc.text(`Tarjeta: ${formatCurrency(porMet.tarjeta)}`, 14, y); y += 6;
-    doc.text(`Transferencia: ${formatCurrency(porMet.transferencia)}`, 14, y); y += 6;
-    doc.text(`Fiado (credito): ${formatCurrency(porMet.fiado)}`, 14, y); y += 10;
-
-    doc.setFontSize(12);
-    doc.text("3. FIADOS", 14, y);
-    y += 8;
-    doc.setFontSize(10);
-    doc.text(`Fiados emitidos: ${formatCurrency(fiadosEmitidos)}`, 14, y); y += 6;
-    doc.text(`Fiados recuperados: ${formatCurrency(fiadosRecuperados)}`, 14, y); y += 6;
-    doc.text(`Saldo pendiente: ${formatCurrency(fiadosEmitidos - fiadosRecuperados)}`, 14, y); y += 10;
-
-    doc.setFontSize(12);
-    doc.text("4. MERMAS", 14, y);
-    y += 8;
-    doc.setFontSize(10);
-    doc.text(`Perdida estimada: ${formatCurrency(totalMermasMes)}`, 14, y); y += 6;
-    doc.text(`Cantidad de mermas: ${mermasMes.length}`, 14, y); y += 10;
-
-    doc.setFontSize(12);
-    doc.text("5. VENTAS NETAS", 14, y);
-    y += 8;
-    doc.setFontSize(10);
+    pdfDoc.setFontSize(12);
+    pdfDoc.text("1. RESUMEN DE VENTAS", 14, y); y += 8;
+    pdfDoc.setFontSize(10);
+    pdfDoc.text(`Ventas normales: ${formatCurrency(totNorm)}`, 14, y); y += 6;
+    pdfDoc.text(`Recuperacion fiados: ${formatCurrency(totRec)}`, 14, y); y += 6;
+    pdfDoc.text(`TOTAL VENTAS: ${formatCurrency(totNorm + totRec)}`, 14, y); y += 10;
+    pdfDoc.setFontSize(12);
+    pdfDoc.text("2. DESGLOSE POR METODO DE PAGO", 14, y); y += 8;
+    pdfDoc.setFontSize(10);
+    pdfDoc.text(`Efectivo: ${formatCurrency(porMet.efectivo)}`, 14, y); y += 6;
+    pdfDoc.text(`Tarjeta: ${formatCurrency(porMet.tarjeta)}`, 14, y); y += 6;
+    pdfDoc.text(`Transferencia: ${formatCurrency(porMet.transferencia)}`, 14, y); y += 6;
+    pdfDoc.text(`Fiado (credito): ${formatCurrency(porMet.fiado)}`, 14, y); y += 10;
+    pdfDoc.setFontSize(12);
+    pdfDoc.text("3. FIADOS", 14, y); y += 8;
+    pdfDoc.setFontSize(10);
+    pdfDoc.text(`Fiados emitidos: ${formatCurrency(fiadosEmitidos)}`, 14, y); y += 6;
+    pdfDoc.text(`Fiados recuperados: ${formatCurrency(fiadosRecuperados)}`, 14, y); y += 6;
+    pdfDoc.text(`Saldo pendiente: ${formatCurrency(fiadosEmitidos - fiadosRecuperados)}`, 14, y); y += 10;
+    pdfDoc.setFontSize(12);
+    pdfDoc.text("4. MERMAS", 14, y); y += 8;
+    pdfDoc.setFontSize(10);
+    pdfDoc.text(`Perdida estimada: ${formatCurrency(totalMermasMes)}`, 14, y); y += 6;
+    pdfDoc.text(`Cantidad de mermas: ${mermasMes.length}`, 14, y); y += 10;
+    pdfDoc.setFontSize(12);
+    pdfDoc.text("5. VENTAS NETAS", 14, y); y += 8;
+    pdfDoc.setFontSize(10);
     const ventasNetas = (totNorm + totRec) - totalMermasMes;
-    doc.text(`Ventas netas (ventas - mermas): ${formatCurrency(ventasNetas)}`, 14, y);
-
-    doc.save(`libro-ventas-${mesLibro}.pdf`);
+    pdfDoc.text(`Ventas netas (ventas - mermas): ${formatCurrency(ventasNetas)}`, 14, y);
+    pdfDoc.save(`libro-ventas-${mesLibro}.pdf`);
   }
 
-  // ===== INFORME DE VENTAS PDF (Plan Básico y Pro) =====
+  // ===== INFORME DE VENTAS PDF =====
   function getMesActual() {
     return new Date().toISOString().slice(0, 7);
   }
 
-  function puedeDescargarInformeVentas() {
+  // 🔥 FIX #14: Control de límite de informes vía Firestore (no localStorage)
+  async function puedeDescargarInformeVentas() {
     if (plan === "pro") return true;
-    const mes = getMesActual();
-    return !localStorage.getItem(`informe_ventas_${mes}`);
+    if (!almacenId) return false;
+    try {
+      const mes = getMesActual();
+      const counterRef = doc(db, "almacenes", almacenId, "reportes", `ventas_${mes}`);
+      const snap = await getDoc(counterRef);
+      if (!snap.exists()) return true;
+      const data = snap.data();
+      return (data.descargas || 0) < 1;
+    } catch (err) {
+      console.error("Error verificando límite de informes:", err);
+      return true; // Fallback: permitir si hay error de red
+    }
   }
 
-  function marcarInformeVentasDescargado() {
-    const mes = getMesActual();
-    localStorage.setItem(`informe_ventas_${mes}`, "1");
+  // 🔥 FIX #14: Marcar descarga en Firestore
+  async function marcarInformeVentasDescargado() {
+    if (!almacenId) return;
+    try {
+      const mes = getMesActual();
+      const counterRef = doc(db, "almacenes", almacenId, "reportes", `ventas_${mes}`);
+      const snap = await getDoc(counterRef);
+      if (snap.exists()) {
+        await updateDoc(counterRef, {
+          descargas: (snap.data().descargas || 0) + 1,
+          ultimaDescarga: new Date().toISOString(),
+        });
+      } else {
+        await setDoc(counterRef, {
+          descargas: 1,
+          ultimaDescarga: new Date().toISOString(),
+          mes,
+        });
+      }
+    } catch (err) {
+      console.error("Error marcando informe como descargado:", err);
+    }
   }
 
   async function exportarVentasPDF() {
-    if (!puedeDescargarInformeVentas()) {
+    const puedeDescargar = await puedeDescargarInformeVentas();
+    if (!puedeDescargar) {
       alert("Ya usaste tu informe gratuito de este mes. Upgrade a Pro para informes ilimitados.");
       return;
     }
-
     const almacen = await getAlmacenInfo();
-    const doc = new jsPDF();
+    const pdfDoc = new jsPDF();
     const periodoLabel = {
       hoy: "Hoy",
       semana: "Última semana",
       mes: "Último mes",
       todo: "Todo el historial",
     }[filtroTiempo];
-
-    doc.setFontSize(18);
-    doc.text("Informe de Ventas", 14, 20);
-    doc.setFontSize(11);
-    doc.text(`Período: ${periodoLabel}`, 14, 28);
-    doc.text(`Generado: ${new Date().toLocaleDateString("es-CL")}`, 14, 34);
-    doc.text(`Almacén: ${almacen.nombre}`, 14, 40);
-    if (almacen.rut) doc.text(`RUT: ${almacen.rut}`, 14, 46);
-
+    pdfDoc.setFontSize(18);
+    pdfDoc.text("Informe de Ventas", 14, 20);
+    pdfDoc.setFontSize(11);
+    pdfDoc.text(`Período: ${periodoLabel}`, 14, 28);
+    pdfDoc.text(`Generado: ${new Date().toLocaleDateString("es-CL")}`, 14, 34);
+    pdfDoc.text(`Almacén: ${almacen.nombre}`, 14, 40);
+    if (almacen.rut) pdfDoc.text(`RUT: ${almacen.rut}`, 14, 46);
     let y = almacen.rut ? 56 : 50;
-    doc.setFontSize(12);
-    doc.text("1. RESUMEN", 14, y);
-    y += 7;
-    doc.setFontSize(10);
-    doc.text(`Total Ventas: ${formatCurrency(totalVentasGlobal)}`, 14, y); y += 6;
-    doc.text(`Ventas Normales: ${formatCurrency(totalVentasNormales)}`, 14, y); y += 6;
-    doc.text(`Recuperación Fiados: ${formatCurrency(totalRecuperaciones)}`, 14, y); y += 6;
-    doc.text(`Fiados (crédito): ${formatCurrency(porMetodoVentas.fiado || 0)}`, 14, y); y += 10;
-
-    doc.setFontSize(12);
-    doc.text("2. DESGLOSE POR MÉTODO DE PAGO", 14, y);
-    y += 7;
-    doc.setFontSize(10);
-    doc.text(`Efectivo (ventas): ${formatCurrency(porMetodoVentas.efectivo)}`, 14, y); y += 6;
-    doc.text(`Tarjeta (ventas): ${formatCurrency(porMetodoVentas.tarjeta)}`, 14, y); y += 6;
-    doc.text(`Transferencia (ventas): ${formatCurrency(porMetodoVentas.transferencia)}`, 14, y); y += 6;
-    doc.text(`Efectivo (recuperación): ${formatCurrency(porMetodoRecuperacion.efectivo)}`, 14, y); y += 6;
-    doc.text(`Tarjeta (recuperación): ${formatCurrency(porMetodoRecuperacion.tarjeta)}`, 14, y); y += 6;
-    doc.text(`Transferencia (recuperación): ${formatCurrency(porMetodoRecuperacion.transferencia)}`, 14, y); y += 10;
-
+    pdfDoc.setFontSize(12);
+    pdfDoc.text("1. RESUMEN", 14, y); y += 7;
+    pdfDoc.setFontSize(10);
+    pdfDoc.text(`Total Ventas: ${formatCurrency(totalVentasGlobal)}`, 14, y); y += 6;
+    pdfDoc.text(`Ventas Normales: ${formatCurrency(totalVentasNormales)}`, 14, y); y += 6;
+    pdfDoc.text(`Recuperación Fiados: ${formatCurrency(totalRecuperaciones)}`, 14, y); y += 6;
+    pdfDoc.text(`Fiados (crédito): ${formatCurrency(porMetodoVentas.fiado || 0)}`, 14, y); y += 10;
+    pdfDoc.setFontSize(12);
+    pdfDoc.text("2. DESGLOSE POR MÉTODO DE PAGO", 14, y); y += 7;
+    pdfDoc.setFontSize(10);
+    pdfDoc.text(`Efectivo (ventas): ${formatCurrency(porMetodoVentas.efectivo)}`, 14, y); y += 6;
+    pdfDoc.text(`Tarjeta (ventas): ${formatCurrency(porMetodoVentas.tarjeta)}`, 14, y); y += 6;
+    pdfDoc.text(`Transferencia (ventas): ${formatCurrency(porMetodoVentas.transferencia)}`, 14, y); y += 6;
+    pdfDoc.text(`Efectivo (recuperación): ${formatCurrency(porMetodoRecuperacion.efectivo)}`, 14, y); y += 6;
+    pdfDoc.text(`Tarjeta (recuperación): ${formatCurrency(porMetodoRecuperacion.tarjeta)}`, 14, y); y += 6;
+    pdfDoc.text(`Transferencia (recuperación): ${formatCurrency(porMetodoRecuperacion.transferencia)}`, 14, y); y += 10;
     if (ventasFiltradas.length > 0) {
-      doc.setFontSize(12);
-      doc.text("3. DETALLE DE VENTAS", 14, y);
-      y += 7;
+      pdfDoc.setFontSize(12);
+      pdfDoc.text("3. DETALLE DE VENTAS", 14, y); y += 7;
       const body = ventasFiltradas.slice(0, 100).map((v) => [
         formatDate(v.createdAt),
         v.vendedorNombre || "-",
@@ -343,39 +335,35 @@ export default function Reports() {
         v.tipo === "fiado-recuperado" ? "Recuperación" : v.metodoPago === "fiado" ? "Venta fiado" : "Venta normal",
         formatCurrency(v.total),
       ]);
-      autoTable(doc, {
+      autoTable(pdfDoc, {
         head: [["Fecha", "Vendedor", "Método", "Tipo", "Total"]],
-        body,
-        startY: y,
-        styles: { fontSize: 9 },
+        body, startY: y, styles: { fontSize: 9 },
         headStyles: { fillColor: [59, 130, 246] },
       });
     }
-
-    doc.save(`informe-ventas-${filtroTiempo}-${new Date().toISOString().split("T")[0]}.pdf`);
-    marcarInformeVentasDescargado();
+    pdfDoc.save(`informe-ventas-${filtroTiempo}-${new Date().toISOString().split("T")[0]}.pdf`);
+    await marcarInformeVentasDescargado();
   }
 
   async function exportarRankingPDF() {
     const almacen = await getAlmacenInfo();
-    const doc = new jsPDF();
+    const pdfDoc = new jsPDF();
     const periodoLabel = { hoy: "Hoy", semana: "Última semana", mes: "Último mes", todo: "Todo el historial" }[filtroTiempo];
-    doc.setFontSize(16);
-    doc.text(`Ranking de Productos - ${almacen.nombre}`, 14, 20);
-    doc.setFontSize(10);
-    doc.text(`Período: ${periodoLabel}`, 14, 28);
-    doc.text(`Generado: ${new Date().toLocaleDateString("es-CL")}`, 14, 34);
-    doc.text(`Unidades vendidas: ${totalUnidadesVendidas}`, 14, 40);
-
+    pdfDoc.setFontSize(16);
+    pdfDoc.text(`Ranking de Productos - ${almacen.nombre}`, 14, 20);
+    pdfDoc.setFontSize(10);
+    pdfDoc.text(`Período: ${periodoLabel}`, 14, 28);
+    pdfDoc.text(`Generado: ${new Date().toLocaleDateString("es-CL")}`, 14, 34);
+    pdfDoc.text(`Unidades vendidas: ${totalUnidadesVendidas}`, 14, 40);
     const body = rankingOrdenado.map((p, i) => [
       i + 1, p.nombre, p.cantidad, formatCurrency(p.ingresos), p.ventas,
     ]);
-    autoTable(doc, {
+    autoTable(pdfDoc, {
       head: [["#", "Producto", "Unidades vendidas", "Ingresos", "Ventas donde aparece"]],
       body, startY: 48, styles: { fontSize: 9 },
       headStyles: { fillColor: [217, 119, 6] },
     });
-    doc.save(`ranking-productos-${filtroTiempo}-${new Date().toISOString().split("T")[0]}.pdf`);
+    pdfDoc.save(`ranking-productos-${filtroTiempo}-${new Date().toISOString().split("T")[0]}.pdf`);
   }
 
   if (loading) {
@@ -392,7 +380,6 @@ export default function Reports() {
         <BarChart3 className="w-6 h-6 text-blue-600" />
         Informes
       </h1>
-
       <div className="flex gap-1 bg-gray-100 p-1 rounded-xl mb-6 overflow-x-auto">
         {[
           { id: "ventas", label: "Ventas", icon: TrendingUp },
@@ -421,7 +408,6 @@ export default function Reports() {
           </button>
         ))}
       </div>
-
       {activeTab === "ventas" && (
         <div className="space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -441,11 +427,9 @@ export default function Reports() {
             <div className="flex items-center gap-3">
               {plan === "basico" && (
                 <span className={`text-xs px-2 py-1 rounded border ${
-                  puedeDescargarInformeVentas()
-                    ? "bg-green-50 border-green-200 text-green-700"
-                    : "bg-gray-50 border-gray-200 text-gray-500"
+                  "bg-gray-50 border-gray-200 text-gray-500"
                 }`}>
-                  {puedeDescargarInformeVentas() ? "1 informe gratis este mes" : "Informe gratuito usado"}
+                  Plan Básico: 1 informe gratis/mes
                 </span>
               )}
               <button
@@ -456,7 +440,6 @@ export default function Reports() {
               </button>
             </div>
           </div>
-
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
               <p className="text-sm text-gray-500">Total Ventas</p>
@@ -475,7 +458,6 @@ export default function Reports() {
               <p className="text-2xl font-bold text-orange-600">{formatCurrency(porMetodoVentas.fiado || 0)}</p>
             </div>
           </div>
-
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
             <h3 className="font-semibold text-gray-800 mb-4">Desglose por metodo de pago</h3>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
@@ -505,7 +487,6 @@ export default function Reports() {
               </div>
             </div>
           </div>
-
           {chartData.some((d) => d.venta > 0 || d.recuperacion > 0) && (
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
               <h3 className="font-semibold text-gray-800 mb-4">Ventas vs Recuperacion por metodo</h3>
@@ -521,7 +502,6 @@ export default function Reports() {
               </ResponsiveContainer>
             </div>
           )}
-
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-200">
@@ -560,7 +540,6 @@ export default function Reports() {
           </div>
         </div>
       )}
-
       {activeTab === "productos" && (
         <div className="space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -584,7 +563,6 @@ export default function Reports() {
               <Download size={16} /> Descargar PDF
             </button>
           </div>
-
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
               <p className="text-sm text-gray-500">Productos distintos vendidos</p>
@@ -601,7 +579,6 @@ export default function Reports() {
               </p>
             </div>
           </div>
-
           {top10Ranking.length > 0 && (
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
               <div className="flex items-center justify-between mb-4">
@@ -628,7 +605,6 @@ export default function Reports() {
               </ResponsiveContainer>
             </div>
           )}
-
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-200">
@@ -665,7 +641,6 @@ export default function Reports() {
           </div>
         </div>
       )}
-
       {activeTab === "fiados" && (
         <div className="space-y-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -686,7 +661,6 @@ export default function Reports() {
               <p className="text-2xl font-bold text-gray-800">{fiadosPendientes.length}</p>
             </div>
           </div>
-
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-200">
@@ -720,7 +694,6 @@ export default function Reports() {
           </div>
         </div>
       )}
-
       {activeTab === "mermas" && (
         <div className="space-y-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -741,7 +714,6 @@ export default function Reports() {
               <p className="text-2xl font-bold text-gray-800">{formatCurrency(mermas.length ? totalMermas / mermas.length : 0)}</p>
             </div>
           </div>
-
           {mermaChartData.length > 0 && (
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
               <h3 className="font-semibold text-gray-800 mb-4">Mermas por motivo</h3>
@@ -758,7 +730,6 @@ export default function Reports() {
               </ResponsiveContainer>
             </div>
           )}
-
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-200">
@@ -785,7 +756,6 @@ export default function Reports() {
           </div>
         </div>
       )}
-
       {activeTab === "inventario" && (
         <div className="space-y-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -806,7 +776,6 @@ export default function Reports() {
               <p className="text-2xl font-bold text-orange-600">{stockCritico}</p>
             </div>
           </div>
-
           <div className="flex gap-2">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
@@ -819,7 +788,6 @@ export default function Reports() {
               <Download size={16} /> Exportar PDF
             </button>
           </div>
-
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-200">
@@ -863,7 +831,6 @@ export default function Reports() {
           </div>
         </div>
       )}
-
       {activeTab === "libro" && (
         <div>
           {plan !== "pro" ? (
@@ -909,7 +876,6 @@ export default function Reports() {
                   <Download size={16} /> Descargar PDF para Contador
                 </button>
               </div>
-
               <LibroVentasResumen mes={mesLibro} ventas={ventas} fiados={fiados} mermas={mermas} />
             </div>
           )}
@@ -925,18 +891,14 @@ function LibroVentasResumen({ mes, ventas, fiados, mermas }) {
   const recups = ventasMes.filter((v) => v.tipo === "fiado-recuperado");
   const totNorm = normales.reduce((s, v) => s + (v.total || 0), 0);
   const totRec = recups.reduce((s, v) => s + (v.total || 0), 0);
-
   const porMet = { efectivo: 0, tarjeta: 0, transferencia: 0, fiado: 0 };
   normales.forEach((v) => { if (porMet[v.metodoPago] !== undefined) porMet[v.metodoPago] += v.total || 0; });
-
   const fiadosMes = fiados.filter((f) => f.createdAt?.startsWith(mes));
   const fiadosEmitidos = fiadosMes.reduce((s, f) => s + (f.total || 0), 0);
   const fiadosRecuperados = fiadosMes.reduce((s, f) => s + (f.pagos?.reduce((p, pay) => p + (pay.monto || 0), 0) || 0), 0);
-
   const mermasMes = mermas.filter((m) => m.createdAt?.startsWith(mes));
   const totalMermasMes = mermasMes.reduce((s, m) => s + (m.perdidaEstimada || 0), 0);
   const ventasNetas = (totNorm + totRec) - totalMermasMes;
-
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -957,7 +919,6 @@ function LibroVentasResumen({ mes, ventas, fiados, mermas }) {
           <p className="text-2xl font-bold text-purple-600">{formatCurrency(ventasNetas)}</p>
         </div>
       </div>
-
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
         <h3 className="font-semibold text-gray-800 mb-4">Desglose por Metodo de Pago</h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -979,7 +940,6 @@ function LibroVentasResumen({ mes, ventas, fiados, mermas }) {
           </div>
         </div>
       </div>
-
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
         <h3 className="font-semibold text-gray-800 mb-4">Fiados del Mes</h3>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
